@@ -1,0 +1,29 @@
+{
+  "id": 9001000002,
+  "order_number": 1043,
+  "name": "#1043",
+  "email": "juan.perez@example.com",
+  "contact_email": "juan.perez@example.com",
+  "customer": { "email": "juan.perez@example.com", "first_name": "Juan", "last_name": "Pérez" },
+  "financial_status": "paid",
+  "total_price": "11780.00",
+  "current_total_price": "11780.00",
+  "currency": "ARS",
+  "created_at": "2026-08-11T19:30:00Z",
+  "processed_at": "2026-08-11T19:30:00Z",
+  "landing_site": "https://chauhinchazon.com/cart/8123456789012:1,8123456789013:1?utm_source=facebook&utm_campaign=Bump+Q3",
+  "referring_site": "https://www.facebook.com/",
+  "note_attributes": [
+    { "name": "funnel", "value": "chauhinchazon" },
+    { "name": "sid", "value": "22222222-3333-4444-8555-666666666666" },
+    { "name": "vid", "value": "bbbbbbbb-cccc-4ddd-8eee-ffffffffffff" },
+    { "name": "utm_source", "value": "facebook" },
+    { "name": "utm_campaign", "value": "Bump Q3" }
+  ],
+  "line_items": [
+    { "product_id": 8123456789012, "variant_id": 4123456789012, "title": "Chau Hinchazón", "price": "7790.00", "quantity": 1 },
+    { "product_id": 8123456789013, "variant_id": 4123456789013, "title": "Bono Acelerador", "price": "3990.00", "quantity": 1 }
+  ],
+  "billing_address": { "country_code": "AR" },
+  "shipping_address": { "country_code": "AR" }
+}

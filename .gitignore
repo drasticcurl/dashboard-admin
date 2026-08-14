@@ -1,0 +1,30 @@
+# Dependencias
+node_modules/
+
+# Next.js
+.next/
+out/
+
+# Env — los secretos viven solo en el .env del servidor, nunca en el repo
+.env*
+!.env.example
+
+# Logs
+*.log
+
+# Exports de Shopify — datos personales de clientes (nombre, email, telefono,
+# direccion de facturacion y envio). NUNCA al repo, ni siquiera privado: el
+# repo se clona en la VPS y se sincroniza a maquinas de desarrollo, y un
+# export de ordenes ahi adentro convierte cada copia en una base de datos de
+# clientes sin control. Si hace falta analizar uno, dejalo fuera del proyecto.
+orders_export*.csv
+*_export_*.csv
+
+# TypeScript
+tsconfig.tsbuildinfo
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+*.swp

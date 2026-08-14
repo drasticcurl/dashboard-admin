@@ -1,0 +1,40 @@
+# ══════════════════════════════════════════════════════════════════════════════
+# Caddy — bloque del panel para agregar al /etc/caddy/Caddyfile de la VPS.
+#
+# Este bloque se importa a mano (copy-paste) en el Caddyfile vivo; no usa el
+# snippet (funnel) de los funnels a propósito: ese proxea a dos puertos,
+# sirve /media/* y pinnea rutas del embudo, y nada de eso aplica acá.
+#
+# Validar antes de recargar:  caddy validate --config /etc/caddy/Caddyfile
+# Recargar:                    sudo systemctl reload caddy
+# ══════════════════════════════════════════════════════════════════════════════
+
+panel.hilvanapp.com {
+	# El wildcard *.hilvanapp.com ya cubre este host: no hace falta emitir un cert nuevo.
+	tls /etc/caddy/certs/panel.pem /etc/caddy/certs/panel.key
+
+	encode zstd gzip
+
+	# Un panel de métricas cacheado no sirve. Y con datos de ventas adentro,
+	# menos. El `defer` NO es opcional: sin él Caddy setea el header antes de
+	# correr el proxy y la respuesta sale con DOS Cache-Control.
+	header {
+		defer
+		Cache-Control "no-store, must-revalidate"
+		X-Robots-Tag "noindex, nofollow"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+	}
+
+	reverse_proxy 127.0.0.1:3005 {
+		header_up X-Real-IP {client_ip}
+	}
+
+	log {
+		output file /var/log/caddy/panel.log {
+			roll_size 20mb
+			roll_keep 7
+			roll_keep_for 168h
+		}
+	}
+}

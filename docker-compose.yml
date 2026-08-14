@@ -1,0 +1,57 @@
+# Proyecto de Compose propio del panel (D17): con `name: panel`, contenedores,
+# red y volumen quedan con ese prefijo (panel_db-1, panel_default,
+# panel_pgdata) y no pueden colisionar con el `finanzas_pgdata` que ya existe
+# en la VPS.
+name: panel
+
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+
+    # ┌─────────────────────────────────────────────────────────────────────┐
+    # │ El prefijo 127.0.0.1 es obligatorio. Sin él Docker publica en        │
+    # │ 0.0.0.0 y escribe sus reglas de iptables POR DELANTE de ufw: la      │
+    # │ base quedaría abierta a internet con la password como única defensa. │
+    # │ Los funnels no hablan con Postgres, hablan HTTP (D5): el único       │
+    # │ cliente es el dashboard en la misma máquina. Se verifica con         │
+    # │ `docker compose ps`: la columna PORTS tiene que decir 127.0.0.1.     │
+    # └─────────────────────────────────────────────────────────────────────┘
+    ports:
+      - "127.0.0.1:${DB_PORT:-5432}:5432"
+
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      # La TZ del contenedor también define qué día es `current_date` y
+      # `date_trunc('month', now())`, que usan las migraciones de particiones.
+      TZ: ${TZ:-America/Argentina/Buenos_Aires}
+
+    volumes:
+      # Los datos sobreviven a `docker compose down`; se borran solo con
+      # `docker compose down --volumes`, que hay que escribir a propósito.
+      - pgdata:/var/lib/postgresql/data
+
+    healthcheck:
+      # Los `$$` son literales para Compose: la expansión la hace la shell
+      # dentro del contenedor, así el chequeo no depende de que Compose sepa
+      # el usuario ni la base.
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      # La primera vez, PostgreSQL crea el clúster y tarda más; durante este
+      # margen los intentos fallidos no cuentan como caída.
+      start_period: 30s
+
+    logging:
+      # Un VPS chico se queda sin disco por los logs de Docker antes que por
+      # cualquier otra cosa: 30 MB por servicio como techo.
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  pgdata:

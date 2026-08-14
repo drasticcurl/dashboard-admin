@@ -1,0 +1,19 @@
+{
+  "id": 500000001,
+  "order_id": 9001000001,
+  "refund_line_items": [
+    {
+      "line_item_id": 4123456789012,
+      "quantity": 1,
+      "total_refund_amount": 7790
+    }
+  ],
+  "transactions": [
+    {
+      "id": 600000001,
+      "kind": "refund",
+      "amount": 7790,
+      "status": "success"
+    }
+  ]
+}

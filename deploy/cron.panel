@@ -1,0 +1,97 @@
+# ══════════════════════════════════════════════════════════════════════════════
+# cron del panel — instalar con:  crontab -e   (o en /etc/cron.d/panel)
+#
+# Los scripts corren con tsx (P-18): tsx es una devDependency de T01 (no se
+# puede mover), el deploy.sh corre `npm ci` sin --omit=dev y el standalone
+# linkea el node_modules completo de la release. Por eso:
+#   · /usr/bin/node --env-file=.env.production   → tsx NO lee .env solo; el
+#     flag de Node inyecta las variables desde el .env.production que el
+#     deploy copió en current.
+#   · ./node_modules/.bin/tsx                    → el binario de la release.
+#
+# Verificar que el nombre del contenedor sigue siendo panel-db-1 antes de
+# confiar en el backup:
+#   docker ps --format '{{.Names}}'
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Cotización ARS→EUR (T03).
+#
+# 05:10 Y NO 03:10, Y LA HORA NO ES ARBITRARIA. LEER ANTES DE MOVERLA.
+#
+# `fetch-fx.ts` pide la cotización del día que devuelve `today(DASHBOARD_TZ)`, y
+# DASHBOARD_TZ es America/Argentina/Buenos_Aires. El servidor está en
+# Europe/Berlin, 5 horas adelante en verano europeo. Entonces la hora del cron
+# decide EN QUÉ MOMENTO DEL DÍA ARGENTINO se escribe la cotización de ese día:
+#
+#   servidor 03:10 CEST  →  BsAs 22:10  →  la cotización del día llega al final
+#   servidor 05:10 CEST  →  BsAs 00:10  →  llega a los 10 min de empezar el día
+#
+# Las dos cubren todos los días. La diferencia es cuánto tiempo las órdenes del
+# día quedan sin su cotización: con 03:10 son ~22 horas (toda orden anterior a
+# las 22:10 se convierte con la de ayer y queda marcada `fx_stale`, y el panel
+# muestra "Conversión provisoria" todo el día); con 05:10 son 10 minutos.
+#
+# Ojo con la otra mitad: `fx:backfill` NO puede arreglar esas órdenes mientras la
+# cotización del día no exista, porque sólo aplica cotizaciones ya presentes.
+# Por eso mover la hora es el arreglo y correr el backfill no lo es.
+#
+# 05:10 es la única hora que cae después de la medianoche argentina en las DOS
+# estaciones europeas (verano CEST → BsAs 00:10; invierno CET → BsAs 01:10).
+# 04:10 sólo funcionaría en invierno. No la bajes.
+#
+# Contexto de cómo se pobló esta tabla, para que nadie se confunda leyendo
+# `fetched_at`: los días 2026-08-01..11 se cargaron A MANO el 12/08 16:44 en un
+# lote (`source = oficial-usd-ecb`, script backfill-fx-historico), y el 12/08
+# vino de dolarapi ese mismo día. No hay un histórico de corridas del cron.
+10 5 * * * cd /srv/panel/current && /usr/bin/node --env-file=.env.production ./node_modules/.bin/tsx scripts/fetch-fx.ts >> /var/log/panel/fx.log 2>&1
+
+# Rollup del Resumen (T08). Cada 10 min los últimos 3 días.
+*/10 * * * * cd /srv/panel/current && /usr/bin/node --env-file=.env.production ./node_modules/.bin/tsx scripts/rollup.ts --days=3 >> /var/log/panel/rollup.log 2>&1
+
+# Rollup nocturno del último mes. DESPUÉS del fetch-fx, para que los euros del
+# día cerrado usen la cotización correcta. Invertir el orden deja los euros de
+# ayer calculados con la cotización de antes de ayer.
+#
+# SE MOVIÓ DE 03:25 A 05:25 JUNTO CON EL FETCH-FX. Los 15 minutos de separación
+# son la dependencia: si dejás este a las 03:25 y el fetch a las 05:10, el rollup
+# corre ANTES de que exista la cotización del día y pasa exactamente lo que este
+# comentario advierte. Las dos líneas se mueven juntas o ninguna.
+25 5 * * * cd /srv/panel/current && /usr/bin/node --env-file=.env.production ./node_modules/.bin/tsx scripts/rollup.ts --days=35 >> /var/log/panel/rollup.log 2>&1
+
+# Particiones de events con 3 meses de anticipación (T01).
+0 4 1 * * cd /srv/panel/current && /usr/bin/node --env-file=.env.production ./node_modules/.bin/tsx scripts/ensure-partitions.ts >> /var/log/panel/db.log 2>&1
+
+# Backup de la base. Se guarda comprimido y se retienen 14 días. Es la única
+# copia de las ventas históricas una vez que Supabase deja de ser la fuente
+# de verdad: si esto falla, el panel corre sin respaldo.
+# Corre como root (crontab de root) y usa peer auth vía el usuario postgres, así
+# no hace falta la password en el crontab. Postgres es el paquete de Ubuntu, no
+# un contenedor: no hay `docker exec` que valga.
+30 4 * * * sudo -u postgres pg_dump panel | gzip > /srv/panel/backups/panel-$(date +\%F).sql.gz
+35 4 * * * find /srv/panel/backups -name 'panel-*.sql.gz' -mtime +14 -delete
+
+# ─── Anuncios ──────────────────────────────────────────────────────────────
+# GASTO de anuncios → ad_spend. ESTA LÍNEA YA ESTABA EN EL CRONTAB DE LA VPS Y
+# NO ESTABA EN ESTE ARCHIVO: el crontab vivo y el repo habían divergido.
+#
+# No la borres. Es el camino por el que hoy entra el gasto que muestran Resumen
+# y Ventas. `lib/ads/live.ts` refresca en el render con TTL, pero sólo cuando
+# alguien abre la pantalla y sólo para el rango que incluye hoy: sin esta línea,
+# un día que nadie mira el panel se queda sin gasto y el rollup de daily_metrics
+# guarda ceros. La regresión no da ningún error, sólo números que faltan.
+#
+# Si instalás este archivo con `crontab -u deploy -`, verificá ANTES que no estés
+# perdiendo líneas que estén vivas y no acá:
+#   crontab -u deploy -l > /tmp/cron-vivo.txt && diff /tmp/cron-vivo.txt deploy/cron.panel
+7 * * * * cd /srv/panel/current && /usr/bin/node --env-file=.env.production ./node_modules/.bin/tsx scripts/sync-ads.ts >> /var/log/panel/ads.log 2>&1
+
+# Jerarquía de anuncios (T14). Cada 15 min: los nombres, estados y presupuestos
+# cambian cuando el usuario toca el administrador de anuncios, y el gestor tiene
+# que reflejarlo sin esperar al día siguiente. Es una llamada por cuenta y por
+# nivel, así que 15 min es barato.
+*/15 * * * * cd /srv/panel/current && /usr/bin/node --env-file=.env.production ./node_modules/.bin/tsx scripts/sync-ads-jerarquia.ts >> /var/log/panel/ads.log 2>&1
+
+# Respaldo del worker de reglas: si PM2 quedó caído, esto avisa en el log (y por
+# Telegram). NO corre las reglas (eso duplicaría acciones): solo verifica el
+# último tick con --health. Un solo lugar corre las reglas, y es panel-reglas.
+*/30 * * * * cd /srv/panel/current && /usr/bin/node --env-file=.env.production ./node_modules/.bin/tsx scripts/run-ad-rules.ts --health >> /var/log/panel/ads.log 2>&1
