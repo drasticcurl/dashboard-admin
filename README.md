@@ -3,13 +3,21 @@
 Panel de tracking y ventas de los funnels **Chau Hinchazón** (testfunnel) y
 **Protocolo Reset+** (reset-app): embudo paso a paso, ventas unificadas en
 EUR/ARS, resumen multi-funnel y leads. Se sirve en `https://panel.hilvanapp.com`
-con Postgres 16 propio en Docker (D5: los funnels solo hablan HTTP, nunca con la
-base; el panel es el único cliente y la base se publica solo en `127.0.0.1`).
+con Postgres 16 propio (D5: los funnels solo hablan HTTP, nunca con la base; el
+panel es el único cliente y la base escucha solo en `127.0.0.1`).
+
+**En producción la base NO corre en Docker**: es el paquete `postgresql-16` de
+Ubuntu (`/var/lib/postgresql/16/main`), y en la VPS no hay Docker instalado. El
+`docker-compose.yml` de este repo es solo para desarrollo local. Los comandos
+de operación están en `docs/runbook.md` y usan `psql` directo.
 
 ## Levantarlo en local
 
+El Compose es una comodidad local para no instalar Postgres en tu máquina; no
+tiene equivalente en el servidor.
+
 ```bash
-docker compose up -d          # Postgres 16 en 127.0.0.1:5432
+docker compose up -d          # Postgres 16 en 127.0.0.1:5432 (SOLO local)
 cp .env.example .env          # completar password + DATABASE_URL
 npm install
 npm run db:migrate            # schema completo + seeds (idempotente)

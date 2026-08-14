@@ -9,9 +9,10 @@
 #     deploy copió en current.
 #   · ./node_modules/.bin/tsx                    → el binario de la release.
 #
-# Verificar que el nombre del contenedor sigue siendo panel-db-1 antes de
-# confiar en el backup:
-#   docker ps --format '{{.Names}}'
+# La línea del backup usa pg_dump con peer auth (Postgres es el paquete de
+# Ubuntu, no un contenedor). Para confiar en el backup, verificá que el archivo
+# del día existe y NO pesa unos pocos KB, que es cómo se ve un dump que falló:
+#   ls -lh /srv/panel/backups/ | tail -3
 # ══════════════════════════════════════════════════════════════════════════════
 
 # Cotización ARS→EUR (T03).

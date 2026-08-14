@@ -1,13 +1,30 @@
 # Runbook del panel — operativo
 
 Para leer con el panel caído a las 2 de la mañana. Nada de arquitectura: eso
-vive en `tasks/00-PLAN.md`. Todo el deploy es manual (rsync + `deploy.sh`),
-los comandos de abajo son los que se corren en la VPS.
+vive en `tasks/00-PLAN.md`. El deploy es manual y toma el código de git
+(`deploy.sh` hace `fetch` + `reset --hard origin/main`); los comandos de abajo
+son los que se corren en la VPS.
+
+**Antes de cualquier comando de `psql`, definí esto una vez por sesión de
+shell.** Todos los comandos de este runbook lo dan por sentado:
+
+```bash
+PGURL="$(grep -E '^DATABASE_URL=' /srv/panel/shared/.env.production | cut -d= -f2- | tr -d '"')"
+psql "$PGURL" -Atc 'select 1'      # tiene que imprimir 1
+```
+
+Corré esto como `deploy`: `shared/` es `700 deploy:deploy`, así que otro
+usuario no puede leer el `.env.production` y `PGURL` queda vacío. Si sale
+vacío, `psql` intenta conectar a una base con tu nombre de usuario y el error
+que ves es `database "root" does not exist`, que no tiene nada que ver con el
+problema real.
 
 **Servidor:** VPS existente (la misma que corre los funnels y `finanzas`).
 **App:** Next 14 standalone en PM2, `panel-3005`, escucha en `127.0.0.1:3005`.
-**Base:** PostgreSQL 16 en Docker, proyecto de Compose `panel`, contenedor
-`panel-db-1`, publicada solo en `127.0.0.1` (D5). **Caddy** sirve
+**Base:** PostgreSQL 16, **paquete de Ubuntu** (`postgresql-16`, datos en
+`/var/lib/postgresql/16/main`), escuchando solo en `127.0.0.1:5432` (D5).
+En esta VPS **no hay Docker instalado**: el `docker-compose.yml` del repo es
+solo para desarrollo local. Todo lo de abajo usa `psql` directo. **Caddy** sirve
 `panel.hilvanapp.com` → `127.0.0.1:3005`.
 
 ---
@@ -43,11 +60,16 @@ chmod 600 /srv/panel/shared/.env.production
 #    Si lo está, DB_PORT=5433 en el .env.production y el 5432→5433 acá abajo.
 ss -tlnp | grep -E ':5432|:5433'
 
-# 5. Levantar la base (desde /srv/panel/repo, donde vive docker-compose.yml).
-cd /srv/panel/repo
-docker compose up -d
-docker compose ps                  # la columna PORTS tiene que decir 127.0.0.1
-docker exec panel-db-1 pg_isready -U panel -d panel
+# 5. La base. Es el paquete de Ubuntu, no un contenedor: ya está corriendo
+#    desde el boot. Solo hay que crear rol y base la primera vez.
+sudo -u postgres createuser --pwprompt panel     # pegá el POSTGRES_PASSWORD
+sudo -u postgres createdb -O panel panel
+sudo -u postgres createdb -O panel panel_test    # los tests del deploy corren acá
+pg_isready -h 127.0.0.1 -U panel -d panel        # accepting connections
+
+# Que escuche SOLO en loopback. Si listen_addresses fuese '*', la base queda
+# expuesta y la password es la única defensa.
+sudo -u postgres psql -Atc 'show listen_addresses'   # esperado: localhost
 
 # 6. Migrar. tsx no lee .env solo: se exporta DATABASE_URL para el comando.
 set -a; . /srv/panel/shared/.env.production; set +a
@@ -71,8 +93,8 @@ pm2 save
 pm2 startup                          # solo la primera vez: genera el unit
 
 # 10. Cron. Instalar deploy/cron.panel (o volcarlo en /etc/cron.d/panel).
-#     Verificar que el nombre del contenedor del backup es panel-db-1:
-docker ps --format '{{.Name}}'
+#     El backup usa pg_dump contra 127.0.0.1, no un contenedor:
+which pg_dump                        # /usr/bin/pg_dump
 crontab -e
 ```
 
@@ -105,13 +127,18 @@ el webhook de Shopify tiene que poder entrar.
 ## 3. Deploy de una versión nueva
 
 ```bash
-# En la máquina de desarrollo: subir la carpeta.
-rsync -a --exclude='node_modules' --exclude='.next' --exclude='.git' \
-  --exclude='tasks' --exclude='.env' --exclude='.env.*' \
-  ~/Desktop/funnel/dashboard-admin/ root@VPS:/srv/panel/repo/
+# En la máquina de desarrollo: pushear. Es todo lo que hace falta.
+git push origin main
 
-# En la VPS:
-/srv/panel/repo/deploy/deploy.sh
+# En la VPS, como deploy (nunca root: pm2 es por usuario):
+sudo -u deploy bash /srv/panel/repo/deploy/deploy.sh
+```
+
+`deploy.sh` arranca con `fetch` + `reset --hard origin/main`, así que lo que
+no esté pusheado no se despliega. Para probar una rama antes de mergear:
+
+```bash
+sudo -u deploy DEPLOY_BRANCH=mi-rama bash /srv/panel/repo/deploy/deploy.sh
 ```
 
 Qué hace `deploy.sh` (en orden): flock → rsync del código a una release nueva
@@ -127,13 +154,18 @@ Qué mirar después de un deploy:
 tail -40 /srv/panel/deploy.log
 pm2 logs panel-3005 --lines 40 --nostream
 curl -s -o /dev/null -w '%{http_code}\n' https://panel.hilvanapp.com/   # 200
-docker exec panel-db-1 psql -U panel -d panel -c 'SELECT count(*) FROM orders;'
+psql "$PGURL" -c 'SELECT count(*) FROM orders;'
+git -C /srv/panel/repo log --oneline -1        # qué commit quedó sirviendo
 ```
 
 **Notas de arquitectura del deploy (para no sorprenderse):**
 
-- No hay git en la VPS: la fuente de verdad del server es lo que se sube por
-  rsync. Si un deploy no está en el repo local de desarrollo, no existe.
+- `/srv/panel/repo` es un clon de git y **no es un workspace**: `deploy.sh`
+  hace `reset --hard`, así que cualquier edición hecha a mano ahí se pierde en
+  el próximo deploy. Los parches de urgencia van por commit.
+- La deploy key de este repo es read-only y es propia: GitHub no permite usar
+  la misma key en dos repositorios, así que hay una por proyecto
+  (`~/.ssh/github-panel` acá, con el alias `github-panel` en `~/.ssh/config`).
 - Los scripts de cron corren **con tsx** (no compilados a `.js`): el
   tsconfig no puede emitir ejecutables con plain node (P-18). `tsx` es una
   devDependency, por eso `deploy.sh` corre `npm ci` **sin** `--omit=dev`, y
@@ -156,7 +188,7 @@ docker exec panel-db-1 psql -U panel -d panel -c 'SELECT count(*) FROM orders;'
 Queries de apoyo:
 
 ```bash
-docker exec panel-db-1 psql -U panel -d panel <<'SQL'
+psql "$PGURL" <<'SQL'
 SELECT status, count(*) FROM ingest_errors GROUP BY 1 ORDER BY 2 DESC LIMIT 10;
 SELECT status, count(*) FROM webhook_events GROUP BY 1 ORDER BY 2 DESC;
 SELECT max(computed_at) FROM daily_metrics;
@@ -182,25 +214,24 @@ históricas una vez que Supabase deja de ser la fuente de verdad.
 # Listar backups disponibles:
 ls -l /srv/panel/backups/
 
-# Restaurar uno (frena el contenedor para que nadie escriba encima, restaura
-# y vuelve a levantar):
-docker compose -f /srv/panel/repo/docker-compose.yml stop db
-gunzip -c /srv/panel/backups/panel-2026-08-11.sql.gz \
-  | docker exec -i panel-db-1 psql -U panel -d panel
-docker compose -f /srv/panel/repo/docker-compose.yml start db
+# Restaurar uno. Lo que hay que frenar son los ESCRITORES (el panel y el
+# worker de reglas), no Postgres: psql necesita la base arriba para poder
+# restaurar. El worker es el que más importa: si corre durante la restauración
+# puede ejecutar acciones en Meta leyendo un estado a medio restaurar.
+pm2 stop panel-3005 panel-reglas
+
+gunzip -c /srv/panel/backups/panel-2026-08-11.sql.gz | psql "$PGURL"
+
+pm2 start panel-3005 panel-reglas
 ```
 
 Verificación mínima después de restaurar (el conteo es la prueba de que el
 dump no llegó vacío o cortado):
 
 ```bash
-docker exec panel-db-1 psql -U panel -d panel \
+psql "$PGURL" \
   -c 'SELECT (SELECT count(*) FROM orders) AS orders, (SELECT count(*) FROM sessions) AS sessions;'
 ```
-
-Si el contenedor se llama distinto (`docker ps`), adaptar `panel-db-1` en
-este comando y en el cron de backup: el cron usa ese nombre y falla en
-silencio si no coincide.
 
 ## 6. Importar el histórico de ventas (una sola vez, antes del deploy)
 
@@ -222,7 +253,7 @@ El criterio de éxito: el conteo y la suma por status de `orders` tienen que
 coincidir con el `GROUP BY` de Supabase:
 
 ```bash
-docker exec panel-db-1 psql -U panel -d panel -c \
+psql "$PGURL" -c \
   "SELECT f.slug, o.status, count(*), sum(o.amount) FROM orders o
    JOIN funnels f ON f.id = o.funnel_id WHERE o.source='import'
    GROUP BY 1,2 ORDER BY 1,2;"

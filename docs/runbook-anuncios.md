@@ -7,6 +7,15 @@ en PM2 como `panel-reglas`; el cron de respaldo (`--health`) avisa si cayó.
 **El módulo puede gastar plata.** Todo lo que sigue está escrito alrededor de
 esa frase.
 
+Los comandos de `psql` de abajo usan `$PGURL`. Definilo primero, como `deploy`:
+
+```bash
+PGURL="$(grep -E '^DATABASE_URL=' /srv/panel/shared/.env.production | cut -d= -f2- | tr -d '"')"
+```
+
+La base es el paquete `postgresql-16` de Ubuntu en `127.0.0.1:5432`; en esta
+VPS no hay Docker. Ver `docs/runbook.md` para el detalle.
+
 ---
 
 ## 1. Prender el módulo por primera vez
@@ -20,7 +29,7 @@ cd /srv/panel/current
 # 0. VERIFICAR EL TECHO ABSOLUTO. ads_max_daily_budget_eur arranca en €200.
 #    Si tus reglas necesitan más, subilo A PROPÓSITO con un UPDATE — no
 #    descubras el rechazo (motivo 'tope_absoluto') en producción:
-#    docker exec panel-db-1 psql -U panel -d panel -c \
+#    psql "$PGURL" -c \
 #      "SELECT key, value FROM settings WHERE key = 'ads_max_daily_budget_eur';"
 
 # 1. Confirmar que el token ESCRIBE.
@@ -62,7 +71,7 @@ Dos niveles, en orden:
 ```bash
 # 1. El freno de mano: el worker deja de hacer TODO en el tick siguiente.
 #    Ni sync, ni insights, ni escrituras. Cero llamadas a Meta.
-docker exec panel-db-1 psql -U panel -d panel -c \
+psql "$PGURL" -c \
   "UPDATE settings SET value='false'::jsonb WHERE key='ads_rules_enabled';"
 
 # 2. Plan B: si necesitás que el proceso directamente no exista.
@@ -84,7 +93,7 @@ En este orden:
 ```bash
 pm2 logs panel-reglas --lines 80 --nostream
 
-docker exec panel-db-1 psql -U panel -d panel <<'SQL'
+psql "$PGURL" <<'SQL'
 -- Qué corrió y con qué resultado
 SELECT rule_id, started_at, finished_at, objetos_evaluados, objetos_que_cumplen,
        acciones_ejecutadas, acciones_simuladas, omitidas, error
@@ -131,7 +140,7 @@ freno en cada reincidencia.
 se restaura a mano desde el gestor (`/anuncios`):
 
 ```bash
-docker exec panel-db-1 psql -U panel -d panel -c \
+psql "$PGURL" -c \
   "SELECT created_at, rule_name, object_name, action, before_value, after_value,
           estado, explicacion FROM ad_actions ORDER BY created_at DESC LIMIT 20;"
 ```
