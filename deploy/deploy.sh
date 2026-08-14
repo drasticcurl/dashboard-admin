@@ -4,12 +4,21 @@
 #
 #   /srv/panel/repo/deploy/deploy.sh
 #
-# A diferencia de los funnels, NO hay git en la VPS: el usuario sube la
-# carpeta con rsync a /srv/panel/repo y este script la convierte en release.
-# El comando de rsync exacto está en docs/runbook.md §3.
+# El código sale de git, igual que en los funnels: /srv/panel/repo es un clon
+# de github.com/drasticcurl/dashboard-admin y el paso 1 lo lleva a
+# origin/$DEPLOY_BRANCH antes de armar la release. Así el server sabe por
+# commit qué está sirviendo y un rollback se puede reproducir.
+#
+# Hasta 2026-08 este panel se subía con rsync y no había git acá. Ese modo
+# sigue disponible para un bring-up (o si GitHub está caído):
+#
+#   DEPLOY_SOURCE=local sudo -u deploy bash /srv/panel/repo/deploy/deploy.sh
+#
+# pero NO es el modo de régimen: con `local` el script usa lo que haya en el
+# directorio, sin saber de qué commit viene.
 #
 # Layout que asume:
-#   /srv/panel/repo                     ← rsync de la carpeta del proyecto
+#   /srv/panel/repo                     ← clon de git (o rsync con DEPLOY_SOURCE=local)
 #   /srv/panel/shared/.env.production   ← secretos de la app (chmod 600)
 #   /srv/panel/releases/<timestamp>/    ← releases
 #   /srv/panel/current                  ← symlink → <release>/.next/standalone
@@ -91,27 +100,64 @@ on_exit() {
 trap on_exit EXIT
 
 [[ -d "$BASE" ]] || { echo "no existe $BASE — ¿seguiste docs/runbook.md §1?" >&2; exit 1; }
-[[ -f "$REPO/package.json" ]] || fail "no hay package.json en $REPO — ¿corriste el rsync?"
+[[ -f "$REPO/package.json" ]] || fail "no hay package.json en $REPO — ¿el clon de git existe?"
 [[ -f "$SHARED/.env.production" ]] || fail "falta $SHARED/.env.production"
 
 # ─── Un build a la vez: el server también está sirviendo el panel ──────────
 exec 9>"$BASE/.deploy.lock"
 flock -n 9 || fail "ya hay un deploy corriendo para el panel"
 
+# ─── 0. Traer el código ─────────────────────────────────────────────────────
+# Mismo switch que el deploy.sh de los funnels, para que los tres proyectos se
+# operen igual:
+#
+#   git   (default) — fetch + reset --hard a origin/$DEPLOY_BRANCH.
+#   local           — usa tal cual lo que haya en $REPO (rsync). Bring-up.
+#
+# El fetch va DESPUÉS del flock: dos deploys simultáneos escribiendo el mismo
+# working tree dejarían la release a medio camino entre dos commits.
+#
+# `reset --hard` descarta cualquier cambio hecho a mano en $REPO. Es a
+# propósito: el repo del server no es un workspace. Si hace falta un parche de
+# urgencia, va por commit.
+SOURCE="${DEPLOY_SOURCE:-git}"
+case "$SOURCE" in
+  git)
+    [[ -d "$REPO/.git" ]] || fail "$REPO no es un clon de git (¿querías DEPLOY_SOURCE=local?)"
+    BRANCH="${DEPLOY_BRANCH:-main}"
+    git -C "$REPO" fetch --all --prune
+    git -C "$REPO" rev-parse --verify "origin/$BRANCH" >/dev/null 2>&1 \
+      || fail "no existe origin/$BRANCH en $REPO"
+    git -C "$REPO" reset --hard "origin/$BRANCH"
+    COMMIT="$(git -C "$REPO" rev-parse --short HEAD)"
+    log "release $STAMP ← $BRANCH @ $COMMIT"
+    ;;
+  local)
+    COMMIT="rsync"
+    log "release $STAMP ← $REPO (rsync, sin git)"
+    ;;
+  *)
+    fail "DEPLOY_SOURCE inválido: '$SOURCE' (esperado: git | local)"
+    ;;
+esac
+
 mkdir -p "$RELEASE"
 
-# ─── 1. Código: rsync local (repo → release) ──────────────────────────────
+# ─── 1. Código: copia local (repo → release) ──────────────────────────────
 # Excludes:
 #   node_modules / .next → npm ci y el build los regeneran (y un node_modules
 #     de otra arquitectura rompe los binarios nativos).
 #   .git / tasks/        → documentos de desarrollo; no van a producción.
+#   redesign-ui-tasks/   → idem: entró al repo cuando el panel pasó a git y no
+#                          tiene nada que hacer en una release.
 #   .env, .env.*         → los secretos de dev NO van al server: el único env
 #                          de producción es shared/.env.production (paso 2).
 #   ._* / .DS_Store      → AppleDouble y basura de Finder de los rsync hechos
 #                          desde una Mac.
 rsync -a --delete \
   --exclude='node_modules' --exclude='.next' --exclude='.git' \
-  --exclude='tasks' --exclude='.env' --exclude='.env.*' \
+  --exclude='tasks' --exclude='redesign-ui-tasks' \
+  --exclude='.env' --exclude='.env.*' \
   --exclude='._*' --exclude='.DS_Store' \
   "$REPO/" "$RELEASE/"
 cd "$RELEASE"
