@@ -18,6 +18,7 @@ import { Check, FloppyDisk, PencilSimple, Plus, Star, Trash, X } from '@phosphor
 import { hayCambios, type Orden, type RepoVistas, type Vista } from '@/lib/ads/vistas';
 import { MAX_VISTAS } from '@/lib/ads/vistas';
 import type { ColumnaVisible } from '@/lib/ads/catalogo';
+import { ConfiguradorColumnas } from './ConfiguradorColumnas';
 
 export function ControlVistas({
   repo,
@@ -28,6 +29,7 @@ export function ControlVistas({
   errorRepo,
   onCambiarRepo,
   onAplicarVista,
+  onColumnas,
   onNotificar,
 }: {
   repo: RepoVistas | null;
@@ -39,6 +41,8 @@ export function ControlVistas({
   errorRepo: string | null;
   onCambiarRepo: (repo: RepoVistas) => void;
   onAplicarVista: (vista: Vista) => void;
+  /** Cambia las columnas en pantalla. El configurador vive dentro de este panel. */
+  onColumnas: (columnas: ColumnaVisible[]) => void;
   onNotificar: (msg: string) => void;
 }): JSX.Element {
   const [abierto, setAbierto] = useState(false);
@@ -61,7 +65,7 @@ export function ControlVistas({
           className="inline-flex items-center gap-1.5 rounded-md border border-border-strong px-2.5 py-1.5 text-xs font-semibold text-neutral-200 hover:bg-overlay/6 focus:outline-none focus-visible:ring-2 focus-visible:ring-good-500/60"
         >
           <Star size={13} weight={vistaAplicada ? 'fill' : 'regular'} />
-          Vistas {vistaAplicada ? `· ${vistaAplicada.nombre}` : ''}
+          Vistas y columnas {vistaAplicada ? `· ${vistaAplicada.nombre}` : ''}
           {sucio && <span className="h-2 w-2 rounded-full bg-warn-400" title="Cambios sin guardar" />}
         </button>
         {ignoradas.length > 0 && (
@@ -257,7 +261,15 @@ export function ControlVistas({
         </div>
       )}
 
-      <div className="mt-2 flex items-center gap-1.5">
+      {/* El configurador de columnas vive ACÁ dentro, no suelto en la pantalla.
+          Cambiar columnas marca la Vista como modificada vía `hayCambios`, así
+          que el botón de sobrescribir aparece solo. */}
+      <div className="mt-3 border-t border-border-subtle pt-3">
+        <p className="mb-2 text-xs font-semibold text-neutral-200">Columnas de esta vista</p>
+        <ConfiguradorColumnas columnas={columnas} onColumnas={onColumnas} />
+      </div>
+
+      <div className="mt-3 flex items-center gap-1.5 border-t border-border-subtle pt-3">
         <input
           type="text"
           value={nombreNuevo}

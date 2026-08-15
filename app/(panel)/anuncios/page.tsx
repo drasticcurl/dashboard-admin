@@ -7,10 +7,14 @@
  * mezcladas`, P-A03) y hace el fetch inicial acá para que la primera pintura ya
  * tenga datos. Los cambios de filtro los maneja GestorAnuncios en el client.
  *
- * La cuenta sigue la precedencia de R1 c12:
- *   ?account= explícito → esa cuenta (si existe y está activa; si no, aviso)
- *   si no, ?f= del Nav  → la cuenta imputada a ese funnel
- *   si no               → la primera cuenta activa
+ * LA CUENTA LA MANDA EL FUNNEL, y no se elige acá. Es la imputada al funnel del
+ * selector de arriba (`?f=`), y cuando no hay `?f=` es la del PRIMER funnel, que
+ * es el que `Nav.tsx` muestra como elegido en ese caso: si acá se resolviera por
+ * cuenta, el selector diría una cosa y la tabla mostraría otra.
+ *
+ * Un `?account=` en la URL se ignora: ya no es un control. Y el aviso de cuenta
+ * desalineada desapareció porque con la cuenta derivada del funnel no puede
+ * haber divergencia.
  *
  * La Vista_Por_Defecto se lee acá y llega como prop en el PRIMER render, así se
  * aplica en 2 segundos o menos sin salto visual entre las doce columnas base y
@@ -22,6 +26,7 @@ import { getMetricasAds } from '@/lib/queries/ads';
 import { ensureFreshAdSpend } from '@/lib/ads/live';
 import { today } from '@/lib/day';
 import type { NivelAds, PeriodoAds } from '@/lib/ads/tipos';
+import { listFunnels, nombreVisible } from '@/lib/funnels';
 import { parseRepoVistas } from '@/lib/ads/vistas';
 import type { Vista } from '@/lib/ads/vistas';
 import { EmptyState } from '@/components/ui';
@@ -87,27 +92,33 @@ export default async function AnunciosPage({ searchParams }: { searchParams: Sea
     ? (single(searchParams.status) as 'active' | 'paused' | 'any')
     : 'any') as 'active' | 'paused' | 'any';
 
-  // ── La cuenta vigente, con la precedencia de R1 c12 ──
+  // ── La cuenta la determina el funnel de arriba, no se elige acá ──
+  const funnels = await listFunnels();
   const funnelSlug = single(searchParams.f);
-  const cuentaDelFunnel = funnelSlug ? cuentas.find((c) => c.funnelSlug === funnelSlug) : undefined;
-  const accountPedida = single(searchParams.account);
-  let avisoCuenta: string | null = null;
-  let account: string | undefined;
-  if (accountPedida !== undefined) {
-    if (cuentas.some((c) => c.accountId === accountPedida)) {
-      account = accountPedida;
-    } else {
-      avisoCuenta = `el valor de ?account=${accountPedida} no se aplicó (no existe o no está activa)`;
-    }
-  }
-  if (account === undefined) account = cuentaDelFunnel?.accountId;
-  if (account === undefined) account = cuentas[0]?.accountId;
+  // Sin `?f=`, `Nav.tsx` pinta `funnels[0]` como elegido: se resuelve igual para
+  // que el selector y la tabla nunca muestren cosas distintas.
+  const funnelActivo =
+    (funnelSlug ? funnels.find((f) => f.slug === funnelSlug) : undefined) ?? funnels[0];
 
-  const cuentaActual = cuentas.find((c) => c.accountId === account) ?? cuentas[0];
-  const desalineada =
-    funnelSlug !== undefined && cuentaActual && cuentaActual.funnelSlug !== funnelSlug
-      ? { funnelSlug, cuentaFunnel: cuentaActual.funnelName }
-      : null;
+  if (!funnelActivo) {
+    return (
+      <EmptyState
+        title="No hay funnels activos"
+        hint="Creá uno en Config → Funnels para poder ver sus campañas."
+      />
+    );
+  }
+
+  const cuentaActual = cuentas.find((c) => c.funnelSlug === funnelActivo.slug);
+  if (!cuentaActual) {
+    return (
+      <EmptyState
+        title={`«${nombreVisible(funnelActivo)}» no tiene cuenta publicitaria imputada`}
+        hint="La cuenta que se muestra acá la determina el funnel elegido arriba. Imputale una en Config → Publicidad, o cambiá de funnel en el selector de arriba."
+      />
+    );
+  }
+  const account = cuentaActual.accountId;
 
   const nombre = single(searchParams.nombre);
 
@@ -170,15 +181,13 @@ export default async function AnunciosPage({ searchParams }: { searchParams: Sea
       filtrosIniciales={{
         period,
         status,
-        account: account ?? '',
+        account,
         nombre,
         campaignIds,
         adsetIds,
       }}
       vistaPorDefecto={vistaPorDefecto}
-      desalineada={desalineada}
       nombresCascada={nombresCascada}
-      avisoCuentaInicial={avisoCuenta}
     />
   );
 }

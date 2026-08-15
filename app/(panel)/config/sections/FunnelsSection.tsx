@@ -27,6 +27,7 @@ export function FunnelsSection({
   const [editFunnel, setEditFunnel] = useState<Funnel | null>(null);
   const [funnelForm, setFunnelForm] = useState({
     name: '',
+    alias: '',
     timezone: 'America/Argentina/Buenos_Aires',
     sellCurrency: 'ARS',
     color: '#8b5cf6',
@@ -46,6 +47,8 @@ export function FunnelsSection({
         body: JSON.stringify({
           slug: editFunnel!.slug,
           name: funnelForm.name,
+          // Cadena vacía = borrar el alias. El route la convierte en NULL.
+          alias: funnelForm.alias,
           timezone: funnelForm.timezone,
           sellCurrency: funnelForm.sellCurrency,
           color: funnelForm.color,
@@ -114,6 +117,16 @@ export function FunnelsSection({
         empty="Sin funnels"
         columns={[
           { key: 'name', header: 'Nombre', render: (f) => <span className="font-medium text-neutral-100">{f.name}</span> },
+          {
+            key: 'alias',
+            header: 'Alias',
+            render: (f) =>
+              f.alias ? (
+                <span className="text-neutral-300">{f.alias}</span>
+              ) : (
+                <span className="text-neutral-600">—</span>
+              ),
+          },
           { key: 'slug', header: 'Slug', render: (f) => <code className="rounded bg-overlay/10 px-1 text-neutral-300">{f.slug}</code> },
           { key: 'tz', header: 'Zona horaria', render: (f) => <span className="text-neutral-300">{f.timezone}</span> },
           { key: 'cur', header: 'Moneda', render: (f) => <span className="text-neutral-300">{f.sellCurrency}</span> },
@@ -135,6 +148,7 @@ export function FunnelsSection({
                     setEditFunnel(f);
                     setFunnelForm({
                       name: f.name,
+                      alias: f.alias ?? '',
                       timezone: f.timezone,
                       sellCurrency: f.sellCurrency,
                       color: f.color,
@@ -176,6 +190,21 @@ export function FunnelsSection({
             <label className="flex flex-col gap-1 text-xs text-neutral-500">
               Nombre
               <input className={inputCls} value={funnelForm.name} onChange={(e) => setFunnelForm({ ...funnelForm, name: e.target.value })} />
+            </label>
+            <label className="flex flex-col gap-1 text-xs text-neutral-500">
+              Alias
+              <input
+                className={inputCls}
+                maxLength={60}
+                value={funnelForm.alias}
+                onChange={(e) => setFunnelForm({ ...funnelForm, alias: e.target.value })}
+                placeholder={funnelForm.name}
+              />
+              <span className="text-[11px] leading-tight text-neutral-600">
+                Nombre para mostrar en el selector de arriba. Sirve para no exponer la oferta
+                cuando compartís pantalla. Vacío = se muestra el nombre real. No cambia el slug
+                ni ninguna URL.
+              </span>
             </label>
             <label className="flex flex-col gap-1 text-xs text-neutral-500">
               Zona horaria de la tienda

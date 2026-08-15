@@ -5,6 +5,12 @@ export type Funnel = {
   id: number;
   slug: string;
   name: string;
+  /**
+   * Nombre para mostrar en el selector del panel. null = sin alias, se muestra
+   * `name`. Es SOLO presentación: la identidad sigue siendo `slug`, así que
+   * cambiar un alias no toca ninguna URL ni ninguna FK.
+   */
+  alias: string | null;
   timezone: string;
   sellCurrency: string;
   variants: string[];
@@ -21,9 +27,14 @@ export type FunnelStep = {
 };
 
 const FUNNEL_SELECT = `
-  SELECT id, slug, name, timezone, sell_currency AS "sellCurrency",
+  SELECT id, slug, name, alias, timezone, sell_currency AS "sellCurrency",
          variants, color, active
   FROM funnels`;
+
+// El helper vive en `lib/funnel-nombre.ts` porque este módulo importa `pg` y
+// los componentes de cliente no pueden arrastrarlo al bundle. Se re-exporta para
+// que el código de servidor lo tenga en el mismo lugar que el resto de funnels.
+export { nombreVisible } from './funnel-nombre';
 
 export async function listFunnels(opts?: { includeInactive?: boolean }): Promise<Funnel[]> {
   const where = opts?.includeInactive ? '' : 'WHERE active = true';

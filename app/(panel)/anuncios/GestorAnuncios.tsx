@@ -32,13 +32,11 @@ import type {
   ResultadoMetricas,
 } from '@/lib/ads/tipos';
 import type { CuentaAds } from './page';
-import { SubNav } from './SubNav';
 import { TabsNivel } from './TabsNivel';
 import { BarraFrescura } from './BarraFrescura';
 import { BarraFiltros } from './BarraFiltros';
 import { ChipCascada } from './ChipCascada';
 import { ControlVistas } from './ControlVistas';
-import { ConfiguradorColumnas } from './ConfiguradorColumnas';
 import { TablaAds, type FilaEnProceso } from './TablaAds';
 import { Paginacion } from './Paginacion';
 import { BarraSeleccion } from './BarraSeleccion';
@@ -83,7 +81,6 @@ type Respuesta = ResultadoMetricas & {
   maxDailyBudgetEur?: number;
   maxDeltaPorTickEur?: number;
   alcanceError?: string | null;
-  avisoCuenta?: string | null;
   sinCuentas?: boolean;
 };
 
@@ -106,9 +103,7 @@ export function GestorAnuncios({
   nivelInicial,
   filtrosIniciales,
   vistaPorDefecto,
-  desalineada,
   nombresCascada,
-  avisoCuentaInicial,
 }: {
   cuentas: CuentaAds[];
   initialData: ResultadoMetricas;
@@ -123,10 +118,8 @@ export function GestorAnuncios({
     adsetIds?: string[];
   };
   vistaPorDefecto: Vista | null;
-  desalineada: { funnelSlug: string; cuentaFunnel: string | null } | null;
   /** id → nombre de los ids de la cascada de la URL, para el ChipCascada (R8 c4). */
   nombresCascada: Record<string, string>;
-  avisoCuentaInicial: string | null;
 }): JSX.Element {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -134,7 +127,10 @@ export function GestorAnuncios({
   const [nivel, setNivel] = useState<NivelAds>(nivelInicial);
   const [period, setPeriod] = useState<PeriodoAds>(filtrosIniciales.period);
   const [status, setStatus] = useState<'active' | 'paused' | 'any'>(filtrosIniciales.status);
-  const [account, setAccount] = useState(filtrosIniciales.account);
+  // La cuenta NO es estado: la determina el funnel del selector de arriba y
+  // llega resuelta desde el server component. Cambiar de funnel navega y
+  // remonta la página, así que acá es constante en toda la vida del componente.
+  const account = filtrosIniciales.account;
   const [nombre, setNombre] = useState(filtrosIniciales.nombre ?? '');
 
   const [estadoSel, setEstadoSel] = useState<EstadoSeleccion>(
@@ -220,8 +216,6 @@ export function GestorAnuncios({
   const firstRun = useRef(true);
 
   // ── La cuenta y el aviso de R1 c12 ──
-  const [avisoCuenta, setAvisoCuenta] = useState<string | null>(avisoCuentaInicial);
-
   // ── Pedido de filas ──────────────────────────────────────────────────────
   const construirUrl = useCallback(
     (extra?: { forzar?: boolean }): string => {
@@ -273,7 +267,6 @@ export function GestorAnuncios({
         if (body.adsFreshness) setFrescura(body.adsFreshness);
         if (typeof body.maxDailyBudgetEur === 'number') setMaxPresupuesto(body.maxDailyBudgetEur);
         if (typeof body.maxDeltaPorTickEur === 'number') setMaxDelta(body.maxDeltaPorTickEur);
-        if (body.avisoCuenta !== undefined) setAvisoCuenta(body.avisoCuenta);
       })
       .catch((err: unknown) => {
         if (err instanceof DOMException && err.name === 'AbortError') {
@@ -332,17 +325,15 @@ export function GestorAnuncios({
     );
   };
 
-  const cambiarFiltro = (cambios: { period?: PeriodoAds; status?: 'active' | 'paused' | 'any'; account?: string; nombre?: string }): void => {
+  const cambiarFiltro = (cambios: { period?: PeriodoAds; status?: 'active' | 'paused' | 'any'; nombre?: string }): void => {
     // R9 c6: la selección se vacía, la cascada se conserva
     evento({ tipo: 'cambiar_filtro' });
     if (cambios.period !== undefined) setPeriod(cambios.period);
     if (cambios.status !== undefined) setStatus(cambios.status);
-    if (cambios.account !== undefined) setAccount(cambios.account);
     if (cambios.nombre !== undefined) setNombre(cambios.nombre);
     const params = new URLSearchParams(searchParams.toString());
     if (cambios.period !== undefined) params.set('period', cambios.period);
     if (cambios.status !== undefined) params.set('status', cambios.status);
-    if (cambios.account !== undefined) params.set('account', cambios.account);
     if (cambios.nombre !== undefined) {
       if (cambios.nombre) params.set('nombre', cambios.nombre);
       else params.delete('nombre');
@@ -766,17 +757,12 @@ export function GestorAnuncios({
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <h1 className="text-lg font-semibold text-neutral-50">Anuncios</h1>
-          {loading && <span className="text-xs text-neutral-500">Actualizando…</span>}
-        </div>
-        <SubNav />
-      </div>
-
+      {/* El encabezado y el SubNav los pone app/(panel)/anuncios/layout.tsx:
+          uno solo para las tres pestañas, para que no cambien de lugar. */}
       <TabsNivel nivel={nivel} onNivel={cambiarNivel} />
 
       <div className="flex flex-wrap items-center justify-end gap-3">
+        {loading && <span className="text-xs text-neutral-500">Actualizando…</span>}
         <BarraFrescura
           edad={edadGasto}
           error={frescura.error}
@@ -800,7 +786,6 @@ export function GestorAnuncios({
         }
         onPeriodo={(p) => cambiarFiltro({ period: p })}
         onStatus={(s) => cambiarFiltro({ status: s })}
-        onCuenta={(id) => cambiarFiltro({ account: id })}
         onNombre={(n) => cambiarFiltro({ nombre: n })}
       />
 
@@ -813,12 +798,11 @@ export function GestorAnuncios({
         errorRepo={errorRepo}
         onCambiarRepo={(r) => void guardarRepo(r)}
         onAplicarVista={aplicarVista}
+        onColumnas={setColumnas}
         onNotificar={setAviso}
       />
 
-      <ConfiguradorColumnas columnas={columnas} onColumnas={setColumnas} />
-
-      {(error || aviso || avisoCuenta || avisoTablaVieja) && (
+      {(error || aviso || avisoTablaVieja) && (
         <Banner tone="bad" title="Aviso">
           <span className="flex flex-wrap items-center gap-x-4 gap-y-1">
             {error && (
@@ -834,7 +818,6 @@ export function GestorAnuncios({
               </span>
             )}
             {aviso && <span>{aviso}</span>}
-            {avisoCuenta && <span>{avisoCuenta}</span>}
             {avisoTablaVieja && (
               <span>
                 La tabla puede no reflejar el estado del servidor.
@@ -853,13 +836,6 @@ export function GestorAnuncios({
 
       {resultados && <ResultadosLote respuesta={resultados} />}
 
-      {desalineada && (
-        <Banner tone="warn" title="La cuenta que ves no es la del funnel elegido arriba">
-          {desalineada.cuentaFunnel
-            ? `Arriba está elegido "${desalineada.funnelSlug}", pero esta cuenta se imputa a "${desalineada.cuentaFunnel}". Cambiá la cuenta en los filtros, o el funnel arriba.`
-            : `Arriba está elegido "${desalineada.funnelSlug}" y esta cuenta no tiene funnel imputado. Asignáselo en Config → Publicidad y el selector de arriba la va a elegir sola.`}
-        </Banner>
-      )}
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard label="Gasto" value={money(totGasto)} sub={edadGasto} tone="warn" />

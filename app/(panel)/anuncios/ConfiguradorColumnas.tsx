@@ -6,6 +6,11 @@
  * a la derecha de las fijas (R2 c3, c4, c5, c6). El cambio se refleja en la
  * pintura siguiente en 300 ms o menos SIN emitir ninguna petición de filas:
  * todo pasa por `onColumnas`, que actualiza la configuración en pantalla.
+ *
+ * Se renderiza DENTRO del panel de `ControlVistas`, no suelto en la pantalla:
+ * antes caía siempre abierto arriba de la tabla y con 27 columnas en el
+ * catálogo se comía media pantalla. Por eso acá no hay tarjeta propia (la pone
+ * el contenedor) y las dos listas tienen el alto acotado con scroll.
  */
 
 import {
@@ -64,11 +69,11 @@ export function ConfiguradorColumnas({
   const noFijas = columnas.filter((c) => !CLAVES_FIJAS.includes(c.clave as (typeof CLAVES_FIJAS)[number]));
 
   return (
-    <div className="rounded-xl border border-border-strong bg-surface p-3">
+    <div>
       <p className="mb-2 text-xs font-semibold text-neutral-200">Columnas visibles</p>
       <DndContext sensors={sensores} collisionDetection={closestCenter} onDragEnd={alArrastrar}>
         <SortableContext items={noFijas.map((c) => c.clave)} strategy={verticalListSortingStrategy}>
-          <ul className="space-y-1">
+          <ul className="max-h-64 space-y-1 overflow-y-auto pr-1">
             {/* Las fijas se listan pero no se pueden desmarcar ni mover (R2 c4, c6). */}
             {CLAVES_FIJAS.map((clave) => {
               const entrada = CATALOGO_METRICAS.find((e) => e.clave === clave)!;
@@ -88,7 +93,7 @@ export function ConfiguradorColumnas({
       </DndContext>
 
       <p className="mt-2 text-xs font-semibold text-neutral-200">Columnas ocultas</p>
-      <ul className="space-y-1">
+      <ul className="max-h-64 space-y-1 overflow-y-auto pr-1">
         {CATALOGO_METRICAS.filter(
           (e) => !CLAVES_FIJAS.includes(e.clave as (typeof CLAVES_FIJAS)[number]) && !columnas.some((c) => c.clave === e.clave),
         ).map((e) => (

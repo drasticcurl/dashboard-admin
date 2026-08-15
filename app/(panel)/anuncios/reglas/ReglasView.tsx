@@ -19,7 +19,6 @@ import type { ResultadoCorrida } from '@/lib/ads/reglas/ejecutor';
 import type { CuentaAds, EstadoInterruptores, ReglaFila } from './_tipos';
 import { Badge, Banner, Card, EmptyState, Table, fmtDateTime } from '@/components/ui';
 import type { Tone } from '@/components/ui';
-import { SubNav } from '../SubNav';
 
 // ─── Etiquetas y formateadores ───────────────────────────────────────────────
 
@@ -501,13 +500,12 @@ export function ReglasView({
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h1 className="text-lg font-semibold text-neutral-50">Reglas</h1>
-          <SubNav />
+      {/* Encabezado y SubNav: app/(panel)/anuncios/layout.tsx */}
+      {busy && (
+        <div className="flex justify-end">
+          <span className="text-xs text-neutral-500">Guardando…</span>
         </div>
-        {busy && <span className="text-xs text-neutral-500">Guardando…</span>}
-      </div>
+      )}
 
       {flash && (
         <Banner tone={flash.tone} title={flash.tone === 'good' ? 'Listo' : 'No se pudo'}>

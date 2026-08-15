@@ -14,6 +14,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { CaretDown, ChartLineUp } from '@phosphor-icons/react';
+import { nombreVisible } from '@/lib/funnel-nombre';
 import type { Funnel } from '@/lib/funnels';
 
 const TABS = [
@@ -107,8 +108,10 @@ export function Nav({ funnels }: { funnels: Funnel[] }) {
             className="appearance-none rounded-lg border border-border-strong bg-surface-raised py-1.5 pl-3 pr-7 text-sm font-medium text-neutral-200 transition-colors hover:border-overlay/20 focus:border-good-500/50 focus:outline-none focus:ring-1 focus:ring-good-500/50"
           >
             {funnels.map((f) => (
+              // El VALUE sigue siendo el slug: el alias es sólo presentación y no
+              // puede cambiar lo que viaja en la URL.
               <option key={f.slug} value={f.slug} className="bg-surface text-neutral-200">
-                {f.name}
+                {nombreVisible(f)}
               </option>
             ))}
           </select>

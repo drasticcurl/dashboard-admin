@@ -42,6 +42,12 @@ const patchSchema = z
   .object({
     slug: z.string().min(2).max(SLUG_MAX).regex(SLUG_RE),
     name: z.string().min(1).max(80).optional(),
+    /**
+     * Alias de presentación. Cadena vacía = BORRAR el alias, y por eso no puede
+     * ir por COALESCE como los demás campos: ahí `null` significa "no cambiar" y
+     * no habría forma de distinguirlo de "dejalo en blanco".
+     */
+    alias: z.string().max(60).optional(),
     timezone: z.string().min(1).max(64).optional(),
     sellCurrency: z.string().length(3).regex(/^[A-Z]{3}$/).optional(),
     color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
@@ -115,7 +121,12 @@ export async function PATCH(req: NextRequest) {
        sell_currency   = COALESCE($4, sell_currency),
        color           = COALESCE($5, color),
        variants        = COALESCE($6, variants),
-       active          = COALESCE($7, active)
+       active          = COALESCE($7, active),
+       -- El alias NO va por COALESCE: hay que poder borrarlo. $8 nulo = el campo
+       -- no vino en el pedido y se deja como está; $8 presente = se guarda
+       -- recortado, y si queda vacío se guarda NULL (= sin alias).
+       alias           = CASE WHEN $8::text IS NULL THEN alias
+                              ELSE NULLIF(btrim($8), '') END
      WHERE slug = $1
      RETURNING id, slug`,
     [
@@ -126,6 +137,7 @@ export async function PATCH(req: NextRequest) {
       fields.color ?? null,
       fields.variants ?? null,
       fields.active ?? null,
+      fields.alias ?? null,
     ],
   );
   if (res.length === 0) {

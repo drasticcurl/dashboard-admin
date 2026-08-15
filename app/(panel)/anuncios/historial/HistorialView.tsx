@@ -13,7 +13,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Badge, Banner, Card, EmptyState, Skeleton, Table, fmtDateTime } from '@/components/ui';
 import type { Tone } from '@/components/ui';
-import { SubNav } from '../SubNav';
 import { ROTULO_ACCION } from '@/lib/ads/previsualizacion';
 
 const ESTADOS = ['confirmado', 'simulado', 'omitido', 'fallido', 'indeterminado', 'pendiente'] as const;
@@ -177,10 +176,7 @@ export function HistorialView(): JSX.Element {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-lg font-semibold text-neutral-50">Historial</h1>
-        <SubNav />
-      </div>
+      {/* Encabezado y SubNav: app/(panel)/anuncios/layout.tsx */}
 
       {error && (
         <Banner tone="bad" title="No se pudo cargar">

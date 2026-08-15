@@ -6,6 +6,11 @@
  * Cuenta de anuncio, Estado y búsqueda por nombre. Sin menús ni acordeones:
  * todo visible desde el primer render a 1280 px o más.
  *
+ * La CUENTA es de sólo lectura: la determina el funnel del selector de arriba.
+ * Se muestra igual porque tenés que poder ver cuál estás mirando; lo que no
+ * tenés que poder es cambiarla desde acá y quedar viendo una cuenta que no se
+ * corresponde con el funnel elegido.
+ *
  * - La búsqueda por nombre acepta hasta 200 caracteres y debouncea (R1 c4).
  * - Cada filtro muestra su valor vigente dentro de su propio control, con un
  *   rótulo de valor por defecto cuando no hay selección explícita (R1 c5).
@@ -37,7 +42,6 @@ export function BarraFiltros({
   cascada,
   onPeriodo,
   onStatus,
-  onCuenta,
   onNombre,
 }: {
   period: PeriodoAds;
@@ -51,7 +55,6 @@ export function BarraFiltros({
   cascada: React.ReactNode;
   onPeriodo: (p: PeriodoAds) => void;
   onStatus: (s: 'active' | 'paused' | 'any') => void;
-  onCuenta: (id: string) => void;
   onNombre: (n: string) => void;
 }): JSX.Element {
   const [textoNombre, setTextoNombre] = useState(nombre);
@@ -88,22 +91,16 @@ export function BarraFiltros({
         </select>
       </label>
 
-      <label className="flex items-center gap-1.5">
+      {/* Sólo lectura: la cuenta sale del funnel elegido arriba. */}
+      <span className="flex items-center gap-1.5">
         <span className="text-xs text-neutral-500">Cuenta</span>
-        <select
-          value={cuenta}
-          onChange={(e) => onCuenta(e.target.value)}
-          aria-label="Cuenta de anuncio"
-          className={inputCls}
+        <span
+          className="rounded-lg border border-border-subtle bg-overlay/2 px-2 py-1.5 text-sm text-neutral-400"
+          title="La determina el funnel elegido en el selector de arriba. Se imputa en Config → Publicidad."
         >
-          {cuentas.length === 0 && <option value="">Sin cuentas activas</option>}
-          {cuentas.map((c) => (
-            <option key={c.accountId} value={c.accountId}>
-              {c.name ?? c.accountId}
-            </option>
-          ))}
-        </select>
-      </label>
+          {cuentas.find((c) => c.accountId === cuenta)?.name ?? cuenta ?? 'Sin cuenta'}
+        </span>
+      </span>
 
       <label className="flex items-center gap-1.5">
         <span className="text-xs text-neutral-500">Estado</span>
