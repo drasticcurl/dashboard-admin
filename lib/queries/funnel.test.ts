@@ -1,10 +1,13 @@
 import { randomUUID } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
+import fc from 'fast-check';
 import { q } from '../db';
 import { getFunnelBySlug, type Funnel } from '../funnels';
 import {
+  SIN_EXPERIMENTO,
   buildEmbudoPorEtapas,
   getFunnelData,
   type FunnelFilters,
@@ -37,6 +40,54 @@ if (typeof process.loadEnvFile === 'function' && existsSync(path.join(process.cw
  * sólo deja basura en un día que nadie vuelve a tocar.
  */
 const dbAvailable = Boolean(process.env.DATABASE_URL);
+
+// Guarda de schema-probe (spec ab-test-popup-descuento): la query del
+// desglose y el FUNNEL_SELECT ahora referencian `sessions.experiment` y
+// `funnels.experiments`, que solo existen con la migración 020 aplicada (paso
+// 0 manual del usuario). Sin las columnas, el describe de integración se salta
+// con un mensaje claro en vez de fallar con "column does not exist". Es la
+// misma filosofía que skipIf(!dbAvailable), pero el resultado se conoce recién
+// después de consultar la base. El describe PURO (buildEmbudoPorEtapas) no
+// necesita base y sigue corriendo siempre.
+//
+// El probe es SOLO LECTURA de information_schema y corre en un subproceso
+// síncrono a propósito: top-level await acá rompería `next build`, cuyo
+// typecheck usa el target por defecto (ES5, sin top-level await).
+const schemaReady = dbAvailable && probeEsquema('[funnel.test.ts]');
+if (dbAvailable && !schemaReady) {
+  console.warn(
+    '[funnel.test.ts] schema-probe: falta sessions.experiment o funnels.experiments ' +
+      '(migración 020 sin aplicar en esta base): se salta el describe de integración',
+  );
+}
+
+/**
+ * ¿Las columnas de la migración 020 existen en la base de DATABASE_URL?
+ * Fallo de conexión ⇒ false ⇒ el describe de integración se salta. Duplicada
+ * a propósito en los archivos de test que la necesitan (self-contained).
+ */
+function probeEsquema(tag: string): boolean {
+  try {
+    const out = execFileSync(
+      'node',
+      [
+        '-e',
+        `const {Client}=require('pg');
+const c=new Client({connectionString:process.argv[1]});
+c.connect()
+  .then(()=>c.query("SELECT count(*)::int AS n FROM information_schema.columns WHERE (table_name='sessions' AND column_name='experiment') OR (table_name='funnels' AND column_name='experiments')"))
+  .then((r)=>c.end().then(()=>process.stdout.write(r.rows[0].n===2?'1':'0')))
+  .catch(()=>{try{c.end()}catch(_){};process.stdout.write('0');});`,
+        process.env.DATABASE_URL!,
+      ],
+      { stdio: ['ignore', 'pipe', 'ignore'], timeout: 10_000 },
+    );
+    return out.toString().trim() === '1';
+  } catch (err) {
+    console.warn(`${tag} schema-probe falló, se salta la suite:`, err instanceof Error ? err.message : err);
+    return false;
+  }
+}
 
 const RUN_OFFSET = 1 + Math.floor(Math.random() * 119); // día 2..120 de 2026
 function testDay(offset: number): string {
@@ -288,7 +339,7 @@ describe('buildEmbudoPorEtapas (pura)', () => {
   });
 });
 
-describe.skipIf(!dbAvailable)('getFunnelData (integración)', () => {
+describe.skipIf(!(dbAvailable && schemaReady))('getFunnelData (integración)', () => {
   let chau: Funnel;
   let reset: Funnel;
 
@@ -308,19 +359,27 @@ describe.skipIf(!dbAvailable)('getFunnelData (integración)', () => {
    * Una sesión con el max_step_index dado y opciones de contexto/hitos.
    * `hitos` marca cuántos hitos de venta tiene (1 = sales_view, 2 = +
    * checkout, 3 = + purchase): los tests del peor paso dependen de eso.
+   * `experiment` es la dimensión del A/B del pop-up (null/undefined = NULL).
    */
   async function seedSession(
     funnelId: number,
     maxStepIndex: number,
-    opts: { campaign?: string; country?: string; variant?: string; hitos?: number; day?: string } = {},
+    opts: {
+      campaign?: string;
+      country?: string;
+      variant?: string;
+      hitos?: number;
+      day?: string;
+      experiment?: string | null;
+    } = {},
   ): Promise<void> {
     const day = opts.day ?? DAY;
     const hitos = opts.hitos ?? 0;
     await q(
       `INSERT INTO sessions (id, funnel_id, visitor_id, variant, day, started_at, last_seen_at,
-         max_step_index, sales_view_at, checkout_click_at, purchased_at, utm_campaign, country)
+         max_step_index, sales_view_at, checkout_click_at, purchased_at, utm_campaign, country, experiment)
        VALUES ($1::uuid, $2, $3::uuid, $4, $5::date, $6::timestamptz, $6::timestamptz, $7,
-               $8::timestamptz, $9::timestamptz, $10::timestamptz, $11, $12)`,
+               $8::timestamptz, $9::timestamptz, $10::timestamptz, $11, $12, $13)`,
       [
         randomUUID(),
         funnelId,
@@ -334,6 +393,7 @@ describe.skipIf(!dbAvailable)('getFunnelData (integración)', () => {
         hitos >= 3 ? `${day}T12:00:00Z` : null,
         opts.campaign ?? '(directo)',
         opts.country ?? null,
+        opts.experiment ?? null,
       ],
     );
   }
@@ -346,6 +406,19 @@ describe.skipIf(!dbAvailable)('getFunnelData (integración)', () => {
     for (const [step, n] of hist) {
       for (let i = 0; i < n; i++) await seedSession(funnelId, step, opts);
     }
+  }
+
+  /**
+   * Vacía los días de prueba. Es el MISMO mecanismo que el `afterEach` de la
+   * suite (aislamiento por día), pero llamable desde adentro de una property:
+   * `afterEach` corre una vez por `it`, y una property hace 100 iteraciones
+   * DENTRO de un `it`. Sin esto la iteración N ve las sesiones que sembraron las
+   * N-1 anteriores —y el residuo que un run muerto a mitad de camino dejó en el
+   * día—, así que la query cuenta filas ajenas y la property no prueba lo que
+   * dice probar.
+   */
+  async function limpiarDiasDePrueba(): Promise<void> {
+    await q('DELETE FROM sessions WHERE day IN ($1::date, $2::date)', [DAY, DAY_EMPTY]);
   }
 
   function row(steps: FunnelStepRow[], stepIndex: number): FunnelStepRow {
@@ -580,5 +653,102 @@ describe.skipIf(!dbAvailable)('getFunnelData (integración)', () => {
     expect(landing.label).toBe('Landing');
     expect(landing.sessions).toBe(30);
     expect(landing.pctOfBase).toBe(100);
+  });
+
+  // Feature: ab-test-popup-descuento, Property 31: El desglose conserva el total y respeta los filtros
+  it('Property 31: la suma de filas del desglose iguala el total con los mismos filtros, y cada hito cuenta las sesiones de su fila', async () => {
+    const specSesion = fc.record({
+      exp: fc.constantFrom('A', 'B', null),
+      variante: fc.constantFrom('ar', 'latam'),
+      campana: fc.constantFrom('campaña-a', 'campaña-b'),
+      pais: fc.constantFrom('AR', 'BR', null),
+      hitos: fc.integer({ min: 0, max: 3 }),
+    });
+    const filtroVariant = fc.constantFrom(undefined, 'ar', 'latam');
+    const filtroCampana = fc.constantFrom(undefined, 'campaña-a', 'campaña-b');
+    const filtroPais = fc.constantFrom(undefined, 'AR', 'BR');
+    await fc.assert(
+      fc.asyncProperty(
+        fc.array(specSesion, { minLength: 1, maxLength: 12 }),
+        filtroVariant,
+        filtroCampana,
+        filtroPais,
+        async (sesiones, fv, fc2, fp) => {
+          // La iteración tiene que ver SÓLO sus propias sesiones: el total y la
+          // suma del desglose se comparan contra `filtradas.length`.
+          await limpiarDiasDePrueba();
+          for (const s of sesiones) {
+            await seedSession(chau.id, 21, {
+              variant: s.variante,
+              campaign: s.campana,
+              country: s.pais ?? undefined,
+              hitos: s.hitos,
+              experiment: s.exp,
+            });
+          }
+
+          const data = await getFunnelData(
+            baseFilters({ variant: fv, utmCampaign: fc2, country: fp }),
+          );
+
+          // La simulación en JS de los mismos filtros: el oráculo del test.
+          const pasa = (s: (typeof sesiones)[number]) =>
+            (!fv || s.variante === fv) && (!fc2 || s.campana === fc2) && (!fp || s.pais === fp);
+          const filtradas = sesiones.filter(pasa);
+
+          // R9.1 + R9.5: el desglose conserva el total con los mismos filtros.
+          expect(data.totalSessions).toBe(filtradas.length);
+          const suma = data.experiments.reduce((a, r) => a + r.sessions, 0);
+          expect(suma).toBe(filtradas.length);
+
+          // R9.2: cada contador de hito es la cantidad de sesiones de esa
+          // fila con la columna correspondiente no nula.
+          const filas = data.experiments;
+          const grupos = new Map<string, typeof filtradas>();
+          for (const s of filtradas) {
+            const clave = s.exp ?? SIN_EXPERIMENTO;
+            grupos.set(clave, [...(grupos.get(clave) ?? []), s]);
+          }
+          expect(filas).toHaveLength(grupos.size);
+          for (const r of filas) {
+            const m = grupos.get(r.experiment) ?? [];
+            expect(r.sessions).toBe(m.length);
+            expect(r.salesViews).toBe(m.filter((s) => s.hitos >= 1).length);
+            expect(r.checkoutClicks).toBe(m.filter((s) => s.hitos >= 2).length);
+            expect(r.purchases).toBe(m.filter((s) => s.hitos >= 3).length);
+          }
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
+
+  // Feature: ab-test-popup-descuento, Property 33: Las sesiones sin dimensión tienen una fila propia
+  it('Property 33: hay exactamente una fila (sin asignar) si y solo si hay sesiones con la dimensión en NULL', async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        fc.array(fc.constantFrom('A', 'B', null), { minLength: 1, maxLength: 12 }),
+        async (exps) => {
+          // La iteración tiene que ver SÓLO sus propias sesiones: la fila del
+          // centinela existe si y sólo si ESTA iteración sembró algún NULL.
+          await limpiarDiasDePrueba();
+          for (const e of exps) {
+            await seedSession(chau.id, 21, { experiment: e });
+          }
+          const data = await getFunnelData(baseFilters());
+          const nulos = exps.filter((e) => e === null).length;
+          const sin = data.experiments.filter((r) => r.experiment === SIN_EXPERIMENTO);
+          // R9.6: las sesiones NULL caen en UNA fila propia con el centinela.
+          expect(sin).toHaveLength(nulos > 0 ? 1 : 0);
+          if (nulos > 0) {
+            expect(sin[0]!.sessions).toBe(nulos);
+            // Sin hitos sembrados, la fila del centinela no inventa compras.
+            expect(sin[0]!.salesViews).toBe(0);
+            expect(sin[0]!.purchases).toBe(0);
+          }
+        },
+      ),
+      { numRuns: 100 },
+    );
   });
 });

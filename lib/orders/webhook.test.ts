@@ -1,7 +1,9 @@
 import { createHmac, randomUUID } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import fc from 'fast-check';
 import { NextRequest } from 'next/server';
 import { GET, POST } from '../../app/api/webhooks/shopify/route';
 import { q, q1 } from '../db';
@@ -21,13 +23,59 @@ if (typeof process.loadEnvFile === 'function' && existsSync(path.join(process.cw
 
 const dbAvailable = Boolean(process.env.DATABASE_URL);
 
+// Guarda de schema-probe (spec ab-test-popup-descuento): `FUNNEL_SELECT`
+// ahora selecciona `funnels.experiments`, que solo existe con la migración 020
+// aplicada (paso 0 manual del usuario). Sin la columna, toda la suite se salta
+// con un mensaje claro en vez de fallar con "column does not exist". Es la
+// misma filosofía que skipIf(!dbAvailable), pero el resultado se conoce recién
+// después de consultar la base.
+//
+// El probe es SOLO LECTURA de information_schema y corre en un subproceso
+// síncrono a propósito: top-level await acá rompería `next build`, cuyo
+// typecheck usa el target por defecto (ES5, sin top-level await).
+const schemaReady = dbAvailable && probeEsquema('[webhook.test.ts]');
+if (dbAvailable && !schemaReady) {
+  console.warn(
+    '[webhook.test.ts] schema-probe: falta sessions.experiment o funnels.experiments ' +
+      '(migración 020 sin aplicar en esta base): se salta toda la suite contra la base',
+  );
+}
+
+/**
+ * ¿Las columnas de la migración 020 existen en la base de DATABASE_URL?
+ * Fallo de conexión ⇒ false ⇒ la suite se salta. Duplicada a propósito en los
+ * archivos de test que la necesitan (los tests son self-contained).
+ */
+function probeEsquema(tag: string): boolean {
+  try {
+    const out = execFileSync(
+      'node',
+      [
+        '-e',
+        `const {Client}=require('pg');
+const c=new Client({connectionString:process.argv[1]});
+c.connect()
+  .then(()=>c.query("SELECT count(*)::int AS n FROM information_schema.columns WHERE (table_name='sessions' AND column_name='experiment') OR (table_name='funnels' AND column_name='experiments')"))
+  .then((r)=>c.end().then(()=>process.stdout.write(r.rows[0].n===2?'1':'0')))
+  .catch(()=>{try{c.end()}catch(_){};process.stdout.write('0');});`,
+        process.env.DATABASE_URL!,
+      ],
+      { stdio: ['ignore', 'pipe', 'ignore'], timeout: 10_000 },
+    );
+    return out.toString().trim() === '1';
+  } catch (err) {
+    console.warn(`${tag} schema-probe falló, se salta la suite:`, err instanceof Error ? err.message : err);
+    return false;
+  }
+}
+
 /**
  * Integración con Postgres real del webhook completo (task T04 §7). Este
  * archivo es el DUEÑO exclusivo de la mutación de SHOPIFY_WEBHOOK_SECRETS:
  * los otros tests del módulo (verify.test.ts) solo prueban el núcleo puro,
  * para que dos archivos en paralelo no se pisen el env compartido.
  */
-describe.skipIf(!dbAvailable)('webhook shopify (integración)', () => {
+describe.skipIf(!(dbAvailable && schemaReady))('webhook shopify (integración)', () => {
   const SECRET = 't04-test-secret';
   const SHOP = 'mitienda.myshopify.com';
   let originalSecret: string | undefined;
@@ -520,5 +568,47 @@ describe.skipIf(!dbAvailable)('webhook shopify (integración)', () => {
     const last = events[events.length - 1];
     expect(last.status).toBe('ok');
     expect(last.error).toContain('funnel_attribute_desconocido:funnel-inexistente');
+  });
+
+  // Feature: ab-test-popup-descuento, Property 39: El tier no depende del importe cobrado
+  //
+  // Es la guarda del paso 4 del deploy: cuando el precio de lista pase a
+  // $51.000, una orden mal cobrada tiene que quedar DISTINGUIBLE de una de
+  // $8.790 (el importe registrado es el recibido) y el tier `front` no puede
+  // cambiar porque el importe cambie (sale de product_map, nunca del monto).
+  it('Property 39: para cualquier importe, el tier sale de product_map y el importe registrado es el recibido', async () => {
+    let seq = 0;
+    await fc.assert(
+      fc.asyncProperty(fc.integer({ min: 1, max: 1_000_000 }), async (amount) => {
+        const o = structuredClone(orderFront) as ShopifyOrder;
+        o.id = 9002000000 + seq++;
+        o.total_price = amount.toFixed(2);
+        o.current_total_price = amount.toFixed(2);
+        o.line_items = [
+          { product_id: 8123456789012, variant_id: 4123456789012, title: 'Chau Hinchazón', price: amount.toFixed(2), quantity: 1 },
+        ];
+        createdOrders.push(`shopify_${o.id}`);
+
+        const res = await postOrder(o, 'orders/paid');
+        expect((await res.json()).ok).toBe(true);
+
+        const row = (await readOrder(`shopify_${o.id}`))!;
+        // El tier es el del product_map, para CUALQUIER importe: ni 8790, ni
+        // 51000 ni un monto arbitrario lo cambian.
+        expect(row.tier).toBe('front');
+        // El importe registrado es exactamente el recibido: una orden cobrada
+        // a $51.000 queda distinguible de una de $8.790.
+        expect(Number(row.amount)).toBe(amount);
+
+        const items = await q<{ tier: string; amount: string }>(
+          'SELECT tier, amount::text AS amount FROM order_items WHERE order_id = $1',
+          [row.id],
+        );
+        expect(items).toHaveLength(1);
+        expect(items[0].tier).toBe('front');
+        expect(Number(items[0].amount)).toBe(amount);
+      }),
+      { numRuns: 100 },
+    );
   });
 });

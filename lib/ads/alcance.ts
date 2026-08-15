@@ -17,6 +17,7 @@
 
 import { q, q1 } from '../db';
 import { fetchAlcance, MetaAdsError } from './meta';
+import { TZ_DEFAULT } from './zona';
 import type { NivelAds } from './tipos';
 
 export type ResultadoAlcance = {
@@ -72,10 +73,10 @@ export async function asegurarAlcance(
     // Defensa del contrato: sólo se guardan rangos de pantalla. Un rango raro
     // es un bug del llamador, no una llamada a Meta.
     const tzRow = await q1<{ tz: string }>(
-      `SELECT COALESCE(timezone, 'Europe/Lisbon') AS tz FROM ad_accounts WHERE account_id = $1`,
-      [accountId],
+      `SELECT COALESCE(timezone, $2) AS tz FROM ad_accounts WHERE account_id = $1`,
+      [accountId, TZ_DEFAULT],
     );
-    const tz = tzRow?.tz ?? 'Europe/Lisbon';
+    const tz = tzRow?.tz ?? TZ_DEFAULT;
     const rangos = await rangosDePantalla(tz);
     if (!rangos.has(`${from}|${to}`)) {
       return { pedido: false, filas: 0, error: null };

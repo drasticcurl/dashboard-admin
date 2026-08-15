@@ -22,7 +22,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import type { Funnel } from '@/lib/funnels';
-import type { BaseMode, FunnelData } from '@/lib/queries/funnel';
+import type { BaseMode, ExperimentoRow, FunnelData } from '@/lib/queries/funnel';
 import { EmbudoChart } from '@/components/EmbudoChart';
 import {
   Badge,
@@ -43,6 +43,31 @@ const SELECT_CLS =
 
 type CampaignRow = { campaign: string; sessions: number; purchases: number };
 type CampaignSortKey = 'campaign' | 'sessions' | 'purchases' | 'conversion';
+
+/**
+ * Etiqueta de la fila del desglose del experimento (R9.14). Cualquier otro
+ * valor —incluido el centinela '(sin asignar)'— se devuelve tal cual.
+ */
+export function etiquetaExperimento(v: string): string {
+  if (v === 'A') return 'A · control (sin pop-up)';
+  if (v === 'B') return 'B · pop-up 83%';
+  return v;
+}
+
+/**
+ * Predicados PUROS de visibilidad de las dos cards, extraídos del componente
+ * para poder testearlos sin jsdom (este proyecto no lo tiene). Los dos gates
+ * son independientes (R9.11, R9.12): la card `Test A/B` cuenta filas del
+ * desglose y la card `Variantes` mira el arreglo de variantes del funnel, y
+ * ninguno lee al otro.
+ */
+export function debeMostrarCardTestAB(experiments: ExperimentoRow[]): boolean {
+  return experiments.length > 1;
+}
+
+export function debeMostrarCardVariantes(variants: string[]): boolean {
+  return variants.length > 1;
+}
 
 export function EmbudoView({
   funnel,
@@ -319,9 +344,41 @@ export function EmbudoView({
         )}
       </Card>
 
+      {debeMostrarCardTestAB(data.experiments) && (
+        <Card
+          title="Test A/B"
+          hint="Embudo por variante del experimento del pop-up. El desglose respeta los mismos filtros que el resto del embudo."
+        >
+          <Table
+            rows={data.experiments}
+            empty="Sin datos"
+            columns={[
+              {
+                key: 'experiment',
+                header: 'Variante',
+                render: (r) => <span className="text-neutral-200">{etiquetaExperimento(r.experiment)}</span>,
+              },
+              { key: 'sessions', header: 'Sesiones', align: 'right', render: (r) => fmtInt(r.sessions) },
+              { key: 'salesViews', header: 'Vio venta', align: 'right', render: (r) => fmtInt(r.salesViews) },
+              { key: 'pctSalesView', header: '% venta', align: 'right', render: (r) => fmtPct(r.pctSalesView, 1) },
+              { key: 'checkoutClicks', header: 'Click', align: 'right', render: (r) => fmtInt(r.checkoutClicks) },
+              { key: 'pctCheckoutClick', header: '% click', align: 'right', render: (r) => fmtPct(r.pctCheckoutClick, 1) },
+              { key: 'purchases', header: 'Compras', align: 'right', render: (r) => fmtInt(r.purchases) },
+              { key: 'pctPurchase', header: '% compra', align: 'right', render: (r) => fmtPct(r.pctPurchase, 1) },
+              {
+                key: 'pctSessionToPurchase',
+                header: 'Conv. total',
+                align: 'right',
+                render: (r) => fmtPct(r.pctSessionToPurchase, 2),
+              },
+            ]}
+          />
+        </Card>
+      )}
+
       <Card title="Filtros" hint="Cada filtro recorta el embudo completo">
         <div className="flex flex-wrap items-center gap-2">
-          {funnel.variants.length > 1 && (
+          {debeMostrarCardVariantes(funnel.variants) && (
             <select
               value={variant}
               onChange={(e) => setVariant(e.target.value)}
@@ -378,7 +435,7 @@ export function EmbudoView({
       </Card>
 
       <div className="grid gap-4 md:grid-cols-3">
-        {funnel.variants.length > 1 && (
+        {debeMostrarCardVariantes(funnel.variants) && (
           <Card title="Variantes">
             <Table
               rows={data.variants}

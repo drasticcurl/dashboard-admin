@@ -63,7 +63,77 @@ export type FunnelData = {
   // agrega sin tocar los campos que ya existían. Los porcentajes van 0-100,
   // la misma convención que FunnelStepRow.
   porEtapas: EmbudoPorEtapas;
+  // Desglose por dimensión del experimento A/B (spec ab-test-popup-descuento).
+  // `variants` sigue intacto: es otra dimensión, con su propio gate.
+  experiments: ExperimentoRow[];
 };
+
+// ─── Desglose del experimento A/B (spec ab-test-popup-descuento) ─────────────
+//
+// Una fila por valor distinto de sessions.experiment (el centinela agrupa los
+// NULL). Las cuatro tasas son derivadas y viven en `calcularTasasExperimento`,
+// pura y testeable sin base (R9.7): son aritmética que se equivoca en
+// silencio y conviene tener vigilada igual que buildEmbudoPorEtapas.
+
+/** Contadores crudos de una fila del desglose, tal como salen de SQL. */
+export type ExperimentoContadores = {
+  experiment: string;
+  sessions: number;
+  salesViews: number;
+  checkoutClicks: number;
+  purchases: number;
+};
+
+/** Una fila del desglose con sus cuatro tasas derivadas, 0-100. */
+export type ExperimentoRow = ExperimentoContadores & {
+  pctSalesView: number; // sesión → vio la venta
+  pctCheckoutClick: number; // vio la venta → clickeó comprar
+  pctPurchase: number; // clickeó comprar → compró
+  pctSessionToPurchase: number; // sesión → compró
+};
+
+/**
+ * Función PURA: contadores → tasas. Vive fuera de `getFunnelData` a propósito,
+ * igual que `buildEmbudoPorEtapas`: es aritmética que se equivoca en silencio y
+ * se testea sin base (R9.7).
+ *
+ * Denominador 0 ⇒ 0 con chequeo explícito (nunca `|| 1`): acá el 0 tiene que
+ * ser visible en la UI y no un 0% derivado de una división por 1. Nunca NaN ni
+ * Infinity. Las cuatro tasas van 0-100, la misma convención que
+ * `FunnelStepRow.pctOfBase`.
+ *
+ * El orden de salida se decide ACÁ y no con un ORDER BY: el centinela empieza
+ * con '(' y su posición depende de la collation de la base, así que ordenarlo
+ * en SQL daría un resultado distinto según el servidor. Orden: A, B, el resto
+ * alfabético, y el centinela siempre último.
+ */
+export function calcularTasasExperimento(filas: ExperimentoContadores[]): ExperimentoRow[] {
+  const pct = (numerador: number, denominador: number): number => {
+    if (denominador === 0) return 0;
+    return (numerador / denominador) * 100;
+  };
+
+  const ordenadas = [...filas].sort((a, b) => {
+    const aSent = a.experiment === SIN_EXPERIMENTO;
+    const bSent = b.experiment === SIN_EXPERIMENTO;
+    if (aSent || bSent) return aSent === bSent ? 0 : aSent ? 1 : -1; // centinela siempre último
+    if (a.experiment === 'A' || b.experiment === 'A') {
+      return a.experiment === b.experiment ? 0 : a.experiment === 'A' ? -1 : 1; // A primero
+    }
+    if (a.experiment === 'B' || b.experiment === 'B') {
+      return a.experiment === b.experiment ? 0 : a.experiment === 'B' ? -1 : 1; // B segundo
+    }
+    return a.experiment.localeCompare(b.experiment, 'es'); // el resto, alfabético
+  });
+
+  return ordenadas.map((f) => ({
+    ...f,
+    pctSalesView: pct(f.salesViews, f.sessions),
+    pctCheckoutClick: pct(f.checkoutClicks, f.salesViews),
+    pctPurchase: pct(f.purchases, f.checkoutClicks),
+    pctSessionToPurchase: pct(f.purchases, f.sessions),
+  }));
+}
 
 // ─── Filtros compartidos ────────────────────────────────────────────────────
 //
@@ -107,6 +177,11 @@ type WarningRow = { reason: string; count: number };
 // devuelve NULL. Se usa el centinela '(sin dato)' en vez de propagar null al
 // JSON, la misma convención que los '(directo)' de los UTMs.
 const NO_DATA = '(sin dato)';
+// Centinela de la dimensión del experimento: las sesiones que no participaron
+// (experiment NULL) agrupan bajo este valor en el desglose. Empieza con '(' a
+// propósito, para que la función pura de orden (calcularTasasExperimento)
+// pueda mandarlo SIEMPRE al final sin depender de la collation del servidor.
+export const SIN_EXPERIMENTO = '(sin asignar)';
 
 // La tabla de campañas con 300 filas es ilegible: se corta en 20 y el resto
 // se suma en una fila '(otras)' (task T06 §2).
@@ -302,8 +377,18 @@ export async function getFunnelData(f: FunnelFilters): Promise<FunnelData> {
   const base = f.base ?? 'landing';
   const params = filterParams(f);
 
-  const [catalog, histRows, totalsRow, campaignRows, variantRows, countryRows, deviceRows, warningRows, stageRows] =
-    await Promise.all([
+  const [
+    catalog,
+    histRows,
+    totalsRow,
+    campaignRows,
+    variantRows,
+    countryRows,
+    deviceRows,
+    warningRows,
+    stageRows,
+    experimentRows,
+  ] = await Promise.all([
       listSteps(f.funnelId),
       q<HistRow>(
         `SELECT max_step_index AS "maxStepIndex", count(*)::int AS n
@@ -378,6 +463,23 @@ export async function getFunnelData(f: FunnelFilters): Promise<FunnelData> {
          WHERE funnel_id = $1
          ORDER BY stage_order`,
         [f.funnelId],
+      ),
+      // Desglose por dimensión del experimento (spec ab-test-popup-descuento):
+      // una consulta más contra `sessions`, ninguna contra `events`, con el
+      // MISMO WHERE_SESSIONS y los MISMOS parámetros posicionales que el resto
+      // del embudo. El centinela agrupa los NULL; el orden de las filas lo
+      // decide `calcularTasasExperimento`, no un ORDER BY (la collation de la
+      // base pondría el centinela en cualquier lado según el servidor).
+      q<ExperimentoContadores>(
+        `SELECT COALESCE(experiment, '${SIN_EXPERIMENTO}') AS experiment,
+                count(*)::int                                              AS sessions,
+                count(*) FILTER (WHERE sales_view_at     IS NOT NULL)::int  AS "salesViews",
+                count(*) FILTER (WHERE checkout_click_at IS NOT NULL)::int  AS "checkoutClicks",
+                count(*) FILTER (WHERE purchased_at      IS NOT NULL)::int  AS purchases
+         FROM sessions
+         WHERE ${WHERE_SESSIONS}
+         GROUP BY 1`,
+        params,
       ),
     ]);
 
@@ -460,6 +562,7 @@ export async function getFunnelData(f: FunnelFilters): Promise<FunnelData> {
     devices: deviceRows.map((r) => ({ device: r.device ?? NO_DATA, sessions: r.sessions })),
     ingestWarnings: warningRows,
     porEtapas,
+    experiments: calcularTasasExperimento(experimentRows),
     generatedAt: new Date().toISOString(),
   };
 }

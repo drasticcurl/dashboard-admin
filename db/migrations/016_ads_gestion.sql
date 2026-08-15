@@ -286,7 +286,36 @@ CREATE INDEX IF NOT EXISTS ad_rules_activas_idx ON ad_rules (enabled) WHERE enab
 --   2. Es lo que permite que el seed de §6 sea idempotente con
 --      ON CONFLICT (name) DO NOTHING, sin inventar una clave natural.
 -- La acción "duplicar" del panel tiene que agregar un sufijo al copiar.
-CREATE UNIQUE INDEX IF NOT EXISTS ad_rules_name_unico ON ad_rules (name);
+--
+-- ── ENVUELTO POR LA SPEC reglas-anuncios-por-cuenta (R3 c3) ────────────────
+-- Después de la 021 el único de este módulo es `(account_id, name)` y ESTE
+-- índice ya no se puede recrear: el backfill duplicó cada regla del seed una
+-- vez por Cuenta_Activa, así que hay dos filas por `name` (una por cuenta) y el
+-- CREATE UNIQUE INDEX corta con
+--     ERROR: could not create unique index "ad_rules_name_unico"
+-- El `IF NOT EXISTS` no salva nada acá: la 021 DROPEA este índice, así que en
+-- una base migrada genuinamente no existe y el CREATE se intenta de verdad.
+--
+-- La guarda es la MISMA que la del seed de §6: la existencia de `account_ids`.
+-- En una base nueva la 016 corre antes de la 021, la columna existe y el índice
+-- se crea igual que siempre. En una base ya migrada no existe, el CREATE se
+-- saltea sin error y el único vigente es `ad_rules_cuenta_name_unico`.
+--
+-- EXECUTE por la misma razón que en §6: el SQL de una rama no tomada no se
+-- planifica, así que la sentencia no se valida contra un esquema que ya cambió.
+DO $unico_name$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_name = 'ad_rules' AND column_name = 'account_ids'
+  ) THEN
+    RAISE NOTICE '016 §2: el esquema ya está migrado por la 021 (una cuenta por regla); el único de name no se recrea, lo reemplaza ad_rules_cuenta_name_unico';
+    RETURN;
+  END IF;
+
+  EXECUTE 'CREATE UNIQUE INDEX IF NOT EXISTS ad_rules_name_unico ON ad_rules (name)';
+END
+$unico_name$;
 
 -- Condiciones en filas y no en un jsonb: se filtran, se cuentan y se validan con
 -- CHECK. Todas las condiciones de una regla se combinan con AND, igual que en el
@@ -665,6 +694,35 @@ ON CONFLICT (key) DO NOTHING;
 -- `budget` que deja de cumplirse en cuanto la regla actúa, y los rangos de las
 -- tres no se solapan— así que los frenos son una red y no un cambio de reglas.
 
+-- ── §6 (seed de las 6 reglas), envuelto por la spec reglas-anuncios-por-cuenta ──
+--
+-- POR QUÉ ESTE BLOQUE ESTÁ GUARDADO
+-- La migración 021 convirtió `account_ids text[]` en `account_id text NOT NULL` y
+-- el único de `name` en único de `(account_id, name)`. Después de eso, este seed
+-- re-ejecutado se rompe de dos maneras: el `ON CONFLICT (name)` ya no tiene
+-- índice que lo respalde (42P10) y el INSERT no aporta `account_id` (23502); y el
+-- bloque de condiciones matchea por nombre, que ahora alcanza a más de una regla.
+--
+-- La guarda es la existencia de `account_ids`: en una base nueva la 016 corre
+-- ANTES de la 021, la columna existe y el seed hace exactamente lo que hacía. En
+-- una base ya migrada, no existe, y el seed se saltea completo sin error y sin
+-- tocar una fila.
+--
+-- Se usa EXECUTE (SQL dinámico) y no las sentencias sueltas porque el error del
+-- ON CONFLICT es de PLANIFICACIÓN: con EXECUTE, la sentencia sólo se planifica si
+-- la rama se ejecuta, y eso no depende de cuándo plpgsql decide preparar el SQL
+-- estático de una rama no tomada.
+DO $seed$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_name = 'ad_rules' AND column_name = 'account_ids'
+  ) THEN
+    RAISE NOTICE '016 §6: el esquema ya está migrado por la 021 (una cuenta por regla); el seed se saltea';
+    RETURN;
+  END IF;
+
+  EXECUTE $reglas$
 INSERT INTO ad_rules (
   name, enabled, dry_run, level, status_filter, action,
   action_value, action_unit, budget_max, period,
@@ -707,12 +765,14 @@ INSERT INTO ad_rules (
    NULL, NULL, NULL, 'today',
    15, NULL, NULL, NULL, 60, 4)
 ON CONFLICT (name) DO NOTHING;
+  $reglas$;
 
--- Las condiciones. El `NOT EXISTS` sobre el rule_id es lo que hace idempotente
--- este bloque: si la regla ya tenía condiciones (porque el seed corrió antes, o
--- porque el usuario la editó), no se le agregan duplicadas. Sin eso, una segunda
--- corrida dejaría la regla con las condiciones dos veces y el AND se volvería
--- redundante en el mejor caso e incoherente en el peor.
+  -- Las condiciones. El `NOT EXISTS` sobre el rule_id es lo que hace idempotente
+  -- este bloque: si la regla ya tenía condiciones (porque el seed corrió antes, o
+  -- porque el usuario la editó), no se le agregan duplicadas. Sin eso, una segunda
+  -- corrida dejaría la regla con las condiciones dos veces y el AND se volvería
+  -- redundante en el mejor caso e incoherente en el peor.
+  EXECUTE $condiciones$
 INSERT INTO ad_rule_conditions (rule_id, metric, op, value, position)
 SELECT r.id, c.metric, c.op, c.value, c.position
   FROM ad_rules r
@@ -744,3 +804,6 @@ SELECT r.id, c.metric, c.op, c.value, c.position
     ('Apagar - Gasto +$4 sin ventas',                   'sales',  '=', 0,     1)
   ) AS c(rule_name, metric, op, value, position) ON c.rule_name = r.name
  WHERE NOT EXISTS (SELECT 1 FROM ad_rule_conditions x WHERE x.rule_id = r.id);
+  $condiciones$;
+END
+$seed$;

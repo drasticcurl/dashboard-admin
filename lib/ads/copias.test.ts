@@ -198,7 +198,7 @@ describe('Escritor_Copias — ejemplos (R10 c7, c8, c14, R17 c10)', () => {
 
   it('más de 50 sub-peticiones parten en llamadas sucesivas (R10 c7)', async () => {
     let batches = 0;
-    let pedidosDeEsteBatch: number[] = [];
+    let pedidosDeEsteBatch: string[] = [];
     const pendientes: string[] = [];
     mockPostForm.mockImplementation(async (url, _acc, campos) => {
       if (url.endsWith('/async_batch_requests')) {

@@ -12,6 +12,7 @@
  */
 
 import { q, q1 } from '../../db';
+import { TZ_DEFAULT } from '../zona';
 import type { Condicion, NivelAds, Regla } from '../tipos';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -23,7 +24,7 @@ type FilaRegla = {
   name: string;
   enabled: boolean;
   dry_run: boolean;
-  account_ids: string[];
+  account_id: string;
   level: string;
   status_filter: string;
   name_filter: string | null;
@@ -44,7 +45,7 @@ type FilaRegla = {
 };
 
 const SELECT_REGLA = `
-  SELECT id, name, enabled, dry_run, account_ids, level, status_filter,
+  SELECT id, name, enabled, dry_run, account_id, level, status_filter,
          name_filter, name_filter_mode, action, action_value, action_unit,
          budget_max, budget_min, period, metrics_level, every_minutes,
          window_start, window_end, max_runs_per_day, cooldown_minutes,
@@ -60,7 +61,7 @@ function mapearRegla(r: FilaRegla): Regla {
     name: r.name,
     enabled: r.enabled,
     dryRun: r.dry_run,
-    accountIds: r.account_ids,
+    accountId: r.account_id,
     level: r.level as Regla['level'],
     statusFilter: r.status_filter as Regla['statusFilter'],
     nameFilter: r.name_filter,
@@ -132,6 +133,20 @@ export async function reglaPorId(
  *
  * "Hoy" es el día del SERVIDOR (date_trunc('day', now())), no el de la cuenta
  * de Meta: es un freno operativo, no una métrica de negocio. No lo "arregles".
+ *
+ * Y ojo con la asimetría, que es deliberada y está aceptada: la Ventana_Horaria
+ * de una Regla se evalúa en la Zona_Cuenta (ejecutor.ts), mientras
+ * `max_runs_per_day` y `max_actions_per_object_per_day` se cuentan contra el día
+ * del servidor. Los dos días empiezan en instantes distintos.
+ *
+ * El caso concreto: «Activar todas a las 0 horas a ver como rinden» tiene
+ * ventana 00:00-00:59 en la Zona_Cuenta y max_runs_per_day = 1. Con la cuenta en
+ * America/Argentina/Buenos_Aires y el servidor en otra zona, la corrida de la
+ * medianoche de la cuenta puede caer del otro lado del cambio de día del
+ * servidor, y el cupo diario se cuenta contra el día equivocado. Queda FUERA DE
+ * ALCANCE de esta versión (Requisito 12): moverlo obliga a pasar la zona a dos
+ * consultas de lote que no la conocen y a decidir qué pasa con las filas de
+ * `ad_actions` con account_id = '*'.
  *
  * `sinCerrar` sale de la misma consulta: si hay una fila 'pendiente' o
  * 'indeterminado' para el objeto, no se decide sobre él hasta reconciliar
@@ -377,25 +392,43 @@ export async function interruptores(): Promise<{
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Zona horaria del alcance de la regla (para la ventana horaria de debeCorrer)
+// Zona horaria de la cuenta de la regla (para la ventana horaria de debeCorrer)
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Las zonas horarias de las cuentas que alcanza una regla, ya resueltas desde
- * `ad_accounts` (sin llamar a Meta). `accountIds` vacío = todas las cuentas
- * activas. Devuelve las zonas DISTINTAS: si hay más de una, la regla va a
- * omitirse con 'zonas_horarias_mezcladas' cuando `getMetricasAds` tire.
+ * La Zona_Cuenta de UNA cuenta, con el MISMO `COALESCE(timezone, TZ_DEFAULT)`
+ * que aplica `getMetricasAds` (R6 c3). Reemplaza a `zonasDeCuentas`, que
+ * filtraba `timezone IS NOT NULL` y por eso podía ver una sola zona donde el
+ * lector de métricas veía dos.
+ *
+ * Se llama UNA vez por Corrida, no una por objeto (R5 c7).
+ *
+ * `activa` es `active AND platform = 'meta'`: la Regla tiene FK a `ad_accounts`,
+ * así que la fila existe siempre; lo que puede pasar es que la cuenta se haya
+ * desactivado. `null` = la fila no existe (defensivo: el FK lo impide).
  */
-export async function zonasDeCuentas(accountIds: string[]): Promise<string[]> {
-  const filas = await q<{ timezone: string }>(
-    `SELECT DISTINCT timezone
+export async function zonaDeCuenta(
+  accountId: string,
+): Promise<{ timezone: string; activa: boolean } | null> {
+  const r = await q1<{ timezone: string; activa: boolean }>(
+    `SELECT COALESCE(timezone, $2) AS timezone,
+            (active AND platform = 'meta') AS activa
+       FROM ad_accounts
+      WHERE account_id = $1`,
+    [accountId, TZ_DEFAULT],
+  );
+  return r ?? null;
+}
+
+/** Los ids de las Cuenta_Activa, para armar un Acumulador_Delta por cada una. */
+export async function cuentasActivas(): Promise<string[]> {
+  const filas = await q<{ account_id: string }>(
+    `SELECT account_id
        FROM ad_accounts
       WHERE active AND platform = 'meta'
-        AND ($1::text[] = '{}'::text[] OR account_id = ANY($1))
-        AND timezone IS NOT NULL`,
-    [accountIds],
+      ORDER BY account_id`,
   );
-  return filas.map((f) => f.timezone);
+  return filas.map((f) => f.account_id);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

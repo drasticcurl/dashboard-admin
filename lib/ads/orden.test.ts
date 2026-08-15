@@ -85,9 +85,9 @@ describe('comparadorOrden (R4 c6, c7)', () => {
   const c = fila('c');
 
   it('los nulos van al final en las DOS direcciones', () => {
-    const conNull = fila('n', { ventas: 0, spendEur: 5 });
-    const sinNull = { ...b, ventas: 10 };
-    const nulo = { ...c, ventas: null as unknown as number };
+    const conNull = fila('n', { sales: 0, spendEur: 5 });
+    const sinNull = { ...b, sales: 10 };
+    const nulo = { ...c, sales: null as unknown as number };
 
     for (const dir of ['asc', 'desc'] as const) {
       const cmp = comparadorOrden('ventas', dir);

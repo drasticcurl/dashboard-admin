@@ -54,7 +54,7 @@ function regla(overrides: Partial<Regla> = {}): Regla {
     name: 'regla de prueba',
     enabled: true,
     dryRun: false,
-    accountIds: [],
+    accountId: 'act_1234567',
     level: 'adset',
     statusFilter: 'active',
     nameFilter: null,
@@ -177,5 +177,20 @@ describe('explicacion', () => {
   it('formatearEur usa coma decimal es-AR y sin espacio', () => {
     expect(formatearEur(4.37)).toBe('€4,37');
     expect(formatearEur(1234.56)).toBe('€1.234,56');
+  });
+
+  it('el motivo deprecado zonas_horarias_mezcladas conserva su etiqueta en castellano', () => {
+    // El valor sigue declarado en MotivoOmision (con @deprecated) porque el
+    // historial viejo se tiene que seguir leyendo: una fila con ese
+    // skipped_reason muestra este texto, no "motivo no contemplado".
+    const texto = explicar(
+      regla(),
+      condiciones,
+      fila(),
+      decision('zonas_horarias_mezcladas'),
+      false,
+    );
+    expect(texto).toContain('zonas horarias distintas');
+    expect(texto).not.toContain('motivo no contemplado');
   });
 });

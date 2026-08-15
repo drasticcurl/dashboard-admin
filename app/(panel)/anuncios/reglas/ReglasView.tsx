@@ -17,6 +17,7 @@ import { useCallback, useState } from 'react';
 import type { Condicion, NivelAds, PeriodoAds } from '@/lib/ads/tipos';
 import type { ResultadoCorrida } from '@/lib/ads/reglas/ejecutor';
 import type { CuentaAds, EstadoInterruptores, ReglaFila } from './_tipos';
+import { nombreDeCopia } from './_nombres';
 import { Badge, Banner, Card, EmptyState, Table, fmtDateTime } from '@/components/ui';
 import type { Tone } from '@/components/ui';
 
@@ -164,7 +165,7 @@ type CondicionDraft = { metric: Condicion['metric']; op: Condicion['op']; value:
 
 type FormEstado = {
   name: string;
-  accountIds: string[];
+  accountId: string;
   level: NivelAds;
   statusFilter: StatusFilter;
   nameFilter: string;
@@ -184,10 +185,10 @@ type FormEstado = {
   conditions: CondicionDraft[];
 };
 
-function formVacio(): FormEstado {
+function formVacio(accountId = ''): FormEstado {
   return {
     name: '',
-    accountIds: [],
+    accountId,
     level: 'adset',
     statusFilter: 'active',
     nameFilter: '',
@@ -211,7 +212,7 @@ function formVacio(): FormEstado {
 function formDeRegla(r: ReglaFila): FormEstado {
   return {
     name: r.name,
-    accountIds: r.accountIds,
+    accountId: r.accountId,
     level: r.level,
     statusFilter: r.statusFilter,
     nameFilter: r.nameFilter ?? '',
@@ -260,8 +261,11 @@ function previewFactor(f: FormEstado): string {
 }
 
 // Validación client-side de lo mismo que valida la base (task §4.5): el usuario
-// no tiene que descubrir los CHECK por un 400.
-function problema(f: FormEstado): string | null {
+// no tiene que descubrir los CHECK por un 400. Exportada para los tests (9.6).
+export function problema(f: FormEstado): string | null {
+  // R8 c4: la cuenta es obligatoria; el botón de guardar queda deshabilitado
+  // hasta que el selector tenga un valor.
+  if (!f.accountId) return 'Falta la cuenta de anuncios.';
   if (!esPresupuesto(f.action)) return null;
   const v = f.actionValue === '' ? null : Number(f.actionValue);
   if (v == null || v <= 0) return 'Falta el valor de la acción.';
@@ -280,12 +284,28 @@ function problema(f: FormEstado): string | null {
   return null;
 }
 
+/**
+ * R8 c6: el alcance de una Regla se describe nombrando ESA cuenta y su zona,
+ * nunca con una cantidad ("N cuentas") ni con la leyenda de todas las activas.
+ * Exportada para los tests (9.6). Si la cuenta no está entre las activas (se
+ * desactivó después de que la regla se creara), queda el id como nombre.
+ */
+export function aplicadoA(
+  r: { accountId: string; level: NivelAds; statusFilter: StatusFilter },
+  cuentas: readonly CuentaAds[],
+): string {
+  const cuenta = cuentas.find((c) => c.accountId === r.accountId);
+  const nombre = cuenta ? (cuenta.name ?? cuenta.accountId) : r.accountId;
+  const zona = cuenta ? ` · ${cuenta.timezone}` : '';
+  return `${NIVEL_LABEL[r.level]} ${STATUS_LABEL[r.statusFilter]} · ${nombre}${zona}`;
+}
+
 function payloadDeForm(f: FormEstado, id?: number): Record<string, unknown> {
   const ep = esPresupuesto(f.action);
   return {
     id,
     name: f.name.trim(),
-    accountIds: f.accountIds,
+    accountId: f.accountId,
     level: f.level,
     statusFilter: f.statusFilter,
     nameFilter: f.nameFilter.trim() || null,
@@ -310,7 +330,7 @@ function payloadDeRegla(r: ReglaFila, over: { enabled?: boolean; dryRun?: boolea
   return {
     id: r.id,
     name: r.name,
-    accountIds: r.accountIds,
+    accountId: r.accountId,
     level: r.level,
     statusFilter: r.statusFilter,
     nameFilter: r.nameFilter,
@@ -349,6 +369,8 @@ export function ReglasView({
   const [busy, setBusy] = useState(false);
   const [editando, setEditando] = useState<ReglaFila | null>(null);
   const [nueva, setNueva] = useState(false);
+  // La cuenta que deja preseleccionada el botón "Nueva regla en esta cuenta".
+  const [nuevaEnCuenta, setNuevaEnCuenta] = useState<string | null>(null);
   const [duplicando, setDuplicando] = useState<ReglaFila | null>(null);
   const [confirmar, setConfirmar] = useState<{ regla: ReglaFila; resultado: ResultadoCorrida; texto: string } | null>(null);
   const [corrida, setCorrida] = useState<{ regla: ReglaFila; resultado: ResultadoCorrida } | null>(null);
@@ -450,9 +472,27 @@ export function ReglasView({
 
   function duplicar(r: ReglaFila) {
     setNueva(false);
+    setNuevaEnCuenta(null);
     setEditando(null);
-    // El nombre se copia con sufijo porque `ad_rules.name` es único.
-    setDuplicando({ ...r, id: r.id, name: `${r.name} (copia)` });
+    // El único es (account_id, name) desde la 021: el nombre que no colisiona
+    // se busca entre los nombres de ESA cuenta (R8 c8), y la copia queda en la
+    // misma cuenta.
+    const nombre = nombreDeCopia(r.name, reglas.filter((x) => x.accountId === r.accountId).map((x) => x.name));
+    setDuplicando({ ...r, name: nombre });
+  }
+
+  function abrirNuevaEnCuenta(accountId: string) {
+    setNueva(true);
+    setNuevaEnCuenta(accountId);
+    setEditando(null);
+    setDuplicando(null);
+  }
+
+  function cerrarFormulario() {
+    setNueva(false);
+    setNuevaEnCuenta(null);
+    setEditando(null);
+    setDuplicando(null);
   }
 
   async function guardar(payload: Record<string, unknown>, id?: number) {
@@ -460,9 +500,7 @@ export function ReglasView({
     try {
       await api('/api/ads/reglas', { method: 'POST', body: JSON.stringify(payload) });
       await refrescar();
-      setNueva(false);
-      setEditando(null);
-      setDuplicando(null);
+      cerrarFormulario();
       show('good', id ? 'Regla guardada' : 'Regla creada — nace apagada y en modo simulación');
     } catch (e) {
       show('bad', (e as Error).message);
@@ -488,15 +526,26 @@ export function ReglasView({
     return `${a} · si ${cond}`;
   };
 
-  const aplicadoA = (r: ReglaFila): string =>
-    `${NIVEL_LABEL[r.level]} ${STATUS_LABEL[r.statusFilter]} · ${
-      r.accountIds.length ? `${r.accountIds.length} cuenta${r.accountIds.length === 1 ? '' : 's'}` : 'todas las cuentas'
-    }`;
-
   const frecuencia = (r: ReglaFila): string =>
     `${frecuenciaLabel(r.everyMinutes)} · ${PERIODO_LABEL[r.period]}${
       r.windowStart && r.windowEnd ? ` · ${r.windowStart}-${r.windowEnd}` : ''
     }`;
+
+  // ── La lista agrupada por cuenta (R8 c5): una sección por Cuenta_Activa, con
+  //    el nombre y la zona en el encabezado y su botón "Nueva regla en esta
+  //    cuenta" (R8 c7). Las reglas cuya cuenta ya no está activa van al final,
+  //    agrupadas por su id. ───────────────────────────────────────────────────
+  const grupos: { accountId: string; encabezado: string; reglas: ReglaFila[] }[] = [];
+  const idsConGrupo = new Set<string>();
+  for (const c of cuentas) {
+    const encabezado = `${c.name ?? c.accountId} · ${c.timezone}`;
+    const de = reglas.filter((r) => r.accountId === c.accountId);
+    idsConGrupo.add(c.accountId);
+    grupos.push({ accountId: c.accountId, encabezado, reglas: de });
+  }
+  for (const id of Array.from(new Set(reglas.filter((r) => !idsConGrupo.has(r.accountId)).map((r) => r.accountId)))) {
+    grupos.push({ accountId: id, encabezado: id, reglas: reglas.filter((r) => r.accountId === id) });
+  }
 
   return (
     <div className="space-y-4">
@@ -554,90 +603,126 @@ export function ReglasView({
         title={`Reglas · ${reglas.length}`}
         hint="El switch de modo sombra por fila y los dos interruptores globales de arriba son los cuatro controles del módulo: ninguno es una variable de entorno."
       >
-        {reglas.length === 0 ? (
-          <EmptyState title="Todavía no hay reglas" hint="Creá la primera con «Nueva regla»." />
+        {cuentas.length === 0 ? (
+          // Sin Cuenta_Activa cargada no se puede crear ninguna regla: el API y
+          // la base la rechazan. En lugar de un formulario que va a fallar, el
+          // estado vacío apunta a donde se cargan las cuentas.
+          <div className="flex flex-col items-center gap-1 py-10 text-center">
+            <p className="text-sm font-medium text-neutral-300">No hay cuentas publicitarias activas</p>
+            <p className="text-xs text-neutral-500">
+              Cargá las cuentas en{' '}
+              <a href="/config?s=publicidad" className="underline underline-offset-2">
+                Config → Publicidad
+              </a>
+              : sin una cuenta activa no se puede crear ninguna regla.
+            </p>
+          </div>
         ) : (
-          <Table
-            rows={reglas}
-            columns={[
-              {
-                key: 'enabled',
-                header: 'Estado',
-                render: (r) => (
-                  <Switch checked={r.enabled} disabled={busy} label={`Prender ${r.name}`} onChange={(v) => actualizarRegla(r, { enabled: v })} />
-                ),
-              },
-              {
-                key: 'modo',
-                header: 'Modo',
-                render: (r) =>
-                  r.dryRun ? <Badge tone="info">SOMBRA</Badge> : <Badge tone="warn">ACTIVA</Badge>,
-              },
-              {
-                key: 'nombre',
-                header: 'Nombre',
-                render: (r) => (
-                  <span className="font-medium text-neutral-100">
-                    {r.name}
-                    {r.condiciones.length === 0 && (
-                      <span className="ml-2">
-                        <Badge tone="bad">sin condiciones: se aplica a todo</Badge>
-                      </span>
-                    )}
-                  </span>
-                ),
-              },
-              { key: 'aplicado', header: 'Aplicado a', render: (r) => <span className="text-neutral-300">{aplicadoA(r)}</span> },
-              { key: 'accion', header: 'Acción y condición', render: (r) => <span className="text-neutral-300">{accionDe(r)}</span> },
-              { key: 'frecuencia', header: 'Frecuencia y período', render: (r) => <span className="text-neutral-300">{frecuencia(r)}</span> },
-              {
-                key: 'ultima',
-                header: 'Última corrida',
-                render: (r) =>
-                  r.lastRunError ? (
-                    <Badge tone="bad">{r.lastRunError.slice(0, 32)}</Badge>
-                  ) : r.lastRunAt ? (
-                    <span className="text-neutral-400">{fmtDateTime(r.lastRunAt)}</span>
-                  ) : (
-                    <Badge tone="neutral">nunca</Badge>
-                  ),
-              },
-              {
-                key: 'acciones',
-                header: '',
-                align: 'right',
-                render: (r) => (
-                  <span className="flex justify-end gap-2">
-                    <button type="button" className={btnGhost} disabled={busy} onClick={() => { setEditando(r); setNueva(false); setDuplicando(null); }}>
-                      Editar
-                    </button>
-                    <button type="button" className={btnGhost} disabled={busy} onClick={() => correrAhora(r)}>
-                      Correr ahora
-                    </button>
-                    <button
-                      type="button"
-                      className={btnGhost}
-                      disabled={busy}
-                      title="Prender el modo sombra da permiso a la regla para tocar Meta cuando esté habilitada"
-                      onClick={() => (r.dryRun ? pedirActivarReal(r) : actualizarRegla(r, { dryRun: true }))}
-                    >
-                      {r.dryRun ? 'Activar' : 'Volver a sombra'}
-                    </button>
-                    <button type="button" className={btnGhost} disabled={busy} onClick={() => duplicar(r)}>
-                      Duplicar
-                    </button>
-                    <button type="button" className={btnDanger} disabled={busy} onClick={() => borrar(r)}>
-                      Borrar
-                    </button>
-                  </span>
-                ),
-              },
-            ]}
-          />
+          <>
+            {reglas.length === 0 && (
+              <EmptyState title="Todavía no hay reglas" hint="Creá la primera con «Nueva regla en esta cuenta»." />
+            )}
+            {grupos.map((g) => (
+              <div key={g.accountId} className="mt-4 first:mt-0">
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-neutral-400">{g.encabezado}</h3>
+                  <button
+                    type="button"
+                    className={btnGhost}
+                    disabled={busy}
+                    onClick={() => abrirNuevaEnCuenta(g.accountId)}
+                  >
+                    Nueva regla en esta cuenta
+                  </button>
+                </div>
+                {g.reglas.length === 0 ? (
+                  <p className="py-2 text-xs text-neutral-500">Sin reglas en esta cuenta.</p>
+                ) : (
+                  <Table
+                    rows={g.reglas}
+                    columns={[
+                      {
+                        key: 'enabled',
+                        header: 'Estado',
+                        render: (r) => (
+                          <Switch checked={r.enabled} disabled={busy} label={`Prender ${r.name}`} onChange={(v) => actualizarRegla(r, { enabled: v })} />
+                        ),
+                      },
+                      {
+                        key: 'modo',
+                        header: 'Modo',
+                        render: (r) =>
+                          r.dryRun ? <Badge tone="info">SOMBRA</Badge> : <Badge tone="warn">ACTIVA</Badge>,
+                      },
+                      {
+                        key: 'nombre',
+                        header: 'Nombre',
+                        render: (r) => (
+                          <span className="font-medium text-neutral-100">
+                            {r.name}
+                            {r.condiciones.length === 0 && (
+                              <span className="ml-2">
+                                <Badge tone="bad">sin condiciones: se aplica a todo</Badge>
+                              </span>
+                            )}
+                          </span>
+                        ),
+                      },
+                      { key: 'aplicado', header: 'Aplicado a', render: (r) => <span className="text-neutral-300">{aplicadoA(r, cuentas)}</span> },
+                      { key: 'accion', header: 'Acción y condición', render: (r) => <span className="text-neutral-300">{accionDe(r)}</span> },
+                      { key: 'frecuencia', header: 'Frecuencia y período', render: (r) => <span className="text-neutral-300">{frecuencia(r)}</span> },
+                      {
+                        key: 'ultima',
+                        header: 'Última corrida',
+                        render: (r) =>
+                          r.lastRunError ? (
+                            <Badge tone="bad">{r.lastRunError.slice(0, 32)}</Badge>
+                          ) : r.lastRunAt ? (
+                            <span className="text-neutral-400">{fmtDateTime(r.lastRunAt)}</span>
+                          ) : (
+                            <Badge tone="neutral">nunca</Badge>
+                          ),
+                      },
+                      {
+                        key: 'acciones',
+                        header: '',
+                        align: 'right',
+                        render: (r) => (
+                          <span className="flex justify-end gap-2">
+                            <button type="button" className={btnGhost} disabled={busy} onClick={() => { setEditando(r); setNueva(false); setNuevaEnCuenta(null); setDuplicando(null); }}>
+                              Editar
+                            </button>
+                            <button type="button" className={btnGhost} disabled={busy} onClick={() => correrAhora(r)}>
+                              Correr ahora
+                            </button>
+                            <button
+                              type="button"
+                              className={btnGhost}
+                              disabled={busy}
+                              title="Prender el modo sombra da permiso a la regla para tocar Meta cuando esté habilitada"
+                              onClick={() => (r.dryRun ? pedirActivarReal(r) : actualizarRegla(r, { dryRun: true }))}
+                            >
+                              {r.dryRun ? 'Activar' : 'Volver a sombra'}
+                            </button>
+                            <button type="button" className={btnGhost} disabled={busy} onClick={() => duplicar(r)}>
+                              Duplicar
+                            </button>
+                            <button type="button" className={btnDanger} disabled={busy} onClick={() => borrar(r)}>
+                              Borrar
+                            </button>
+                          </span>
+                        ),
+                      },
+                    ]}
+                  />
+                )}
+              </div>
+            ))}
+          </>
         )}
 
-        {!nueva && !editando && !duplicando && (
-          <button type="button" className={`${btnPrimary} mt-4`} onClick={() => { setNueva(true); setEditando(null); setDuplicando(null); }}>
+        {!nueva && !editando && !duplicando && cuentas.length > 0 && (
+          <button type="button" className={`${btnPrimary} mt-4`} onClick={() => abrirNuevaEnCuenta(cuentas[0]?.accountId ?? '')}>
             Nueva regla
           </button>
         )}
@@ -648,9 +733,9 @@ export function ReglasView({
         <FormularioRegla
           cuentas={cuentas}
           maxDailyBudgetEur={sw.maxDailyBudgetEur}
-          inicial={editando ? formDeRegla(editando) : duplicando ? formDeRegla(duplicando) : formVacio()}
+          inicial={editando ? formDeRegla(editando) : duplicando ? formDeRegla(duplicando) : formVacio(nuevaEnCuenta ?? '')}
           editId={editando?.id}
-          onCancel={() => { setNueva(false); setEditando(null); setDuplicando(null); }}
+          onCancel={cerrarFormulario}
           onSave={guardar}
         />
       )}
@@ -806,29 +891,18 @@ function FormularioRegla({
           <input className={inputCls} value={f.name} onChange={(e) => set({ name: e.target.value })} placeholder="Apagar - Gasto +$10" />
         </label>
 
-        <div className="flex flex-col gap-1 text-xs text-neutral-500">
-          <span>Cuentas de anuncios</span>
-          <div className="flex flex-wrap gap-2">
+        <label className="flex flex-col gap-1 text-xs text-neutral-500">
+          Cuenta de anuncios
+          <select className={inputCls} value={f.accountId} onChange={(e) => set({ accountId: e.target.value })}>
+            <option value="">— elegí una cuenta —</option>
             {cuentas.map((c) => (
-              <label key={c.accountId} className="flex items-center gap-1 text-xs text-neutral-300">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 accent-good-500"
-                  checked={f.accountIds.includes(c.accountId)}
-                  onChange={(e) =>
-                    set({
-                      accountIds: e.target.checked
-                        ? [...f.accountIds, c.accountId]
-                        : f.accountIds.filter((id) => id !== c.accountId),
-                    })
-                  }
-                />
-                {c.name ?? c.accountId}
-              </label>
+              <option key={c.accountId} value={c.accountId}>
+                {c.name ?? c.accountId} — {c.timezone}
+              </option>
             ))}
-          </div>
-          <span className="text-[11px] text-neutral-600">Sin selección = todas las cuentas activas.</span>
-        </div>
+          </select>
+          <span className="text-[11px] text-neutral-600">La ventana horaria se evalúa en la zona de esta cuenta.</span>
+        </label>
 
         <div className="grid grid-cols-2 gap-2">
           <label className="flex flex-col gap-1 text-xs text-neutral-500">
@@ -1066,7 +1140,7 @@ function FormularioRegla({
         <button
           type="button"
           className={btnPrimary}
-          disabled={!f.name.trim() || prob !== null}
+          disabled={!f.name.trim() || !f.accountId || prob !== null}
           onClick={() => onSave(payloadDeForm(f, editId), editId)}
         >
           {editId ? 'Guardar cambios' : 'Crear regla'}

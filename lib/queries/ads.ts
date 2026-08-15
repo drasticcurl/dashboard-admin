@@ -31,6 +31,7 @@
 import { q, q1 } from '@/lib/db';
 import { SQL_VIGENTE } from '@/lib/ads/jerarquia';
 import { esClaveOrden, ORDEN_SQL } from '@/lib/ads/orden';
+import { TZ_DEFAULT } from '@/lib/ads/zona';
 import type {
   ClaveOrden,
   FiltrosAds,
@@ -39,14 +40,6 @@ import type {
   PeriodoAds,
   ResultadoMetricas,
 } from '@/lib/ads/tipos';
-
-/**
- * Default explícito cuando `ad_accounts.timezone` está en NULL (P-A03): no se
- * asume UTC en silencio. Es el mismo default que usa la verificación de T15 §8
- * (`coalesce(timezone,'Europe/Lisbon')`) y se devuelve en `rango.timezone` para
- * que la UI lo muestre.
- */
-const TZ_DEFAULT = 'Europe/Lisbon';
 
 /** Tope de filas por página (default y máximo del contrato §4). */
 const LIMIT_DEFAULT = 500;

@@ -11,6 +11,7 @@
  */
 
 import { q } from '@/lib/db';
+import { TZ_DEFAULT } from '@/lib/ads/zona';
 import type { Condicion, Regla } from '@/lib/ads/tipos';
 import type { CuentaAds, EstadoInterruptores, ReglaFila } from './_tipos';
 
@@ -23,7 +24,7 @@ type FilaReglaRaw = {
   name: string;
   enabled: boolean;
   dry_run: boolean;
-  account_ids: string[];
+  account_id: string;
   level: string;
   status_filter: string;
   name_filter: string | null;
@@ -53,14 +54,14 @@ const iso = (d: Date | null): string | null => (d ? d.toISOString() : null);
 export async function listarReglas(): Promise<ReglaFila[]> {
   const [filas, condiciones] = await Promise.all([
     q<FilaReglaRaw>(
-      `SELECT id, name, enabled, dry_run, account_ids, level, status_filter,
+      `SELECT id, name, enabled, dry_run, account_id, level, status_filter,
               name_filter, name_filter_mode, action, action_value, action_unit,
               budget_max, budget_min, period, metrics_level, every_minutes,
               window_start, window_end, max_runs_per_day, cooldown_minutes,
               max_actions_per_object_per_day, created_at, updated_at,
               last_run_at, last_run_error
          FROM ad_rules
-        ORDER BY id`,
+        ORDER BY account_id, name, id`,
     ),
     q<{ rule_id: number; metric: string; op: string; value: string }>(
       `SELECT rule_id, metric, op, value FROM ad_rule_conditions ORDER BY rule_id, position`,
@@ -83,7 +84,7 @@ export async function listarReglas(): Promise<ReglaFila[]> {
     name: f.name,
     enabled: f.enabled,
     dryRun: f.dry_run,
-    accountIds: f.account_ids,
+    accountId: f.account_id,
     level: f.level as Regla['level'],
     statusFilter: f.status_filter as Regla['statusFilter'],
     nameFilter: f.name_filter,
@@ -111,10 +112,11 @@ export async function listarReglas(): Promise<ReglaFila[]> {
 
 export async function listarCuentas(): Promise<CuentaAds[]> {
   return q<CuentaAds>(
-    `SELECT account_id AS "accountId", name
+    `SELECT account_id AS "accountId", name, COALESCE(timezone, $1) AS timezone
        FROM ad_accounts
       WHERE active AND platform = 'meta'
-      ORDER BY account_id`,
+      ORDER BY name NULLS LAST, account_id`,
+    [TZ_DEFAULT],
   );
 }
 

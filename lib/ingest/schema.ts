@@ -74,10 +74,35 @@ const contextSchema = z.object({
   path: z.string().optional(),
 });
 
+// Charset de `experiment`. El largo solo NO alcanza: 'a\u0000b' mide 3 y pasaba
+// el .max(32), y después Postgres rechaza el INSERT con 22021
+// (report_invalid_encoding: un texto no puede contener el byte NUL), así que el
+// LOTE ENTERO terminaba en 500 en vez de rechazarse limpio con 400.
+//
+// `experiment` es un token cerrado del funnel (los valores reales son 'A' y
+// 'B'), no texto libre: se acota a alfanumérico, guion y guion bajo, más letras
+// latinas acentuadas (U+00C0–U+024F) para no romper una etiqueta con tilde.
+// La clase se escribe con rangos explícitos y sin la bandera `u`: el tsconfig no
+// declara `target`, así que `\p{L}` no compila.
+// El `*` y no `+` es a propósito: la cadena vacía se sigue aceptando, igual que
+// antes del cambio.
+const EXPERIMENT_CHARSET = /^[A-Za-z0-9_\-\u00C0-\u024F]*$/;
+
 export const ingestPayloadSchema = z.object({
   sessionId: z.string().uuid(),
   visitorId: z.string().uuid(),
   variant: z.string().max(32).default('default'),
+  // Dimensión del experimento A/B del pop-up. Sin `.default()`: la ausencia
+  // tiene que llegar como `undefined` hasta la columna, para que el COALESCE
+  // del upsert distinga "no vino" de "vino algo".
+  experiment: z
+    .string()
+    .max(32)
+    .regex(
+      EXPERIMENT_CHARSET,
+      'experiment solo acepta letras, números, guion y guion bajo (es un token, no texto libre)',
+    )
+    .optional(),
   events: z.array(eventSchema).min(1).max(50),
   context: contextSchema.optional(),
 });
@@ -138,6 +163,9 @@ export function parseIngestPayload(raw: unknown): IngestParseResult {
       sessionId: parsed.sessionId,
       visitorId: parsed.visitorId,
       variant: parsed.variant,
+      // El experimento es un token cerrado del funnel, no una UTM: se pasa tal
+      // cual, sin cleanUtmValue (que lo normalizaría como campaña).
+      experiment: parsed.experiment,
       events,
       context,
     },

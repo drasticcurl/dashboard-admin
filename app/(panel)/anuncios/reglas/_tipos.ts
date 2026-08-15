@@ -22,6 +22,11 @@ export type ReglaFila = Regla & {
 export type CuentaAds = {
   accountId: string;
   name: string | null;
+  /**
+   * La Zona_Cuenta ya resuelta: `COALESCE(timezone, TZ_DEFAULT)`. Nunca null:
+   * la pantalla tiene que poder decir a qué hora va a correr la regla.
+   */
+  timezone: string;
 };
 
 /**

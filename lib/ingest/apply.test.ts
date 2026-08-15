@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { NextRequest } from 'next/server';
 import { POST } from '../../app/api/ingest/route';
@@ -16,10 +17,57 @@ import { parseIngestPayload } from './schema';
  */
 const dbAvailable = Boolean(process.env.DATABASE_URL);
 
+// Guarda de schema-probe (spec ab-test-popup-descuento): el upsert y el
+// FUNNEL_SELECT ahora referencian `sessions.experiment` y
+// `funnels.experiments`, que solo existen con la migración 020 aplicada (paso
+// 0 manual del usuario). Sin las columnas, toda la suite se salta con un
+// mensaje claro en vez de fallar con "column does not exist". Es la misma
+// filosofía que skipIf(!dbAvailable), pero el resultado se conoce recién
+// después de consultar la base.
+//
+// El probe es SOLO LECTURA de information_schema y corre en un subproceso
+// síncrono a propósito: top-level await acá rompería `next build`, cuyo
+// typecheck usa el target por defecto (ES5, sin top-level await).
+const schemaReady = dbAvailable && probeEsquema('[apply.test.ts]');
+if (dbAvailable && !schemaReady) {
+  console.warn(
+    '[apply.test.ts] schema-probe: falta sessions.experiment o funnels.experiments ' +
+      '(migración 020 sin aplicar en esta base): se salta toda la suite contra la base',
+  );
+}
+
+/**
+ * ¿Las columnas de la migración 020 existen en la base de DATABASE_URL?
+ * Fallo de conexión ⇒ false ⇒ la suite se salta. Duplicada a propósito en los
+ * archivos de test que la necesitan (los tests son self-contained).
+ */
+function probeEsquema(tag: string): boolean {
+  try {
+    const out = execFileSync(
+      'node',
+      [
+        '-e',
+        `const {Client}=require('pg');
+const c=new Client({connectionString:process.argv[1]});
+c.connect()
+  .then(()=>c.query("SELECT count(*)::int AS n FROM information_schema.columns WHERE (table_name='sessions' AND column_name='experiment') OR (table_name='funnels' AND column_name='experiments')"))
+  .then((r)=>c.end().then(()=>process.stdout.write(r.rows[0].n===2?'1':'0')))
+  .catch(()=>{try{c.end()}catch(_){};process.stdout.write('0');});`,
+        process.env.DATABASE_URL!,
+      ],
+      { stdio: ['ignore', 'pipe', 'ignore'], timeout: 10_000 },
+    );
+    return out.toString().trim() === '1';
+  } catch (err) {
+    console.warn(`${tag} schema-probe falló, se salta la suite:`, err instanceof Error ? err.message : err);
+    return false;
+  }
+}
+
 const SESSION_COLS = `id, funnel_id, visitor_id, variant, day::text AS day, started_at, last_seen_at,
   max_step_index, sales_view_at, checkout_click_at, purchased_at, upsell_view_at, upsell_click_at,
   downsell_view_at, utm_source, utm_medium, utm_campaign, utm_content, utm_term, fbclid, country,
-  device, referrer_host, landing_path`;
+  device, referrer_host, landing_path, experiment`;
 
 type SessionRow = {
   id: string;
@@ -46,9 +94,10 @@ type SessionRow = {
   device: string | null;
   referrer_host: string | null;
   landing_path: string | null;
+  experiment: string | null;
 };
 
-describe.skipIf(!dbAvailable)('ingest (integración)', () => {
+describe.skipIf(!(dbAvailable && schemaReady))('ingest (integración)', () => {
   let funnel: Funnel;
   let resetFunnel: Funnel;
   let errorsBaseline = 0;
@@ -296,6 +345,30 @@ describe.skipIf(!dbAvailable)('ingest (integración)', () => {
       const s = (await readSession(sid))!;
       expect(s.funnel_id).toBe(funnel.id);
       const e = await q1('SELECT funnel_id FROM events WHERE session_id = $1 AND name = \'sales_view\'', [sid]);
+      expect(e!.funnel_id).toBe(resetFunnel.id);
+    });
+
+    it('session_funnel_mismatch con experiment presente → la dimensión original no se sobrescribe (task 1.7)', async () => {
+      const sid = randomUUID();
+      createdSids.push(sid);
+      // La sesión original nace con la dimensión A en su funnel.
+      await applyBatch(
+        funnel,
+        makePayload([ev('step_view', '2026-08-11T03:00:00.000Z', { stepIndex: 3 })], { experiment: 'A' }, sid),
+      );
+      // Un lote cruzado trae OTRA dimensión: el DO UPDATE no matchea
+      // (WHERE sessions.funnel_id = $2), así que el COALESCE ni se evalúa y la
+      // dimensión de la sesión original no se toca.
+      const res = await applyBatch(
+        resetFunnel,
+        makePayload([ev('sales_view', '2026-08-11T04:00:00.000Z')], { variant: 'default', experiment: 'B' }, sid),
+      );
+      expect(res.warnings).toEqual(['session_funnel_mismatch']);
+      const s = (await readSession(sid))!;
+      expect(s.funnel_id).toBe(funnel.id);
+      expect(s.experiment).toBe('A');
+      // Los eventos del lote cruzado se insertan igual, con su propio funnel.
+      const e = await q1('SELECT funnel_id, variant FROM events WHERE session_id = $1 AND name = \'sales_view\'', [sid]);
       expect(e!.funnel_id).toBe(resetFunnel.id);
     });
 

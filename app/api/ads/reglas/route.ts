@@ -19,7 +19,7 @@
 
 import type { NextRequest } from 'next/server';
 import { z } from 'zod';
-import { q, tx } from '@/lib/db';
+import { q, q1, tx } from '@/lib/db';
 import { guard, json } from '@/app/api/config/_lib';
 import { correrRegla } from '@/lib/ads/reglas/ejecutor';
 import { interruptores, reglaPorId } from '@/lib/ads/reglas/repo';
@@ -50,7 +50,20 @@ const reglaSchema = z
   .object({
     id: z.number().int().positive().optional(),
     name: z.string().trim().min(1, 'El nombre es obligatorio').max(200),
-    accountIds: z.array(z.string().min(1).max(64)).max(200).optional().default([]),
+    // `required_error`/`invalid_type_error` y no sólo `.min(1)`: el mensaje del
+    // `.min(1)` sólo dispara si el campo ESTÁ y viene vacío. Con el campo
+    // ausente zod emite su default ('Required') y el 400 no nombraba el campo
+    // que falta, que es lo que pide R9 c2. Los tres mensajes son el mismo a
+    // propósito: para quien manda el payload, "no vino", "vino null" y "vino
+    // vacío" son el mismo problema.
+    accountId: z
+      .string({
+        required_error: 'Falta la cuenta de anuncios',
+        invalid_type_error: 'Falta la cuenta de anuncios',
+      })
+      .trim()
+      .min(1, 'Falta la cuenta de anuncios')
+      .max(64, 'Falta la cuenta de anuncios'),
     level: z.enum(['campaign', 'adset', 'ad']),
     statusFilter: z.enum(['active', 'paused', 'any']).optional().default('active'),
     nameFilter: z.string().max(200).nullable().optional(),
@@ -168,6 +181,21 @@ const reglaSchema = z
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * R9 c3: la cuenta tiene que ser una Cuenta_Activa. Se chequea acá y no sólo en
+ * la base porque el FK diría "viola ad_rules_cuenta_fk" y no "act_x no existe o
+ * está inactiva", y porque el FK acepta cuentas inactivas (existen en la tabla).
+ */
+async function cuentaEsActiva(accountId: string): Promise<boolean> {
+  const cuenta = await q1<{ ok: boolean }>(
+    `SELECT (active AND platform = 'meta') AS ok
+       FROM ad_accounts
+      WHERE account_id = $1`,
+    [accountId],
+  );
+  return cuenta?.ok ?? false;
+}
+
 export async function GET(req: NextRequest): Promise<Response> {
   const denied = await guard(req);
   if (denied) return denied;
@@ -183,15 +211,34 @@ export async function POST(req: NextRequest): Promise<Response> {
   const preview = req.nextUrl.searchParams.get('preview') === '1';
 
   // ── preview: evaluar sin ejecutar, SIEMPRE en sombra (task §5.7) ──────────
-  // Sólo necesita el id de una regla guardada: es lo que llaman "correr ahora"
-  // y la confirmación de §3.2.
+  // Necesita el id de una regla guardada: es lo que llaman "correr ahora" y la
+  // confirmación de §3.2. Con `accountId` opcional corre sobre ESA cuenta sin
+  // guardar nada (sirve para preguntar "¿qué haría esta regla si la muevo a la
+  // otra cuenta?"); sin `accountId`, sobre la cuenta guardada de la Regla.
   if (preview) {
-    const parsedId = z.object({ id: z.number().int().positive() }).safeParse(await req.json().catch(() => null));
-    if (!parsedId.success) {
+    const parsedPreview = z
+      .object({
+        id: z.number().int().positive(),
+        accountId: z.string().trim().min(1).max(64).optional(),
+      })
+      .safeParse(await req.json().catch(() => null));
+    if (!parsedPreview.success) {
       return json(400, { ok: false, error: 'invalid_payload', detail: 'preview necesita el id de una regla' });
     }
-    const r = await reglaPorId(parsedId.data.id);
+    const r = await reglaPorId(parsedPreview.data.id);
     if (!r) return json(404, { ok: false, error: 'not_found' });
+
+    // El override de cuenta tiene que ser una Cuenta_Activa, igual que el POST
+    // normal: un preview sobre una cuenta inactiva no tiene zona con la que
+    // evaluar la ventana horaria.
+    const accountIdPreview = parsedPreview.data.accountId ?? null;
+    if (accountIdPreview !== null && !(await cuentaEsActiva(accountIdPreview))) {
+      return json(400, {
+        ok: false,
+        error: 'cuenta_invalida',
+        detail: `la cuenta ${accountIdPreview} no existe o no está activa`,
+      });
+    }
 
     // "Correr ahora" (o el preview de la confirmación) tiene que evaluar aunque
     // la regla esté apagada o el interruptor global esté en false: es justamente
@@ -200,7 +247,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     // NADA se escribe en Meta, pase lo que pase.
     const sw = await interruptores();
     const resultado = await correrRegla(
-      { regla: { ...r.regla, enabled: true }, condiciones: r.condiciones },
+      { regla: { ...r.regla, enabled: true, accountId: accountIdPreview ?? r.regla.accountId }, condiciones: r.condiciones },
       {
         forzarSombra: true,
         switches: {
@@ -223,6 +270,16 @@ export async function POST(req: NextRequest): Promise<Response> {
     });
   }
   const d = parsed.data;
+  // ── R9 c3: la cuenta tiene que existir y estar activa ANTES de la
+  //    transacción, para cortar con un mensaje que nombre el id y no con el
+  //    código del FK. ────────────────────────────────────────────────────────
+  if (!(await cuentaEsActiva(d.accountId))) {
+    return json(400, {
+      ok: false,
+      error: 'cuenta_invalida',
+      detail: `la cuenta ${d.accountId} no existe o no está activa`,
+    });
+  }
   // ── crear o actualizar en una transacción ─────────────────────────────────
   try {
     const ruleId = await tx(async (client) => {
@@ -243,7 +300,7 @@ export async function POST(req: NextRequest): Promise<Response> {
         // enabled/dryRun del payload. `metrics_level` se fija en 'object'.
         const res = await client.query(
           `INSERT INTO ad_rules
-             (name, enabled, dry_run, account_ids, level, status_filter, name_filter,
+             (name, enabled, dry_run, account_id, level, status_filter, name_filter,
               name_filter_mode, action, action_value, action_unit, budget_max, budget_min,
               period, metrics_level, every_minutes, window_start, window_end,
               max_runs_per_day, cooldown_minutes, max_actions_per_object_per_day)
@@ -251,7 +308,7 @@ export async function POST(req: NextRequest): Promise<Response> {
                    'object', $13, $14::time, $15::time, $16, $17, $18)
            RETURNING id`,
           [
-            d.name, d.accountIds, d.level, d.statusFilter, nameFilter, d.nameFilterMode,
+            d.name, d.accountId, d.level, d.statusFilter, nameFilter, d.nameFilterMode,
             d.action, actionValue, actionUnit, budgetMax, budgetMin, d.period,
             d.everyMinutes, windowStart, windowEnd, d.maxRunsPerDay,
             d.cooldownMinutes, d.maxActionsPerObjectPerDay,
@@ -263,7 +320,7 @@ export async function POST(req: NextRequest): Promise<Response> {
         // Si no vienen, se conservan.
         const res = await client.query(
           `UPDATE ad_rules SET
-             name = $2, account_ids = $3, level = $4, status_filter = $5,
+             name = $2, account_id = $3, level = $4, status_filter = $5,
              name_filter = $6, name_filter_mode = $7, action = $8, action_value = $9,
              action_unit = $10, budget_max = $11, budget_min = $12, period = $13,
              every_minutes = $14, window_start = $15::time, window_end = $16::time,
@@ -275,7 +332,7 @@ export async function POST(req: NextRequest): Promise<Response> {
            WHERE id = $1
            RETURNING id`,
           [
-            d.id, d.name, d.accountIds, d.level, d.statusFilter, nameFilter, d.nameFilterMode,
+            d.id, d.name, d.accountId, d.level, d.statusFilter, nameFilter, d.nameFilterMode,
             d.action, actionValue, actionUnit, budgetMax, budgetMin, d.period,
             d.everyMinutes, windowStart, windowEnd, d.maxRunsPerDay,
             d.cooldownMinutes, d.maxActionsPerObjectPerDay,
@@ -307,9 +364,23 @@ export async function POST(req: NextRequest): Promise<Response> {
     if (e instanceof Error && e.message === 'not_found') {
       return json(404, { ok: false, error: 'not_found' });
     }
-    // Nombre duplicado: `ad_rules` tiene un índice único sobre name.
+    // Nombre duplicado: el único es (account_id, name) desde la 021 (R9 c5).
+    // El mensaje nombra la cuenta y el nombre, que es lo que hace falta para
+    // saber cuál de las dos reglas homónimas está en conflicto.
     if ((e as { code?: string }).code === '23505') {
-      return json(409, { ok: false, error: 'nombre_duplicado', detail: 'Ya existe una regla con ese nombre' });
+      return json(409, {
+        ok: false,
+        error: 'nombre_duplicado',
+        detail: `Ya existe una regla llamada «${d.name}» en la cuenta ${d.accountId}`,
+      });
+    }
+    // 23503 = FK violada: la cuenta se borró entre el chequeo y el INSERT.
+    if ((e as { code?: string }).code === '23503') {
+      return json(400, {
+        ok: false,
+        error: 'cuenta_invalida',
+        detail: `la cuenta ${d.accountId} no existe`,
+      });
     }
     throw e;
   }

@@ -68,10 +68,10 @@ const SESSION_UPSERT_SQL = `
                         max_step_index, sales_view_at, checkout_click_at, purchased_at,
                         upsell_view_at, upsell_click_at, downsell_view_at,
                         utm_source, utm_medium, utm_campaign, utm_content, utm_term, fbclid,
-                        country, device, referrer_host, landing_path)
+                        country, device, referrer_host, landing_path, experiment)
   VALUES ($1::uuid, $2::smallint, $3::uuid, $4, $5::date, $6::timestamptz, $7::timestamptz, $8::smallint,
           $9::timestamptz, $10::timestamptz, $11::timestamptz, $12::timestamptz, $13::timestamptz, $14::timestamptz,
-          $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
+          $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
   ON CONFLICT (id) DO UPDATE SET
     started_at        = LEAST(sessions.started_at, EXCLUDED.started_at),
     last_seen_at      = GREATEST(sessions.last_seen_at, EXCLUDED.last_seen_at),
@@ -91,7 +91,11 @@ const SESSION_UPSERT_SQL = `
     country       = COALESCE(sessions.country, EXCLUDED.country),
     device        = COALESCE(sessions.device, EXCLUDED.device),
     referrer_host = COALESCE(sessions.referrer_host, EXCLUDED.referrer_host),
-    landing_path  = COALESCE(sessions.landing_path, EXCLUDED.landing_path)
+    landing_path  = COALESCE(sessions.landing_path, EXCLUDED.landing_path),
+    -- Gana el PRIMER no-nulo, sin importar el orden en que aterricen los
+    -- lotes (D2 de la spec ab-test-popup-descuento): COALESCE es confluente e
+    -- idempotente, a diferencia de un EXCLUDED-gana que dependería del orden.
+    experiment    = COALESCE(sessions.experiment, EXCLUDED.experiment)
   -- day y variant NO se actualizan (plan §3.3): una sesión que cruza la
   -- medianoche pertenece al día en que empezó.
   WHERE sessions.funnel_id = $2
@@ -113,6 +117,20 @@ export async function applyBatch(funnel: Funnel, payload: IngestPayload): Promis
     errors.push({
       reason: 'unknown_variant',
       detail: `variant '${variant}' no declarado en '${funnel.slug}' (declarados: ${funnel.variants.join(', ')})`,
+    });
+  }
+
+  // Validación de la dimensión del experimento, espejo de la de `variant`,
+  // con UNA diferencia: el arreglo vacío no valida nada (funnel que no
+  // testea). El valor fuera del conjunto se guarda IGUAL (D20: no se descarta
+  // nada): el aviso es para el humano que mira el banner del embudo, no un
+  // rechazo.
+  const experiment = payload.experiment;
+  if (experiment && funnel.experiments.length > 0 && !funnel.experiments.includes(experiment)) {
+    warnings.push(`unknown_experiment:${experiment}`);
+    errors.push({
+      reason: 'unknown_experiment',
+      detail: `experiment '${experiment}' no declarado en '${funnel.slug}' (declarados: ${funnel.experiments.join(', ')})`,
     });
   }
 
@@ -186,6 +204,10 @@ export async function applyBatch(funnel: Funnel, payload: IngestPayload): Promis
       payload.context?.device ?? null,
       payload.context?.referrer ?? null,
       payload.context?.path ?? null,
+      // El parámetro nuevo va AL FINAL ($25) para no correr ningún índice
+      // posicional existente. La ausencia llega undefined desde el schema y
+      // se guarda NULL: el COALESCE del DO UPDATE la distingue de "vino algo".
+      payload.experiment ?? null,
     ]);
 
     if (upsertRes.rowCount === 0) {

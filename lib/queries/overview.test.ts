@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
@@ -17,6 +18,52 @@ if (typeof process.loadEnvFile === 'function' && existsSync(path.join(process.cw
 }
 
 const dbAvailable = Boolean(process.env.DATABASE_URL);
+
+// Guarda de schema-probe (spec ab-test-popup-descuento, migración 020): el
+// `FUNNEL_SELECT` de lib/funnels.ts y el desglose de getFunnelData referencian
+// `funnels.experiments` y `sessions.experiment`, que solo existen con la 020
+// aplicada (paso 0 manual del usuario). Sin las columnas, el describe de
+// integración se salta con un mensaje claro en vez de fallar con "column does
+// not exist". Misma filosofía que skipIf(!dbAvailable): la base no se toca.
+//
+// El probe es SOLO LECTURA de information_schema y corre en un subproceso
+// síncrono a propósito: top-level await acá rompería `next build`, cuyo
+// typecheck usa el target por defecto (ES5, sin top-level await). Patrón
+// idéntico al de lib/queries/funnel.test.ts.
+const schemaReady = dbAvailable && probeEsquema('[overview.test.ts]');
+if (dbAvailable && !schemaReady) {
+  console.warn(
+    '[overview.test.ts] schema-probe: falta funnels.experiments o sessions.experiment ' +
+      '(migración 020 sin aplicar en esta base): se salta el describe de integración',
+  );
+}
+
+/**
+ * ¿Las columnas de la migración 020 existen en la base de DATABASE_URL?
+ * Fallo de conexión ⇒ false ⇒ el describe de integración se salta.
+ */
+function probeEsquema(tag: string): boolean {
+  try {
+    const out = execFileSync(
+      'node',
+      [
+        '-e',
+        `const {Client}=require('pg');
+const c=new Client({connectionString:process.argv[1]});
+c.connect()
+  .then(()=>c.query("SELECT count(*)::int AS n FROM information_schema.columns WHERE (table_name='sessions' AND column_name='experiment') OR (table_name='funnels' AND column_name='experiments')"))
+  .then((r)=>c.end().then(()=>process.stdout.write(r.rows[0].n===2?'1':'0')))
+  .catch(()=>{try{c.end()}catch(_){};process.stdout.write('0');});`,
+        process.env.DATABASE_URL!,
+      ],
+      { stdio: ['ignore', 'pipe', 'ignore'], timeout: 10_000 },
+    );
+    return out.toString().trim() === '1';
+  } catch (err) {
+    console.warn(`${tag} schema-probe falló, se salta la suite:`, err instanceof Error ? err.message : err);
+    return false;
+  }
+}
 
 /**
  * Integración con Postgres real: el Resumen es plata sumada, y la
@@ -42,7 +89,7 @@ const dbCleanupDays = [DAY, DAY_EMPTY];
 const createdSids: string[] = [];
 const createdFunnelSlugs: string[] = [];
 
-describe.skipIf(!dbAvailable)('getOverviewData (integración)', () => {
+describe.skipIf(!(dbAvailable && schemaReady))('getOverviewData (integración)', () => {
   let chau: Funnel;
   let reset: Funnel;
 

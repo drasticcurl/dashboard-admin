@@ -23,6 +23,7 @@
 
 import { q, q1 } from '../db';
 import { fetchMinimoPresupuesto } from './meta';
+import { TZ_DEFAULT } from './zona';
 import type { AccionAds, MetricasObjeto, NivelAds } from './tipos';
 import { calcularPrevisualizacion, type ParametrosAccion, type Previsualizacion } from './previsualizacion';
 import type { ModoRenombre } from './nombres';
@@ -332,10 +333,10 @@ export async function preflight(d: {
 
   // 2. Una sola cuenta → una sola Zona_Cuenta (R17 c12).
   const zonaRow = await q1<{ tz: string }>(
-    `SELECT COALESCE(timezone, 'Europe/Lisbon') AS tz FROM ad_accounts WHERE account_id = $1`,
-    [d.accountId],
+    `SELECT COALESCE(timezone, $2) AS tz FROM ad_accounts WHERE account_id = $1`,
+    [d.accountId, TZ_DEFAULT],
   );
-  const zona = zonaRow?.tz ?? 'Europe/Lisbon';
+  const zona = zonaRow?.tz ?? TZ_DEFAULT;
 
   // 3. Techo_Absoluto y Tope_Lote, SOLO de settings (R17 c5, c7).
   const topes = await topesDeSettings();

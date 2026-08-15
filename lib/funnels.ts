@@ -14,6 +14,12 @@ export type Funnel = {
   timezone: string;
   sellCurrency: string;
   variants: string[];
+  /**
+   * Conjunto de valores declarados de la dimensión `experiment` (A/B del
+   * pop-up). Vacío = no se valida nada en el ingest: un funnel que no testea
+   * no tiene por qué empezar a llenar ingest_errors.
+   */
+  experiments: string[];
   color: string;
   active: boolean;
 };
@@ -28,7 +34,7 @@ export type FunnelStep = {
 
 const FUNNEL_SELECT = `
   SELECT id, slug, name, alias, timezone, sell_currency AS "sellCurrency",
-         variants, color, active
+         variants, experiments, color, active
   FROM funnels`;
 
 // El helper vive en `lib/funnel-nombre.ts` porque este módulo importa `pg` y

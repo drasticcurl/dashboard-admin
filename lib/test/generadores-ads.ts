@@ -9,7 +9,7 @@
  */
 
 import fc from 'fast-check';
-import type { ClaveOrden, MetricasObjeto, NivelAds } from '../ads/tipos';
+import type { ClaveOrden, Condicion, MetricasObjeto, NivelAds, PeriodoAds, Regla } from '../ads/tipos';
 import { CATALOGO_METRICAS, type ColumnaVisible } from '../ads/catalogo';
 import type { Vista } from '../ads/vistas';
 import type { EventoSeleccion } from '../ads/seleccion';
@@ -324,6 +324,211 @@ export function genFechaHoraZona(): fc.Arbitrary<{
       const d = new Date(Date.UTC(2026, 0, 1) + off * 86_400_000);
       return { fecha: d.toISOString().slice(0, 10), hora: `${pad2(h)}:${pad2(m)}`, zona };
     });
+}
+
+// ─── genNombreRegla / genRegla / genReglaPayload ─────────────────────────────
+// Generadores de la spec reglas-anuncios-por-cuenta (task 2.1). Reutilizan lo
+// que ya está arriba: genMetricasObjeto y ZONAS_P16. Un generador duplicado con
+// otra distribución es cómo dos propiedades cubren lo mismo creyendo cubrir
+// cosas distintas.
+
+const horaMinuto = (): fc.Arbitrary<string> =>
+  fc.tuple(fc.integer({ min: 0, max: 23 }), fc.integer({ min: 0, max: 59 })).map(
+    ([h, m]) => `${pad2(h)}:${pad2(m)}`,
+  );
+
+const METRICAS_CONDICION: readonly Condicion['metric'][] = [
+  'sales', 'revenue', 'spend', 'net', 'profit', 'roi', 'roas', 'cpa',
+  'budget', 'impressions', 'clicks', 'ctr', 'cpc',
+];
+const OPS_CONDICION: readonly Condicion['op'][] = ['>', '>=', '<', '<=', '=', '!='];
+const ACCIONES_REGLA: readonly Regla['action'][] = [
+  'pause', 'activate', 'budget_increase', 'budget_decrease',
+];
+
+/** Nombre de regla de 1..200 caracteres con acentos, comillas y `$`, como los
+ *  nombres reales del seed. Nunca queda vacío después de trim. */
+export function genNombreRegla(): fc.Arbitrary<string> {
+  const caracteres = [
+    ...'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'.split(''),
+    ...' áéíóúñÁÉÍÓÚÑäöüç'.split(''),
+    ...'\'"$%&()+-.,:!¿?'.split(''),
+  ];
+  return fc
+    .integer({ min: 1, max: 200 })
+    .chain((largo) =>
+      fc
+        .string({ minLength: largo, maxLength: largo, unit: fc.constantFrom(...caracteres) })
+        .map((s) => s.trim() || 'regla'),
+    );
+}
+
+/** Id de cuenta publicitaria con el prefijo `act_` de Meta, 5..64 caracteres.
+ *  NUNCA queda vacío después de `btrim`: el CHECK `ad_rules_cuenta_no_vacia` de
+ *  la 021 rechaza `' '`, y un generador que produce ids que la base rechaza no
+ *  prueba el sistema, prueba el CHECK. */
+const idCuenta = (): fc.Arbitrary<string> =>
+  fc
+    .string({
+      minLength: 1,
+      maxLength: 60,
+      unit: fc.constantFrom(...'abcdefghijklmnopqrstuvwxyz0123456789_-'.split('')),
+    })
+    .map((s) => `act_${s}`);
+
+/** Una `Regla` completa y coherente con los CHECK de la `016`: si la acción es
+ *  de presupuesto hay valor, unidad y el límite del lado correcto (techo para
+ *  subir, piso para bajar, el factor en la dirección que la acción promete), la
+ *  ventana va completa o vacía en 'HH:MM', y `accountId` nunca es vacío.
+ *
+ *  RANGOS: `every_minutes`, `max_runs_per_day`, `cooldown_minutes` y
+ *  `max_actions_per_object_per_day` son `smallint` en la 016 (tope 32767), y los
+ *  cuatro tienen además un CHECK propio (cadencia 1..1440, cooldown >= 0, máximo
+ *  por objeto >= 1). Los límites de acá son los de esos CHECK, siempre por
+ *  debajo del tope del tipo: un valor que la base rechaza con
+ *  «out of range for type smallint» aborta la property antes de probar nada. */
+export function genRegla(): fc.Arbitrary<Regla> {
+  return fc
+    .record({
+      action: fc.constantFrom(...ACCIONES_REGLA),
+      unit: fc.constantFrom<'percent' | 'fixed'>('percent', 'fixed'),
+      valor: fc.integer({ min: 1, max: 400 }),
+      alto: fc.integer({ min: 1, max: 200 }),
+      bajo: fc.integer({ min: 1, max: 200 }),
+    })
+    .chain(({ action, unit, valor, alto, bajo }) => {
+      const esPresupuesto = action === 'budget_increase' || action === 'budget_decrease';
+      const techo = Math.max(alto, bajo);
+      const piso = Math.min(alto, bajo);
+
+      let actionValue: number | null = null;
+      let actionUnit: 'percent' | 'fixed' | null = null;
+      if (esPresupuesto) {
+        actionUnit = unit;
+        actionValue =
+          unit === 'percent'
+            ? // Dirección del factor (CHECK ad_rules_percent_direccion): subir
+              // necesita factor > 100, bajar necesita factor < 100.
+              action === 'budget_increase'
+              ? 101 + (valor % 299)
+              : 1 + (valor % 98)
+            : valor;
+      }
+      const budgetMax = action === 'budget_increase' ? techo : null;
+      const budgetMin = action === 'budget_decrease' ? piso : null;
+
+      const nivel = esPresupuesto
+        ? fc.constantFrom<Regla['level']>('campaign', 'adset')
+        : fc.constantFrom<Regla['level']>('campaign', 'adset', 'ad');
+
+      return fc
+        .record({
+          id: fc.integer({ min: 1, max: 2_000_000_000 }),
+          name: genNombreRegla(),
+          enabled: fc.boolean(),
+          dryRun: fc.boolean(),
+          accountId: idCuenta(),
+          level: nivel,
+          statusFilter: fc.constantFrom<'active' | 'paused' | 'any'>('active', 'paused', 'any'),
+          nameFilter: fc.option(fc.string({ minLength: 2, maxLength: 12 }), { nil: null }),
+          nameFilterMode: fc.constantFrom<'contains' | 'not_contains'>('contains', 'not_contains'),
+          period: fc.constantFrom<PeriodoAds>('today', 'yesterday', '7d', '7d_excl_today'),
+          everyMinutes: fc.integer({ min: 1, max: 1440 }),
+          ventana: fc.option(fc.tuple(horaMinuto(), horaMinuto()), { nil: null }),
+          maxRunsPerDay: fc.option(fc.integer({ min: 1, max: 24 }), { nil: null }),
+          cooldownMinutes: fc.integer({ min: 0, max: 240 }),
+          maxActionsPerObjectPerDay: fc.integer({ min: 1, max: 25 }),
+        })
+        .map((b) => ({
+          ...b,
+          action,
+          actionValue,
+          actionUnit,
+          budgetMax,
+          budgetMin,
+          metricsLevel: 'object' as const,
+          windowStart: b.ventana?.[0] ?? null,
+          windowEnd: b.ventana?.[1] ?? null,
+        }));
+    });
+}
+
+/** La forma que acepta el zod de `app/api/ads/reglas/route.ts` (sin `id`: es
+ *  un payload de creación), con 0..10 condiciones y `enabled`/`dryRun` en
+ *  cualquier valor. Sale de `genRegla()`, así que es coherente con los
+ *  superRefine del zod. */
+export type PayloadRegla = {
+  name: string;
+  accountId: string;
+  level: NivelAds;
+  statusFilter?: 'active' | 'paused' | 'any';
+  nameFilter?: string | null;
+  nameFilterMode?: 'contains' | 'not_contains';
+  action: Regla['action'];
+  actionValue?: number | null;
+  actionUnit?: 'percent' | 'fixed' | null;
+  budgetMax?: number | null;
+  budgetMin?: number | null;
+  period?: PeriodoAds;
+  metricsLevel?: string;
+  everyMinutes?: number;
+  windowStart?: string | null;
+  windowEnd?: string | null;
+  maxRunsPerDay?: number | null;
+  cooldownMinutes?: number;
+  maxActionsPerObjectPerDay?: number;
+  conditions: Condicion[];
+  enabled?: boolean;
+  dryRun?: boolean;
+};
+
+export function genReglaPayload(): fc.Arbitrary<PayloadRegla> {
+  return genRegla().chain((r) => {
+    // Umbrales realistas: importes en EUR, porcentajes y ratios entre -1000 y
+    // 1000 con A LO SUMO 2 decimales. Se generan en céntimos y se dividen, por
+    // dos motivos concretos:
+    //   1. `fc.float` produce `-0`, que la ida y vuelta por el API devuelve como
+    //      `+0` y `Object.is` (el comparador de `toBe`) distingue de `-0`.
+    //   2. `fc.float` es de 32 bits y produce denormales como 1.4e-45, que
+    //      `numeric(16,4)` redondea a 0.0000. Ninguno de los dos es un umbral
+    //      que una persona escriba en el formulario.
+    const condiciones = fc.array(
+      fc
+        .tuple(
+          fc.constantFrom(...METRICAS_CONDICION),
+          fc.constantFrom(...OPS_CONDICION),
+          fc.integer({ min: -100_000, max: 100_000 }).map((centimos) => centimos / 100),
+        )
+        .map(([metric, op, value]) => ({ metric, op, value })),
+      { minLength: 0, maxLength: 10 },
+    );
+    return fc
+      .tuple(condiciones, fc.boolean(), fc.boolean())
+      .map(([conditions, enabled, dryRun]) => ({
+        name: r.name,
+        accountId: r.accountId,
+        level: r.level,
+        statusFilter: r.statusFilter,
+        nameFilter: r.nameFilter,
+        nameFilterMode: r.nameFilterMode,
+        action: r.action,
+        actionValue: r.actionValue,
+        actionUnit: r.actionUnit,
+        budgetMax: r.budgetMax,
+        budgetMin: r.budgetMin,
+        period: r.period,
+        metricsLevel: r.metricsLevel,
+        everyMinutes: r.everyMinutes,
+        windowStart: r.windowStart,
+        windowEnd: r.windowEnd,
+        maxRunsPerDay: r.maxRunsPerDay,
+        cooldownMinutes: r.cooldownMinutes,
+        maxActionsPerObjectPerDay: r.maxActionsPerObjectPerDay,
+        conditions,
+        enabled,
+        dryRun,
+      }));
+  });
 }
 
 // ─── genEventosSeleccion ─────────────────────────────────────────────────────

@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
+import fc from 'fast-check';
 import { debeCorrer, dentroDeVentana, evaluar } from './motor';
+import { horaLocalEn } from '../zona';
 import type { Condicion, MetricasObjeto, Regla } from '../tipos';
+import { genMetricasObjeto, genRegla, ZONAS_P16 } from '../../test/generadores-ads';
 
 // Factories mínimas para construir filas de métricas y reglas a mano (§1 del
 // task: los tests de motor.ts no necesitan base ni red).
@@ -57,7 +60,7 @@ function regla(overrides: Partial<Regla> = {}): Regla {
     name: 'regla de prueba',
     enabled: true,
     dryRun: false,
-    accountIds: [],
+    accountId: 'act_1234567',
     level: 'adset',
     statusFilter: 'active',
     nameFilter: null,
@@ -420,5 +423,114 @@ describe('las seis reglas del seed, de punta a punta', () => {
   it('gasto 5, 0 ventas → aplica; gasto 5, 1 venta → NO aplica', () => {
     expect(evaluar(apagar4, cond4, fila({ spendEur: 5, sales: 0 }), ctx()).aplicar).toBe(true);
     expect(evaluar(apagar4, cond4, fila({ spendEur: 5, sales: 1 }), ctx()).cumple).toBe(false);
+  });
+});
+
+// ─── La ventana en la Zona_Cuenta y las Properties 2 y 6 ────────────────────
+// Generadores y oráculos locales (spec reglas-anuncios-por-cuenta). La Hora_Local
+// sale de `horaLocalEn`, que la Property 1 ya verificó contra PostgreSQL.
+
+const pad2 = (n: number): string => String(n).padStart(2, '0');
+const horaMM = (): fc.Arbitrary<string> =>
+  fc.tuple(fc.integer({ min: 0, max: 23 }), fc.integer({ min: 0, max: 59 })).map(
+    ([h, m]) => `${pad2(h)}:${pad2(m)}`,
+  );
+
+const genCondicion = (): fc.Arbitrary<Condicion> =>
+  fc
+    .tuple(
+      fc.constantFrom<Condicion['metric']>(
+        'sales', 'revenue', 'spend', 'net', 'profit', 'roi', 'roas', 'cpa',
+        'budget', 'impressions', 'clicks', 'ctr', 'cpc',
+      ),
+      fc.constantFrom<Condicion['op']>('>', '>=', '<', '<=', '=', '!='),
+      fc.float({ min: -1000, max: 1000, noNaN: true, noDefaultInfinity: true }),
+    )
+    .map(([metric, op, value]) => ({ metric, op, value }));
+
+const AHORA_MS = Date.now();
+const FECHA_MIN = new Date(AHORA_MS - 2 * 365.25 * 86_400_000);
+const FECHA_MAX = new Date(AHORA_MS + 2 * 365.25 * 86_400_000);
+
+describe('los dos casos del Requisito 5: la ventana se mide en la zona de la cuenta', () => {
+  it('ventana 00:00–00:59 en America/Argentina/Buenos_Aires a las 03:30 UTC → corre', () => {
+    const instante = new Date('2026-08-12T03:30:00Z');
+    const horaLocal = horaLocalEn('America/Argentina/Buenos_Aires', instante);
+    expect(horaLocal).toBe('00:30'); // UTC−3 todo el año: sin DST desde 2009
+    const r = regla({ enabled: true, windowStart: '00:00', windowEnd: '00:59' });
+    expect(
+      debeCorrer(r, { ahora: instante, horaLocal, ultimaCorridaAt: null, corridasHoy: 0 }).correr,
+    ).toBe(true);
+  });
+
+  it('la misma ventana en Europe/Lisbon a las 03:30 UTC → fuera_de_ventana_horaria', () => {
+    const instante = new Date('2026-08-12T03:30:00Z');
+    const horaLocal = horaLocalEn('Europe/Lisbon', instante);
+    const r = regla({ enabled: true, windowStart: '00:00', windowEnd: '00:59' });
+    expect(
+      debeCorrer(r, { ahora: instante, horaLocal, ultimaCorridaAt: null, corridasHoy: 0 }).motivo,
+    ).toBe('fuera_de_ventana_horaria');
+  });
+});
+
+describe('Property 2: la Ventana_Horaria con la Hora_Local de la Zona_Cuenta', () => {
+  it('para toda regla con ventana, toda zona y todo instante, correr equivale a la forma h>=s||h<=e', () => {
+    // Feature: reglas-anuncios-por-cuenta, Property 2: La Ventana_Horaria se
+    // decide con la Hora_Local de la Zona_Cuenta y cruza medianoche
+    fc.assert(
+      fc.property(
+        genRegla().filter((r) => r.windowStart !== null && r.windowEnd !== null),
+        fc.constantFrom(...ZONAS_P16),
+        fc.date({ min: FECHA_MIN, max: FECHA_MAX, noInvalidDate: true }),
+        (r, zona, instante) => {
+          const conVentana = { ...r, enabled: true, everyMinutes: 1, maxRunsPerDay: null };
+          const horaLocal = horaLocalEn(zona, instante);
+          const h = horaLocal.slice(0, 5);
+          const s = conVentana.windowStart!.slice(0, 5);
+          const e = conVentana.windowEnd!.slice(0, 5);
+          // Oráculo: la forma que soporta el cruce de medianoche. No se usa
+          // `dentroDeVentana`, que es justo lo que se verifica.
+          const oraculo = s <= e ? h >= s && h <= e : h >= s || h <= e;
+          const res = debeCorrer(conVentana, {
+            ahora: instante,
+            horaLocal,
+            ultimaCorridaAt: null,
+            corridasHoy: 0,
+          });
+          expect(res.correr).toBe(oraculo);
+          if (!res.correr) expect(res.motivo).toBe('fuera_de_ventana_horaria');
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
+});
+
+describe('Property 6: la Decision no depende de la cuenta de la Regla', () => {
+  it('cambiar sólo el accountId devuelve una Decision idéntica en sus seis campos', () => {
+    // Feature: reglas-anuncios-por-cuenta, Property 6: La Decision del Motor no
+    // depende de la cuenta de la Regla
+    fc.assert(
+      fc.property(
+        genRegla(),
+        genMetricasObjeto(),
+        fc.array(genCondicion(), { minLength: 0, maxLength: 5 }),
+        fc.uuid(),
+        fc.uuid(),
+        (r, fila, condiciones, idA, idB) => {
+          if (idA === idB) return;
+          const contexto = ctx({ ahora: new Date('2026-08-12T12:00:00Z') });
+          const a = evaluar({ ...r, accountId: idA }, condiciones, fila, contexto);
+          const b = evaluar({ ...r, accountId: idB }, condiciones, fila, contexto);
+          expect(a.cumple).toBe(b.cumple);
+          expect(a.motivo).toBe(b.motivo);
+          expect(a.aplicar).toBe(b.aplicar);
+          expect(a.presupuestoAntes).toBe(b.presupuestoAntes);
+          expect(a.presupuestoDespues).toBe(b.presupuestoDespues);
+          expect(a.metrics).toEqual(b.metrics);
+        },
+      ),
+      { numRuns: 100 },
+    );
   });
 });

@@ -57,6 +57,8 @@ export type IngestPayload = {
   sessionId: string;
   visitorId: string;
   variant?: string;
+  /** Dimensión del experimento A/B del pop-up ('A' | 'B'). Opcional: la ausencia se guarda NULL. */
+  experiment?: string;
   events: IngestEvent[];
   context?: IngestContext;
 };

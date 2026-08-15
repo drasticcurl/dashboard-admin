@@ -224,7 +224,7 @@ describe.skipIf(!dbAvailable)('Property 7 (R8 c3, c2, c15)', () => {
           }
           cascada.push(...idsCascada);
           // dedup, tope 50
-          const cascadaFinal = [...new Set(cascada)].slice(0, 50);
+          const cascadaFinal = Array.from(new Set(cascada)).slice(0, 50);
 
           await sembrar(arbol, fantasmas, dia);
 

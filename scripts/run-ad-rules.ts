@@ -42,6 +42,7 @@ import type { ResultadoSync } from '../lib/ads/sync';
 import { rollupRange } from './rollup';
 import { correrRegla, correrTodas, reconciliar } from '../lib/ads/reglas/ejecutor';
 import type { ResultadoCorrida } from '../lib/ads/reglas/ejecutor';
+import { acumuladorDe, crearAcumuladores } from '../lib/ads/reglas/acumuladores';
 import * as repo from '../lib/ads/reglas/repo';
 import { armarAviso, avisar } from '../lib/ads/notificar';
 
@@ -339,17 +340,27 @@ async function correrMotor(opts: OptsMotor): Promise<ResultadoCorrida[]> {
     const r = await repo.reglaPorId(opts.reglaId);
     if (!r) throw new Error(`no existe la regla ${opts.reglaId}`);
     const switches = await repo.interruptores();
-    const acumulador = { sumado: 0, topeMin: Math.round(switches.maxDeltaPorTickEur * 100) };
+    // El tope agregado por tick es POR CUENTA (D-A9c, spec
+    // reglas-anuncios-por-cuenta): un acumulador por Cuenta_Activa y la regla
+    // usa el de SU cuenta. Un solo acumulador compartido dejaría que una cuenta
+    // agotada bloquee las subidas de la otra, que es justo el bug que arregló
+    // la 021.
+    const acumuladores = crearAcumuladores(await repo.cuentasActivas(), switches.maxDeltaPorTickEur);
+    const acumulador = acumuladorDe(acumuladores, r.regla.accountId, switches.maxDeltaPorTickEur);
     return [await correrRegla(r, { switches, acumulador, forzarSombra: opts.forzarSombra ?? false })];
   }
   if (opts.forzarSombra) {
     // `correrTodas` no acepta forzar sombra, así que se replica su loop con
-    // forzarSombra:true y el mismo acumulador del tope agregado por tick (D-A9c).
+    // forzarSombra:true y los mismos acumuladores por cuenta del tope agregado
+    // por tick (D-A9c): el --dry-run tiene que simular lo que hace el Tick real.
     const reglas = await repo.reglasActivas();
     const switches = await repo.interruptores();
-    const acumulador = { sumado: 0, topeMin: Math.round(switches.maxDeltaPorTickEur * 100) };
+    const acumuladores = crearAcumuladores(await repo.cuentasActivas(), switches.maxDeltaPorTickEur);
     const out: ResultadoCorrida[] = [];
-    for (const r of reglas) out.push(await correrRegla(r, { switches, acumulador, forzarSombra: true }));
+    for (const r of reglas) {
+      const acumulador = acumuladorDe(acumuladores, r.regla.accountId, switches.maxDeltaPorTickEur);
+      out.push(await correrRegla(r, { switches, acumulador, forzarSombra: true }));
+    }
     return out;
   }
   return correrTodas();

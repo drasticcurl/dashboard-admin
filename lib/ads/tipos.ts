@@ -2,7 +2,7 @@
  * Contratos del módulo de Anuncios (§4, §5 y §6 de 00-PLAN-ANUNCIOS.md).
  *
  * ESTE ARCHIVO ESTUVO CONGELADO hasta la spec gestion-campanas-anuncios
- * (P-G03 de su design.md). Esa spec lo extiende de forma ESTRICTAMENTE ADITIVA:
+ * (P-G03 de su design.md), que lo extendió de forma ESTRICTAMENTE ADITIVA:
  * nada se quita, nada se renombra, ninguna semántica existente cambia. Las dos
  * reglas que hacen seguro el cambio:
  *   - todo campo nuevo de los tipos de SALIDA (`MetricasObjeto`,
@@ -15,6 +15,14 @@
  * Acá viven SOLO tipos y firmas. Ninguna implementación: `getMetricasAds` se
  * implementa en `lib/queries/ads.ts` (T15), `evaluar` en `lib/ads/reglas/motor.ts`
  * (T16) y los lectores/escritores de Meta en `lib/ads/meta.ts` (T13).
+ *
+ * LA CONGELA NO SOBREVIVIÓ a la spec reglas-anuncios-por-cuenta (P-R11 de su
+ * design): `Regla.accountIds: string[]` se fue y entró `Regla.accountId:
+ * string`, un cambio NO aditivo. No había forma de evitarlo: el tipo es el
+ * contrato que comparten el motor, el repo, el API y la UI, y dejar los dos
+ * campos conviviendo era exactamente el estado ambiguo que causó el bug de las
+ * zonas mezcladas. El compilador (`npx tsc --noEmit`) es la red que enumera a
+ * todos los afectados. El resto del archivo sigue siendo aditivo.
  *
  * DOS ADVERTENCIAS QUE CUATRO TASKS VAN A LEER ACÁ Y NINGUNA VA A LEER EN sales.ts:
  *
@@ -231,7 +239,18 @@ export type Regla = {
   name: string;
   enabled: boolean;
   dryRun: boolean;
-  accountIds: string[];
+  /**
+   * La ÚNICA cuenta publicitaria que esta regla alcanza. Obligatoria.
+   *
+   * Reemplaza a `accountIds: string[]` (spec reglas-anuncios-por-cuenta). El
+   * array permitía expresar un alcance sobre dos cuentas en zonas horarias
+   * distintas, y ese alcance no se puede evaluar: "hoy" no es uno solo y la
+   * ventana horaria no tiene una hora local. Una regla = una cuenta = una zona.
+   *
+   * NO confundir con `FiltrosAds.accountIds`, que sigue siendo un array: ese es
+   * el filtro de una CONSULTA y puede alcanzar varias cuentas.
+   */
+  accountId: string;
   level: NivelAds;
   statusFilter: 'active' | 'paused' | 'any';
   nameFilter: string | null;
@@ -285,7 +304,14 @@ export type MotivoOmision =
   | 'presupuesto_lifetime_no_soportado'
   /** La cuenta no factura en EUR y el módulo no convierte monedas (D-A10). */
   | 'moneda_no_soportada'
-  /** La regla alcanza cuentas en zonas distintas: "hoy" no es uno solo (§4.2). */
+  /**
+   * @deprecated No se puede producir desde la spec reglas-anuncios-por-cuenta:
+   * una Regla alcanza exactamente una cuenta, así que su alcance no puede cruzar
+   * zonas. Se conserva declarado porque `explicacion.ts` tiene su etiqueta en
+   * castellano dentro de un switch exhaustivo, y porque el historial viejo
+   * (`ad_rule_runs.error`, y cualquier fila de `ad_actions.skipped_reason` con
+   * este valor) se tiene que seguir leyendo. No usarlo en código nuevo.
+   */
   | 'zonas_horarias_mezcladas'
   /** El pedido pasa `ads_max_daily_budget_eur` o el delta del tick (D-A9c). */
   | 'tope_absoluto'

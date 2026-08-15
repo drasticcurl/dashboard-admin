@@ -14,8 +14,10 @@
 
 import { enviar, fetchMinimoPresupuesto, fetchObjeto, MetaAdsError } from '../meta';
 import { getMetricasAds } from '../../queries/ads';
+import { horaLocalEn } from '../zona';
 import { debeCorrer, evaluar } from './motor';
 import { explicar, formatearEur } from './explicacion';
+import { acumuladorDe, aplicarDelta, crearAcumuladores, type AcumuladorDelta } from './acumuladores';
 import * as repo from './repo';
 import type { Condicion, Decision, MetricasObjeto, Regla } from '../tipos';
 
@@ -37,14 +39,6 @@ export type ResultadoCorrida = {
 };
 
 type Interruptores = Awaited<ReturnType<typeof repo.interruptores>>;
-
-/**
- * El acumulador del tope agregado por tick (D-A9c): cuánto presupuesto sumó el
- * módulo entre TODAS las reglas y TODOS los objetos del tick. Vive en
- * `correrTodas` y se pasa a `correrRegla`, porque el límite es del tick y no de
- * la regla. `sumado` y `topeMin` van en unidades mínimas.
- */
-type AcumuladorDelta = { sumado: number; topeMin: number };
 
 type OptsCorrerRegla = {
   forzarSombra?: boolean;
@@ -92,17 +86,25 @@ export async function correrRegla(
   }
 
   // 2. debeCorrer (ventana, cadencia, max por día) — ANTES de pedir las métricas.
-  //    La ventana horaria se evalúa en la zona de la cuenta (D-A10): una zona por
-  //    alcance; si hay más de una, getMetricasAds tirará 'zonas_horarias_mezcladas'.
-  const zonas = await repo.zonasDeCuentas(regla.accountIds);
-  const horaLocal = zonas.length === 1 ? horaLocalEn(zonas[0], ahora) : null;
+  //    La Ventana_Horaria se evalúa en la Zona_Cuenta de LA cuenta de la regla.
+  //    Una regla = una cuenta = una zona: no hay caso multizona que decidir, y
+  //    por eso tampoco hay una hora local que inventar.
+  const cuenta = await repo.zonaDeCuenta(regla.accountId);
+  if (cuenta === null || !cuenta.activa) {
+    // La cuenta dejó de ser activa: no se llama a Meta y no se abre Corrida (una
+    // Corrida consumiría cupo de max_runs_per_day por un error de configuración).
+    resultado.motivoNoCorrio = `cuenta_inactiva: ${regla.accountId}`;
+    await repo.actualizarRegla(regla.id, resultado.motivoNoCorrio);
+    return resultado;
+  }
+  const horaLocal = horaLocalEn(cuenta.timezone, ahora);
   const [ultimaCorridaAt, corridasHoy] = await Promise.all([
     repo.ultimaCorridaAt(regla.id),
     repo.corridasDeHoy(regla.id),
   ]);
   const debe = debeCorrer(regla, {
     ahora,
-    horaLocal: horaLocal ?? '00:00',
+    horaLocal,
     ultimaCorridaAt,
     corridasHoy,
   });
@@ -111,14 +113,15 @@ export async function correrRegla(
     return resultado;
   }
 
-  // 4. métricas. Puede TIRAR con 'zonas horarias mezcladas' (T15 §3): se captura
-  //    y la regla se omite, NO se elige una zona.
+  // 4. métricas. El alcance es EXACTAMENTE una cuenta: con eso el throw de
+  //    'zonas horarias mezcladas' (T15 §3) queda inalcanzable desde reglas, y
+  //    se conserva como defensa para los otros llamadores del Lector.
   let metricas;
   try {
     metricas = await getMetricasAds({
       level: regla.level,
       period: regla.period,
-      accountIds: regla.accountIds.length ? regla.accountIds : undefined,
+      accountIds: [regla.accountId],
       status: regla.statusFilter,
       limit: 1000,
     });
@@ -219,7 +222,7 @@ export async function correrRegla(
 
     const decision = evaluar(regla, condiciones, fila, {
       ahora,
-      horaLocal: horaLocal ?? '00:00',
+      horaLocal,
       accionesRealesHoy: h?.cuenta ?? 0,
       ultimaAccionRealAt: h?.ultimaAt ?? null,
       minimoPresupuesto: minimoPorCuenta.get(fila.accountId) ?? null,
@@ -231,14 +234,13 @@ export async function correrRegla(
     if (!decision.cumple) continue;
     resultado.objetosQueCumplen += 1;
 
-    // 4c. tope agregado por tick (D-A9c): sólo las subidas suman al acumulador.
+    // 4c. tope agregado por tick (D-A9c), POR CUENTA: sólo las subidas suman al
+    //     acumulador de la cuenta del objeto, y un rechazo lo deja intacto.
     let decisionFinal = decision;
     if (regla.action === 'budget_increase' && decision.aplicar) {
       const delta = (decision.presupuestoDespues ?? 0) - (decision.presupuestoAntes ?? 0);
-      if (delta > 0 && acumulador.sumado + delta > acumulador.topeMin) {
+      if (!aplicarDelta(acumulador, delta)) {
         decisionFinal = { ...decision, aplicar: false, motivo: 'tope_absoluto', presupuestoDespues: null };
-      } else {
-        acumulador.sumado += Math.max(0, delta);
       }
     }
 
@@ -359,17 +361,18 @@ export async function correrRegla(
   return resultado;
 }
 
-/** Corre todas las reglas prendidas, con el tope agregado por tick (D-A9c). */
+/** Corre todas las reglas prendidas, con el tope agregado por tick POR CUENTA (D-A9c). */
 export async function correrTodas(opts?: { ahora?: Date }): Promise<ResultadoCorrida[]> {
   const ahora = opts?.ahora ?? new Date();
   const reglas = await repo.reglasActivas();
   const switches = await repo.interruptores();
-  const acumulador: AcumuladorDelta = {
-    sumado: 0,
-    topeMin: Math.round(switches.maxDeltaPorTickEur * 100),
-  };
+  // Un Acumulador_Delta por Cuenta_Activa, todos en cero (R7 c1, c5). El techo
+  // efectivo del Tick es maxDeltaPorTickEur × cuentas activas: con 300 y 2
+  // cuentas, €600. Antes era uno solo para todo el Tick.
+  const acumuladores = crearAcumuladores(await repo.cuentasActivas(), switches.maxDeltaPorTickEur);
   const out: ResultadoCorrida[] = [];
   for (const r of reglas) {
+    const acumulador = acumuladorDe(acumuladores, r.regla.accountId, switches.maxDeltaPorTickEur);
     out.push(await correrRegla(r, { ahora, switches, acumulador }));
   }
   return out;
@@ -434,19 +437,6 @@ export async function reconciliar(): Promise<{
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
-
-function horaLocalEn(tz: string, fecha: Date): string {
-  const fmt = new Intl.DateTimeFormat('en-GB', {
-    hour: '2-digit',
-    minute: '2-digit',
-    hourCycle: 'h23',
-    timeZone: tz,
-  });
-  const partes = fmt.formatToParts(fecha);
-  const hh = partes.find((p) => p.type === 'hour')?.value ?? '00';
-  const mm = partes.find((p) => p.type === 'minute')?.value ?? '00';
-  return `${hh}:${mm}`;
-}
 
 function metricsBase(fila: MetricasObjeto): Record<string, number | null> {
   return {
