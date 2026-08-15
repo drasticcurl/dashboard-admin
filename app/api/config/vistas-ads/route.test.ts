@@ -125,7 +125,7 @@ describe.skipIf(!dbAvailable)('Endpoint_Vistas (R3 c2, c3, c14, c15, R17 c14)', 
     ];
 
     for (const invalido of invalidos) {
-      const resp = await POST(request('POST', invalido));
+      const resp = await POST(request('POST', { repo: invalido }));
       expect(resp.status).toBe(400);
       expect(await repoGuardado()).toEqual(antes);
     }
@@ -135,7 +135,7 @@ describe.skipIf(!dbAvailable)('Endpoint_Vistas (R3 c2, c3, c14, c15, R17 c14)', 
     mockAuth.mockImplementation(() => true);
     const a = vista('aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee', 'A');
     const b = vista('bbbbbbbb-bbbb-4ccc-8ddd-eeeeeeeeeeee', 'B');
-    const resp = await POST(request('POST', { v: 1, vistas: [a, b], porDefecto: b.id }));
+    const resp = await POST(request('POST', { repo: { v: 1, vistas: [a, b], porDefecto: b.id } }));
     expect(resp.status).toBe(200);
 
     const leido = await GET(request('GET'));

@@ -175,8 +175,11 @@ export const CATALOGO_METRICAS: readonly EntradaCatalogo[] = [
     clave: 'roi',
     rotulo: 'ROI',
     alineacion: 'derecha',
-    formato: 'porcentaje',
-    definicion: 'ROI = neto ÷ gasto de ads, mostrado ×100. Las reglas usan la escala de múltiplo: 110 % acá es 1,10 en una condición.',
+    // En MÚLTIPLO, igual que el ROAS, y por lo tanto en la misma escala que las
+    // condiciones de las reglas: 1,10× acá es 1,10 en una regla. Antes se
+    // mostraba ×100 y era una trampa de legibilidad entre la tabla y el motor.
+    formato: 'multiplicador',
+    definicion: 'ROI = neto ÷ gasto de ads, en múltiplo igual que el ROAS. Misma escala que las condiciones de las reglas: 1,10× acá es 1,10 en una regla.',
     niveles: NIVELES_TODOS,
     ordenable: true,
     base: true,

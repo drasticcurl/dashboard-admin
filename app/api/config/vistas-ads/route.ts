@@ -19,6 +19,7 @@
  */
 
 import { NextRequest } from 'next/server';
+import { z } from 'zod';
 import { q1 } from '@/lib/db';
 import { parseRepoVistas, repoVistasSchema } from '@/lib/ads/vistas';
 import type { RepoVistas } from '@/lib/ads/vistas';
@@ -28,6 +29,13 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const CLAVE = 'ads_vistas';
+/**
+ * El cuerpo es `{ repo }`, NO el repo pelado. Antes acá se validaba `raw`
+ * directamente contra `repoVistasSchema`, así que `v` llegaba `undefined` y
+ * TODA escritura fallaba con "Invalid literal value, expected 1" — el cliente
+ * estaba bien y el endpoint estaba mal.
+ */
+const bodySchema = z.object({ repo: repoVistasSchema });
 
 export async function GET(req: NextRequest) {
   const denied = await guard(req);
@@ -44,15 +52,19 @@ export async function POST(req: NextRequest) {
   if (denied) return denied;
 
   const raw = await parseJson(req);
-  const parsed = repoVistasSchema.safeParse(raw);
+  const parsed = bodySchema.safeParse(raw);
   if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    // Con la ruta del campo: un mensaje de zod sin el `path` no dice QUÉ campo
+    // falló, que es justo lo que hacía ilegible el error anterior.
+    const donde = issue?.path.length ? ` (${issue.path.join('.')})` : '';
     return json(400, {
       ok: false,
       error: 'invalid_payload',
-      detail: parsed.error.issues[0]?.message,
+      detail: `${issue?.message ?? 'cuerpo inválido'}${donde}`,
     });
   }
 
-  await setSetting(CLAVE, parsed.data);
-  return json(200, { ok: true, repo: parsed.data });
+  await setSetting(CLAVE, parsed.data.repo);
+  return json(200, { ok: true, repo: parsed.data.repo });
 }

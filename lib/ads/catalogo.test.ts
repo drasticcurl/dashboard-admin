@@ -187,13 +187,17 @@ describe('celdasDeFila (R2 c8, c9, c12)', () => {
     expect(celdas[2]).toBe('—');
   });
 
-  it('roi se muestra como porcentaje ×100 (D-06) y el cero de ctr existe como valor', () => {
+  it('roi se muestra en múltiplo, igual que el ROAS, y el cero de ctr existe como valor', () => {
     const f = fila('adset', 'Conjunto 1');
     const roi = celdasDeFila(columnasParaRender([{ clave: 'roi', ancho: 80 }]), {
       ...f,
       roi: 1.1,
     });
-    expect(roi[2]).toContain('110');
+    // En múltiplo: 1,10 y NO 110. Es la misma escala que usan las condiciones de
+    // las reglas, así que lo que se lee en la tabla se puede escribir tal cual en
+    // una regla sin convertir nada.
+    expect(roi[2]).toContain('1,10');
+    expect(roi[2]).not.toContain('110');
     const ctr = celdasDeFila(columnasParaRender([{ clave: 'ctr', ancho: 80 }]), {
       ...f,
       ctr: 0,

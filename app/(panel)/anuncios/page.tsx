@@ -121,6 +121,10 @@ export default async function AnunciosPage({ searchParams }: { searchParams: Sea
   const account = cuentaActual.accountId;
 
   const nombre = single(searchParams.nombre);
+  // Se leen como "=0" para que la AUSENCIA signifique "mostrar todo", que es el
+  // comportamiento de siempre y el que no sorprende al abrir la pantalla.
+  const ocultarSinDatos = single(searchParams.sinDatos) === '0';
+  const ocultarPadreApagado = single(searchParams.padreApagado) === '0';
 
   // ── Filtro_Cascada de la URL (R8 c7, c13): la tabla abre ya filtrada ──
   const campaignIds = nivel === 'adset' || nivel === 'ad' ? LIMPIAR_IDS(lista(searchParams.campaignIds)) : [];
@@ -136,6 +140,8 @@ export default async function AnunciosPage({ searchParams }: { searchParams: Sea
       nombre,
       campaignIds: campaignIds.length > 0 ? campaignIds : undefined,
       adsetIds: adsetIds.length > 0 ? adsetIds : undefined,
+      ocultarSinDatos,
+      ocultarPadreApagado,
     });
   } catch (e) {
     return (
@@ -185,6 +191,8 @@ export default async function AnunciosPage({ searchParams }: { searchParams: Sea
         nombre,
         campaignIds,
         adsetIds,
+        ocultarSinDatos,
+        ocultarPadreApagado,
       }}
       vistaPorDefecto={vistaPorDefecto}
       nombresCascada={nombresCascada}

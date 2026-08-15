@@ -5,6 +5,10 @@
  *
  * - Lee `campaignIds`/`adsetIds` (Filtro_Cascada, hasta 50 cada una), `orderBy`/
  *   `orderDir`, `page`, `columnas` y `forzar`.
+ * - `sinDatos=0` oculta las filas sin gasto y sin ventas en el período;
+ *   `padreApagado=0` oculta los conjuntos y anuncios cuyo padre está apagado.
+ *   Se leen como "=0" (apagar el mostrar) para que la ausencia signifique
+ *   "mostrar todo", que es el comportamiento de siempre.
  * - Llama a `asegurarAlcance` SOLO si alguna columna visible es Metricas_Rango:
  *   si ninguna Vista las muestra, no se gasta una llamada a Meta (R7 c6).
  * - Resuelve la cuenta con la precedencia de R1 c12: `?account=` existente y
@@ -159,6 +163,8 @@ export async function GET(req: NextRequest): Promise<Response> {
       adsetId: sp.get('adsetId') ?? undefined,
       campaignIds,
       adsetIds,
+      ocultarSinDatos: sp.get('sinDatos') === '0',
+      ocultarPadreApagado: sp.get('padreApagado') === '0',
       orderBy,
       orderDir,
       page,

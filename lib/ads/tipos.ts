@@ -157,6 +157,19 @@ export type FiltrosAds = {
   /** Filtro_Cascada por conjunto. Hasta 50 ids. */
   adsetIds?: string[];
 
+  /**
+   * Oculta las filas sin NINGÚN dato en el período: sin gasto y sin ventas. Una
+   * fila con gasto y sin ventas SÍ tiene dato (está quemando plata) y no se
+   * oculta nunca. Ausente = se muestran todas.
+   */
+  ocultarSinDatos?: boolean;
+  /**
+   * Oculta los conjuntos y anuncios cuyo PADRE está apagado, según el
+   * `effective_status` que informa Meta (`CAMPAIGN_PAUSED`, `ADSET_PAUSED`). A
+   * nivel campaña no aplica: una campaña no tiene padre. Ausente = todos.
+   */
+  ocultarPadreApagado?: boolean;
+
   /** Orden_Tabla. Default 'gastos' descendente cuando no se indica. */
   orderBy?: ClaveOrden;
   orderDir?: 'asc' | 'desc';

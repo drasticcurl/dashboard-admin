@@ -498,6 +498,8 @@ export async function getMetricasAds(f: FiltrosAds): Promise<ResultadoMetricas> 
   const pNombre = p(f.nombre ?? null);
   const pCampaignIds = p(campaignIds);
   const pAdsetIds = p(adsetIds);
+  const pOcultarPadre = p(f.ocultarPadreApagado === true);
+  const pOcultarSinDatos = p(f.ocultarSinDatos === true);
   const pNivel = p(level);
 
   const com = comun(pAccounts, pDesde, pHasta, pTz, frag);
@@ -601,6 +603,13 @@ export async function getMetricasAds(f: FiltrosAds): Promise<ResultadoMetricas> 
             OR o."campaignId" = ANY(${pCampaignIds}))
        AND (${pAdsetIds}::text[] IS NULL OR cardinality(${pAdsetIds}) = 0
             OR o."adsetId" = ANY(${pAdsetIds}))
+       -- Padre apagado: el effective_status de Meta ya lo dice, así que no hace
+       -- falta un JOIN al padre. Los objetos que SÓLO tienen gasto traen NULL y
+       -- NO se ocultan: NULL es "no sé", y esconder gasto por no saber es peor
+       -- que mostrarlo. A nivel campaña el filtro es inocuo (una campaña no
+       -- tiene padre, nunca está CAMPAIGN_PAUSED).
+       AND (NOT ${pOcultarPadre}::boolean OR o."effectiveStatus" IS NULL
+            OR o."effectiveStatus" NOT IN ('CAMPAIGN_PAUSED', 'ADSET_PAUSED'))
   ),
   -- Los cocientes existen SOLO para el ORDER BY. Lo que la API devuelve lo
   -- sigue calculando filaDesdeRow: una sola fuente de verdad para lo que se
@@ -618,6 +627,11 @@ export async function getMetricasAds(f: FiltrosAds): Promise<ResultadoMetricas> 
            b."alcanceImpresiones"::numeric / NULLIF(b."alcance", 0) AS "frecuencia",
            b."videoReproducciones"::numeric / NULLIF(b.impressions, 0) AS "hookRate"
       FROM base b
+     -- Sin datos en el período: ni gasto ni ventas. Con gasto y sin ventas la
+     -- fila SÍ tiene dato y no se oculta nunca — es justo la que hay que ver.
+     -- Va acá y no en base porque spendEur y sales son alias de ese SELECT y
+     -- un WHERE no puede referenciar los alias de su propio SELECT.
+     WHERE (NOT ${pOcultarSinDatos}::boolean OR b."spendEur" > 0 OR b."sales" > 0)
   )`;
 
   // `page` tiene precedencia sobre `after` (design §4). Con `after` se conserva

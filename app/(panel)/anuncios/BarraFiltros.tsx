@@ -18,7 +18,7 @@
  */
 
 import { useRef, useState } from 'react';
-import type { PeriodoAds } from '@/lib/ads/tipos';
+import type { NivelAds, PeriodoAds } from '@/lib/ads/tipos';
 import { fmtDate } from '@/components/ui';
 import type { CuentaAds } from './page';
 
@@ -33,6 +33,7 @@ const inputCls =
   'rounded-lg border border-border-strong bg-overlay/4 px-2 py-1.5 text-sm text-neutral-200 focus:border-good-500/50 focus:outline-none focus:ring-1 focus:ring-good-500/50';
 
 export function BarraFiltros({
+  nivel,
   period,
   rango,
   status,
@@ -40,10 +41,15 @@ export function BarraFiltros({
   nombre,
   cuentas,
   cascada,
+  ocultarSinDatos,
+  ocultarPadreApagado,
   onPeriodo,
   onStatus,
   onNombre,
+  onOcultarSinDatos,
+  onOcultarPadreApagado,
 }: {
+  nivel: NivelAds;
   period: PeriodoAds;
   /** El rango resuelto del período, para expresarlo como fechas (R1 c5). */
   rango: { from: string; to: string } | null;
@@ -53,9 +59,13 @@ export function BarraFiltros({
   cuentas: CuentaAds[];
   /** El ChipCascada: el "control" del Filtro_Cascada (R1 c4). */
   cascada: React.ReactNode;
+  ocultarSinDatos: boolean;
+  ocultarPadreApagado: boolean;
   onPeriodo: (p: PeriodoAds) => void;
   onStatus: (s: 'active' | 'paused' | 'any') => void;
   onNombre: (n: string) => void;
+  onOcultarSinDatos: (v: boolean) => void;
+  onOcultarPadreApagado: (v: boolean) => void;
 }): JSX.Element {
   const [textoNombre, setTextoNombre] = useState(nombre);
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -115,6 +125,36 @@ export function BarraFiltros({
           <option value="paused">Pausados</option>
         </select>
       </label>
+
+      {/* Los dos interruptores de ruido. Se guardan en la URL, así que recargar
+          o compartir el link conserva la vista. */}
+      <label
+        className="flex cursor-pointer items-center gap-1.5 text-xs text-neutral-400 hover:text-neutral-200"
+        title="Oculta las filas que en este período no tienen ni gasto ni ventas. Una fila con gasto y sin ventas NO se oculta: es la que hay que ver."
+      >
+        <input
+          type="checkbox"
+          checked={ocultarSinDatos}
+          onChange={(e) => onOcultarSinDatos(e.target.checked)}
+          className="h-3.5 w-3.5 accent-good-500"
+        />
+        Ocultar sin datos
+      </label>
+
+      {nivel !== 'campaign' && (
+        <label
+          className="flex cursor-pointer items-center gap-1.5 text-xs text-neutral-400 hover:text-neutral-200"
+          title="Oculta los que están apagados porque su padre está apagado (CAMPAIGN_PAUSED o ADSET_PAUSED en Meta), no por su propio estado."
+        >
+          <input
+            type="checkbox"
+            checked={ocultarPadreApagado}
+            onChange={(e) => onOcultarPadreApagado(e.target.checked)}
+            className="h-3.5 w-3.5 accent-good-500"
+          />
+          Ocultar con padre apagado
+        </label>
+      )}
 
       <label className="flex items-center gap-1.5">
         <span className="text-xs text-neutral-500">Nombre</span>

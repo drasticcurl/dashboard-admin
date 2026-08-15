@@ -116,6 +116,8 @@ export function GestorAnuncios({
     nombre?: string;
     campaignIds?: string[];
     adsetIds?: string[];
+    ocultarSinDatos: boolean;
+    ocultarPadreApagado: boolean;
   };
   vistaPorDefecto: Vista | null;
   /** id → nombre de los ids de la cascada de la URL, para el ChipCascada (R8 c4). */
@@ -132,6 +134,10 @@ export function GestorAnuncios({
   // remonta la página, así que acá es constante en toda la vida del componente.
   const account = filtrosIniciales.account;
   const [nombre, setNombre] = useState(filtrosIniciales.nombre ?? '');
+  const [ocultarSinDatos, setOcultarSinDatos] = useState(filtrosIniciales.ocultarSinDatos);
+  const [ocultarPadreApagado, setOcultarPadreApagado] = useState(
+    filtrosIniciales.ocultarPadreApagado,
+  );
 
   const [estadoSel, setEstadoSel] = useState<EstadoSeleccion>(
     estadoInicial(nivelInicial),
@@ -225,6 +231,8 @@ export function GestorAnuncios({
       params.set('status', status);
       params.set('account', account);
       if (nombre) params.set('nombre', nombre);
+      if (ocultarSinDatos) params.set('sinDatos', '0');
+      if (ocultarPadreApagado) params.set('padreApagado', '0');
       if (cascada && cascada.ids.length > 0) {
         for (const id of cascada.ids) params.append(cascada.nivel === 'campaign' ? 'campaignIds' : 'adsetIds', id);
       }
@@ -235,7 +243,7 @@ export function GestorAnuncios({
       if (extra?.forzar) params.set('forzar', '1');
       return `/api/data/ads?${params.toString()}`;
     },
-    [nivel, period, status, account, nombre, cascada, ordenEstado, columnas],
+    [nivel, period, status, account, nombre, cascada, ordenEstado, columnas, ocultarSinDatos, ocultarPadreApagado],
   );
 
   const pedirFilas = useCallback(
@@ -277,7 +285,7 @@ export function GestorAnuncios({
       })
       .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nivel, period, status, account, nombre, cascada, ordenEstado.clave, ordenEstado.dir, ordenEstado.pagina, retryTick]);
+  }, [nivel, period, status, account, nombre, cascada, ordenEstado.clave, ordenEstado.dir, ordenEstado.pagina, ocultarSinDatos, ocultarPadreApagado, retryTick]);
 
   // ── La URL refleja nivel y cascada (R8 c7) ──
   const escribirUrl = useCallback(
@@ -325,18 +333,28 @@ export function GestorAnuncios({
     );
   };
 
-  const cambiarFiltro = (cambios: { period?: PeriodoAds; status?: 'active' | 'paused' | 'any'; nombre?: string }): void => {
+  const cambiarFiltro = (cambios: { period?: PeriodoAds; status?: 'active' | 'paused' | 'any'; nombre?: string; ocultarSinDatos?: boolean; ocultarPadreApagado?: boolean }): void => {
     // R9 c6: la selección se vacía, la cascada se conserva
     evento({ tipo: 'cambiar_filtro' });
     if (cambios.period !== undefined) setPeriod(cambios.period);
     if (cambios.status !== undefined) setStatus(cambios.status);
     if (cambios.nombre !== undefined) setNombre(cambios.nombre);
+    if (cambios.ocultarSinDatos !== undefined) setOcultarSinDatos(cambios.ocultarSinDatos);
+    if (cambios.ocultarPadreApagado !== undefined) setOcultarPadreApagado(cambios.ocultarPadreApagado);
     const params = new URLSearchParams(searchParams.toString());
     if (cambios.period !== undefined) params.set('period', cambios.period);
     if (cambios.status !== undefined) params.set('status', cambios.status);
     if (cambios.nombre !== undefined) {
       if (cambios.nombre) params.set('nombre', cambios.nombre);
       else params.delete('nombre');
+    }
+    if (cambios.ocultarSinDatos !== undefined) {
+      if (cambios.ocultarSinDatos) params.set('sinDatos', '0');
+      else params.delete('sinDatos');
+    }
+    if (cambios.ocultarPadreApagado !== undefined) {
+      if (cambios.ocultarPadreApagado) params.set('padreApagado', '0');
+      else params.delete('padreApagado');
     }
     router.replace(`/anuncios?${params.toString()}`, { scroll: false });
   };
@@ -773,6 +791,7 @@ export function GestorAnuncios({
       </div>
 
       <BarraFiltros
+        nivel={nivel}
         period={period}
         rango={data.rango}
         status={status}
@@ -784,7 +803,11 @@ export function GestorAnuncios({
             <ChipCascada cascada={cascada} nombres={new Map(Object.entries(nombresCascada))} onLimpiar={limpiarCascada} />
           ) : null
         }
+        ocultarSinDatos={ocultarSinDatos}
+        ocultarPadreApagado={ocultarPadreApagado}
         onPeriodo={(p) => cambiarFiltro({ period: p })}
+        onOcultarSinDatos={(v) => cambiarFiltro({ ocultarSinDatos: v })}
+        onOcultarPadreApagado={(v) => cambiarFiltro({ ocultarPadreApagado: v })}
         onStatus={(s) => cambiarFiltro({ status: s })}
         onNombre={(n) => cambiarFiltro({ nombre: n })}
       />
