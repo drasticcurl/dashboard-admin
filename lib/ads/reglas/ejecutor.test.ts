@@ -57,6 +57,17 @@ function filaTest(overrides: Partial<MetricasObjeto> = {}): MetricasObjeto {
     ctr: null,
     cpcEur: null,
     ultimaAccionAt: null,
+    cpmEur: null,
+    hookRate: null,
+    videoReproducciones: null,
+    videoThruplay: null,
+    videoP25: null,
+    videoP50: null,
+    videoP75: null,
+    videoP100: null,
+    alcance: null,
+    frecuencia: null,
+    inicioProgramado: null,
     ...overrides,
   };
 }
@@ -68,6 +79,11 @@ function resultadoMetricas(filas: MetricasObjeto[]): ResultadoMetricas {
     sinAtribuir: { sales: 0, revenueEur: 0 },
     rango: { from: '2026-08-12', to: '2026-08-12', timezone: 'Europe/Lisbon' },
     generatedAt: new Date().toISOString(),
+    total: filas.length,
+    pagina: 1,
+    totalPaginas: 1,
+    orden: { clave: 'gastos', dir: 'desc' },
+    alcanceError: null,
   };
 }
 

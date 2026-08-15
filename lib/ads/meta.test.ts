@@ -3,8 +3,11 @@ import {
   MetaAdsError,
   contadorLlamadas,
   enviar,
+  fetchAlcance,
   fetchCampaigns,
+  fetchDsaConjuntos,
   fetchObjeto,
+  postForm,
   reiniciarContador,
   setDailyBudget,
   setStatus,
@@ -216,10 +219,94 @@ describe('meta: fetchObjeto lee un objeto suelto para reconciliar', () => {
     const o = await fetchObjeto('120248641680500617', 'campaign');
     expect(o).toEqual({
       objectId: '120248641680500617',
+      name: null,
       status: 'ACTIVE',
       effectiveStatus: 'ACTIVE',
       dailyBudget: 2500,
       lifetimeBudget: null,
     });
+  });
+});
+
+// ─── Las llamadas nuevas de gestion-campanas-anuncios (task 22.4) ───────────
+
+describe('meta: las llamadas nuevas (alcance, DSA, postForm) respetan D-A3 y la contabilidad', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn());
+    reiniciarContador();
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('fetchAlcance sale con Bearer y sin token, también siguiendo la paginación', async () => {
+    const urls: string[] = [];
+    const fetchMock = vi.fn().mockImplementation(async (input: RequestInfo | URL) => {
+      urls.push(String(input));
+      const url = String(input);
+      if (url.includes('after=AAA')) {
+        return jsonResponse({ data: [{ campaign_id: '2', reach: '20' }] });
+      }
+      return jsonResponse({
+        data: [{ campaign_id: '1', reach: '10', frequency: '1.5', impressions: '15' }],
+        paging: { next: 'https://graph.facebook.com/v21.0/act_x/insights?fields=x&after=AAA&access_token=TOKEN_SECRETO' },
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const filas = await fetchAlcance('act_x', 'campaign', '2026-01-01', '2026-01-07');
+    expect(filas).toHaveLength(2);
+    expect(filas[0]!.reach).toBe(10);
+    expect(filas[0]!.frequency).toBe(1.5);
+    expect(urls.every((u) => !u.includes('access_token'))).toBe(true);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect((init.headers as Record<string, string>).Authorization).toBe('Bearer test-token');
+  });
+
+  it('fetchDsaConjuntos trae pagador y beneficiario en llamada aparte', async () => {
+    const fetchMock = vi.fn().mockImplementation(() =>
+      jsonResponse({ data: [{ id: 's1', dsa_payor: 'Payor', dsa_beneficiary: 'Beneficiary' }] }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const dsa = await fetchDsaConjuntos('act_x');
+    expect(dsa).toHaveLength(1);
+    expect(dsa[0]).toEqual({ adsetId: 's1', dsaPayor: 'Payor', dsaBeneficiary: 'Beneficiary' });
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).not.toContain('access_token');
+    expect((init.headers as Record<string, string>).Authorization).toBe('Bearer test-token');
+  });
+
+  it('postForm manda el token SOLO en el header, nunca en la URL ni en el body', async () => {
+    const fetchMock = vi.fn().mockImplementation(() => jsonResponse({ id: '1' }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await postForm('https://graph.facebook.com/v21.0/1/copies', 'act_x', { status_option: 'PAUSED' });
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).not.toContain('access_token');
+    expect(url).not.toContain('test-token');
+    expect((init.headers as Record<string, string>).Authorization).toBe('Bearer test-token');
+    expect(String(init.body)).not.toContain('test-token');
+  });
+
+  it('el contador cuenta las llamadas nuevas también cuando fallan por red (R17 c10)', async () => {
+    const fetchMock = vi.fn().mockRejectedValue(new Error('ECONNRESET'));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(postForm('https://graph.facebook.com/v21.0/1/copies', 'act_x', {})).rejects.toThrow();
+    const contador = contadorLlamadas();
+    expect(contador.total).toBe(1);
+    expect(contador.porCuenta['act_x']).toBe(1);
+  });
+
+  it('postForm con un error de Meta NO tira: devuelve el cuerpo para que el llamador lo interprete', async () => {
+    const fetchMock = vi.fn().mockImplementation(() =>
+      jsonResponse({ error: { message: 'no permitido', code: 100, error_subcode: 3858079 } }, 400),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { res, cuerpo } = await postForm('https://graph.facebook.com/v21.0/1/copies', 'act_x', {});
+    expect(res.status).toBe(400);
+    expect(cuerpo?.error?.code).toBe(100);
+    expect(cuerpo?.error?.error_subcode).toBe(3858079);
+    expect(contadorLlamadas().total).toBe(1);
   });
 });

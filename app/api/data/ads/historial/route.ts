@@ -1,8 +1,11 @@
 /**
- * /api/data/ads/historial — la lista cronológica de `ad_actions` (T19).
+ * /api/data/ads/historial — la lista cronológica de `ad_actions` (T19), extendida
+ * por gestion-campanas-anuncios (task 18.6): filtro por acción sobre el
+ * Vocabulario_Acciones completo (R15 c7) y el detalle de descendientes de una
+ * duplicación (R15 c6, D-08: una fila por Copia, con los creados adentro).
  *
  *   GET /api/data/ads/historial
- *       ?rule=7&source=rule|manual|system
+ *       ?rule=7&source=rule|manual|system&accion=pause|...|schedule
  *       &estado=confirmado|simulado|omitido|fallido|indeterminado|pendiente
  *       &objeto=1201...&limit=100&before=<id>
  *
@@ -17,6 +20,7 @@
 import type { NextRequest } from 'next/server';
 import { q } from '@/lib/db';
 import { guard, json } from '@/app/api/config/_lib';
+import { ROTULO_ACCION } from '@/lib/ads/previsualizacion';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -48,6 +52,10 @@ type Fila = {
   created_at: Date;
 };
 
+/** El Vocabulario_Acciones completo (migración 018 §1). La validación es contra
+ *  ROTULO_ACCION: un valor sin rótulo en castellano no compila (R15 c8). */
+const ACCIONES = Object.keys(ROTULO_ACCION);
+
 export async function GET(req: NextRequest): Promise<Response> {
   const denied = await guard(req);
   if (denied) return denied;
@@ -57,6 +65,7 @@ export async function GET(req: NextRequest): Promise<Response> {
   const source = sp.get('source');
   const rule = sp.get('rule');
   const objeto = sp.get('objeto');
+  const accion = sp.get('accion');
   const before = sp.get('before');
   const limitRaw = sp.get('limit');
 
@@ -70,6 +79,13 @@ export async function GET(req: NextRequest): Promise<Response> {
   if (source && !(SOURCES as readonly string[]).includes(source)) {
     return json(400, { ok: false, error: 'invalid_params', detail: 'source inválido' });
   }
+  if (accion && !ACCIONES.includes(accion)) {
+    return json(400, {
+      ok: false,
+      error: 'invalid_params',
+      detail: `acción inválida: las válidas son ${ACCIONES.join(', ')}`,
+    });
+  }
 
   const where: string[] = [];
   const params: unknown[] = [];
@@ -80,6 +96,7 @@ export async function GET(req: NextRequest): Promise<Response> {
 
   if (source) where.push(`source = $${push(source)}`);
   if (estado) where.push(`estado = $${push(estado)}`);
+  if (accion) where.push(`action = $${push(accion)}`);
   if (rule) {
     const rid = Number(rule);
     if (!Number.isInteger(rid) || rid <= 0) {
@@ -116,6 +133,53 @@ export async function GET(req: NextRequest): Promise<Response> {
     ...f,
     created_at: f.created_at instanceof Date ? f.created_at.toISOString() : String(f.created_at),
   }));
+
+  // ── Detalle de descendientes de una duplicación (R15 c6, D-08) ────────────
+  // Una fila por Copia: los objetos creados viven en metrics.creados y acá se
+  // cruzan contra la jerarquía local para traer su tipo y su nombre. Queda
+  // vacío cuando Meta no confirmó ninguno.
+  const duplicadas = pagina.filter((f) => f.action === 'duplicate');
+  if (duplicadas.length > 0) {
+    const creados = new Set<string>();
+    for (const f of duplicadas) {
+      const ids = Array.isArray(f.metrics.creados) ? (f.metrics.creados as unknown[]) : [];
+      for (const id of ids) {
+        if (typeof id === 'string') creados.add(id);
+      }
+    }
+    const porId = new Map<string, { nivel: 'campaign' | 'adset' | 'ad'; nombre: string | null }>();
+    if (creados.size > 0) {
+      const lista = Array.from(creados);
+      const jerarquia = await q<{ id: string; nivel: string; nombre: string | null }>(
+        `SELECT campaign_id AS id, 'campaign' AS nivel, name AS nombre FROM ad_campaigns WHERE campaign_id = ANY($1::text[])
+         UNION ALL
+         SELECT adset_id AS id, 'adset' AS nivel, name AS nombre FROM ad_sets WHERE adset_id = ANY($1::text[])
+         UNION ALL
+         SELECT ad_id AS id, 'ad' AS nivel, name AS nombre FROM ads WHERE ad_id = ANY($1::text[])`,
+        [lista],
+      );
+      for (const j of jerarquia) {
+        porId.set(j.id, { nivel: j.nivel as 'campaign' | 'adset' | 'ad', nombre: j.nombre });
+      }
+    }
+    const descendientesPorFila = new Map<number, unknown[]>();
+    for (const f of duplicadas) {
+      const ids = Array.isArray(f.metrics.creados) ? (f.metrics.creados as unknown[]) : [];
+      descendientesPorFila.set(
+        f.id,
+        ids.map((id) => ({
+          id: String(id),
+          nivel: porId.get(String(id))?.nivel ?? 'desconocido',
+          nombre: porId.get(String(id))?.nombre ?? null,
+        })),
+      );
+    }
+    for (const f of pagina) {
+      if (descendientesPorFila.has(f.id)) {
+        Object.assign(f, { descendientes: descendientesPorFila.get(f.id) });
+      }
+    }
+  }
 
   return json(200, { ok: true, filas: pagina, hayMas, limit });
 }

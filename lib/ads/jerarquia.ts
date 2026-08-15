@@ -25,9 +25,9 @@
  */
 
 import { q, tx } from '../db';
-import { fetchAds, fetchAdSets, fetchCampaigns, fetchCuenta, MetaAdsError } from './meta';
+import { fetchAds, fetchAdSets, fetchCampaigns, fetchCuenta, fetchDsaConjuntos, MetaAdsError } from './meta';
 import { cuentasActivas, type CuentaSync } from './sync';
-import type { MetaAd, MetaAdSet, MetaCampaign } from './tipos';
+import type { DsaConjunto, MetaAd, MetaAdSet, MetaCampaign } from './tipos';
 
 export type ResultadoNivel = { traidos: number; guardados: number; huerfanos: number };
 
@@ -197,11 +197,14 @@ async function sincronizarCuenta(
     return;
   }
 
-  // Las tres lecturas salen en paralelo: son independientes entre sí.
-  const [campanias, conjuntos, anuncios] = await Promise.all([
+  // Las tres lecturas salen en paralelo: son independientes entre sí. La de DSA
+  // es una lectura APARTE y best-effort (P-G01): si falla, la jerarquía se
+  // sincroniza igual y dsa_checked_at queda en NULL = preflight inconcluso.
+  const [campanias, conjuntos, anuncios, dsa] = await Promise.all([
     fetchCampaigns(cuenta.accountId),
     fetchAdSets(cuenta.accountId),
     fetchAds(cuenta.accountId),
+    fetchDsaConjuntos(cuenta.accountId).catch((): DsaConjunto[] => []),
   ]);
 
   // Los que ya están en base, para decidir huérfanos y desaparecidos. El mapa
@@ -278,7 +281,13 @@ async function sincronizarCuenta(
 
   if (dryRun) return;
 
-  await escribirCuenta(cuenta.accountId, campaniasNivel, conjuntosFinales, anunciosFinales);
+  await escribirCuenta(
+    cuenta.accountId,
+    campaniasNivel,
+    conjuntosFinales,
+    anunciosFinales,
+    dsa.length > 0 ? dsa : null,
+  );
 }
 
 async function escribirCuenta(
@@ -286,21 +295,32 @@ async function escribirCuenta(
   campanias: CampaniaNivel[],
   conjuntos: MetaAdSet[],
   anuncios: MetaAd[],
+  dsa: DsaConjunto[] | null,
 ): Promise<void> {
+  // DSA best-effort (P-G01): si la lectura trajo filas, se guardan y
+  // dsa_checked_at marca la verificación; si no trajo (o falló), dsa_checked_at
+  // queda NULL = inconcluso, y el preflight lo informa así.
+  const dsaPorId = new Map((dsa ?? []).map((d) => [d.adsetId, d]));
+  const dsaCheckedAt = dsa === null ? null : new Date();
+
   await tx(async (cl) => {
     if (campanias.length) {
       await cl.query(
         `INSERT INTO ad_campaigns (campaign_id, account_id, name, objective, status,
                                    effective_status, budget_level, daily_budget,
                                    lifetime_budget, currency, bid_strategy,
-                                   created_time, synced_at)
+                                   created_time, start_time, end_time, synced_at)
          SELECT u.id, $1, u.name, u.objective, u.status, u.effective_status,
                 u.budget_level, u.daily_budget, u.lifetime_budget, $2, u.bid_strategy,
-                NULLIF(u.created_time, '')::timestamptz, now()
+                NULLIF(u.created_time, '')::timestamptz,
+                NULLIF(u.start_time, '')::timestamptz, NULLIF(u.end_time, '')::timestamptz,
+                now()
            FROM UNNEST($3::text[], $4::text[], $5::text[], $6::text[], $7::text[],
-                       $8::text[], $9::bigint[], $10::bigint[], $11::text[], $12::text[])
+                       $8::text[], $9::bigint[], $10::bigint[], $11::text[], $12::text[],
+                       $13::text[], $14::text[])
                 AS u(id, name, objective, status, effective_status,
-                     budget_level, daily_budget, lifetime_budget, bid_strategy, created_time)
+                     budget_level, daily_budget, lifetime_budget, bid_strategy,
+                     created_time, start_time, end_time)
          ON CONFLICT (campaign_id) DO UPDATE SET
            name = EXCLUDED.name,
            objective = EXCLUDED.objective,
@@ -310,6 +330,8 @@ async function escribirCuenta(
            daily_budget = EXCLUDED.daily_budget,
            lifetime_budget = EXCLUDED.lifetime_budget,
            bid_strategy = EXCLUDED.bid_strategy,
+           start_time = EXCLUDED.start_time,
+           end_time = EXCLUDED.end_time,
            synced_at = now()`,
         [
           accountId,
@@ -324,6 +346,8 @@ async function escribirCuenta(
           campanias.map((c) => c.lifetimeBudget),
           campanias.map((c) => c.bidStrategy),
           campanias.map((c) => c.createdTime),
+          campanias.map((c) => c.startTime),
+          campanias.map((c) => c.endTime),
         ],
       );
     }
@@ -333,17 +357,22 @@ async function escribirCuenta(
         `INSERT INTO ad_sets (adset_id, campaign_id, account_id, name, status,
                               effective_status, daily_budget, lifetime_budget,
                               currency, optimization_goal, billing_event,
-                              bid_strategy, created_time, synced_at)
+                              bid_strategy, created_time, start_time, end_time,
+                              dsa_payor, dsa_beneficiary, dsa_checked_at, synced_at)
          SELECT u.id, u.campaign_id, $1, u.name, u.status, u.effective_status,
                 u.daily_budget, u.lifetime_budget, $2, u.optimization_goal,
                 u.billing_event, u.bid_strategy,
-                NULLIF(u.created_time, '')::timestamptz, now()
-           FROM UNNEST($3::text[], $4::text[], $5::text[], $6::text[], $7::text[],
-                       $8::bigint[], $9::bigint[], $10::text[], $11::text[],
-                       $12::text[], $13::text[])
+                NULLIF(u.created_time, '')::timestamptz,
+                NULLIF(u.start_time, '')::timestamptz, NULLIF(u.end_time, '')::timestamptz,
+                u.dsa_payor, u.dsa_beneficiary, $3::timestamptz, now()
+           FROM UNNEST($4::text[], $5::text[], $6::text[], $7::text[], $8::text[],
+                       $9::bigint[], $10::bigint[], $11::text[], $12::text[],
+                       $13::text[], $14::text[], $15::text[], $16::text[],
+                       $17::text[], $18::text[])
                 AS u(id, campaign_id, name, status, effective_status,
                      daily_budget, lifetime_budget, optimization_goal,
-                     billing_event, bid_strategy, created_time)
+                     billing_event, bid_strategy, created_time, start_time, end_time,
+                     dsa_payor, dsa_beneficiary)
          ON CONFLICT (adset_id) DO UPDATE SET
            campaign_id = EXCLUDED.campaign_id,
            name = EXCLUDED.name,
@@ -354,10 +383,16 @@ async function escribirCuenta(
            optimization_goal = EXCLUDED.optimization_goal,
            billing_event = EXCLUDED.billing_event,
            bid_strategy = EXCLUDED.bid_strategy,
+           start_time = EXCLUDED.start_time,
+           end_time = EXCLUDED.end_time,
+           dsa_payor = EXCLUDED.dsa_payor,
+           dsa_beneficiary = EXCLUDED.dsa_beneficiary,
+           dsa_checked_at = EXCLUDED.dsa_checked_at,
            synced_at = now()`,
         [
           accountId,
           'EUR',
+          dsaCheckedAt,
           conjuntos.map((s) => s.adsetId),
           conjuntos.map((s) => s.campaignId),
           conjuntos.map((s) => s.name),
@@ -369,6 +404,10 @@ async function escribirCuenta(
           conjuntos.map((s) => s.billingEvent),
           conjuntos.map((s) => s.bidStrategy),
           conjuntos.map((s) => s.createdTime),
+          conjuntos.map((s) => s.startTime),
+          conjuntos.map((s) => s.endTime),
+          conjuntos.map((s) => dsaPorId.get(s.adsetId)?.dsaPayor ?? null),
+          conjuntos.map((s) => dsaPorId.get(s.adsetId)?.dsaBeneficiary ?? null),
         ],
       );
     }

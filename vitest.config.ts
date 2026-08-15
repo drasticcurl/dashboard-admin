@@ -15,5 +15,8 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: ['**/*.test.ts'],
+    // Los tests de integración corren contra las MISMAS tablas: en paralelo se
+    // pisan y aparecen timeouts flaky. Serializar archivos los estabiliza.
+    fileParallelism: false,
   },
 });

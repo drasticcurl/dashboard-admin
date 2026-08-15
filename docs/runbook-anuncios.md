@@ -181,3 +181,48 @@ retienen 14 días). Para rotarlo: revocá el bot en @BotFather (o generá un tok
 nuevo con `/revoke`), y volvé a correr `npm run ads:telegram`. El riesgo de un
 token filtrado es acotado (alguien manda mensajes al chat), pero la rotación es
 un comando.
+
+---
+
+## 7. Gestor de campañas (gestion-campanas-anuncios)
+
+El `/anuncios` ahora es un gestor: pestañas por nivel, vistas guardadas, orden
+por columna, filtro en cascada y acciones en lote (duplicar, renombrar,
+programar inicio, presupuesto). Lo operativo nuevo:
+
+**El cron.** Además de `ads:jerarquia`, sumar la reconciliación de
+duplicaciones (cierra las filas `indeterminado` de `duplicate` por nombre
+planificado; las frescas quedan para la corrida siguiente):
+
+```bash
+# en el crontab del usuario `deploy`, junto al que ya corre ads:jerarquia:
+npm run ads:reconciliar          # todas las cuentas activas
+npm run ads:reconciliar -- --cuenta=act_123 --limite=100
+```
+
+**Los scripts de verificación contra Meta** (una vez por versión de la Graph
+API; crean o leen objetos reales, no corren en CI):
+
+| Script | Qué confirma |
+|---|---|
+| `npm run ads:campos` (`ADS_TEST_ACCOUNT_ID`) | qué campos de video/alcance/frecuencia responden en `META_API_VERSION` |
+| `npm run ads:dsa` (`ADS_TEST_ACCOUNT_ID`) | si `dsa_payor`/`dsa_beneficiary` son legibles y si la cuenta expone cupo |
+| `npm run ads:copies` (`ADS_TEST_CAMPAIGN_ID`, PAUSED) | la forma del batch de `/copies` y los códigos reales de DSA/cupo/token |
+
+Su salida ajusta `leerResultadoBatch` (lib/ads/copias.ts) y las filas
+`verificado: false` del catálogo de errores (lib/ads/errores.ts): hasta
+confirmarlas, esos errores caen en el mensaje genérico y NO cortan el lote.
+
+**Frenos que NO tienen excepción.** El Techo_Absoluto
+(`ads_max_daily_budget_eur`) y el Tope_Lote (`ads_max_delta_por_tick_eur`)
+aplican también a las duplicaciones y al presupuesto que llega con ellas. Los
+interruptores del motor (`ads_rules_enabled`, `ads_rules_force_dry_run`) NO
+frenan las acciones manuales.
+
+**El presupuesto no es un tope duro.** Meta puede gastar hasta el 125 % del
+presupuesto diario en un día y hasta 7 veces ese presupuesto en una semana
+calendario; el panel lo avisa en la previsualización de presupuesto.
+
+**Las copias nacen PAUSED siempre**, cualquiera sea el estado del original, y
+nunca se archiva ni se borra desde el panel: sólo se escriben `ACTIVE` y
+`PAUSED`.

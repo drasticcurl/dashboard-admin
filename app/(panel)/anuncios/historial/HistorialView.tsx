@@ -14,9 +14,13 @@ import { useCallback, useEffect, useState } from 'react';
 import { Badge, Banner, Card, EmptyState, Skeleton, Table, fmtDateTime } from '@/components/ui';
 import type { Tone } from '@/components/ui';
 import { SubNav } from '../SubNav';
+import { ROTULO_ACCION } from '@/lib/ads/previsualizacion';
 
 const ESTADOS = ['confirmado', 'simulado', 'omitido', 'fallido', 'indeterminado', 'pendiente'] as const;
 const SOURCES = ['rule', 'manual', 'system'] as const;
+// El Vocabulario_Acciones completo: un Record<AccionAds, string> cuyo orden es
+// el del tipo, así agregar un valor sin su rótulo rompe la compilación (R15 c8).
+const ACCIONES = Object.keys(ROTULO_ACCION) as (keyof typeof ROTULO_ACCION)[];
 
 type FilaHistorial = {
   id: number;
@@ -39,6 +43,8 @@ type FilaHistorial = {
   after_value: string | null;
   metrics: Record<string, unknown>;
   error: string | null;
+  /** Sólo en filas de duplicación: los descendientes creados (R15 c6, D-08). */
+  descendientes?: Array<{ id: string; nivel: string; nombre: string | null }>;
 };
 
 // ─── Derivación del badge desde `estado`, con switch exhaustivo ──────────────
@@ -124,6 +130,7 @@ export function HistorialView(): JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const [estado, setEstado] = useState('');
   const [source, setSource] = useState('');
+  const [accion, setAccion] = useState('');
   const [objeto, setObjeto] = useState('');
 
   const cargar = useCallback(
@@ -134,6 +141,7 @@ export function HistorialView(): JSX.Element {
         const qs = new URLSearchParams();
         if (estado) qs.set('estado', estado);
         if (source) qs.set('source', source);
+        if (accion) qs.set('accion', accion);
         if (objeto) qs.set('objeto', objeto);
         if (opts?.before) qs.set('before', String(opts.before));
         qs.set('limit', '100');
@@ -157,7 +165,7 @@ export function HistorialView(): JSX.Element {
         setCargando(false);
       }
     },
-    [estado, source, objeto],
+    [estado, source, accion, objeto],
   );
 
   // Refetchea cuando cambia un filtro (resetea la lista).
@@ -191,6 +199,11 @@ export function HistorialView(): JSX.Element {
 
       {/* ── Filtros ── */}
       <Card title="Historial de acciones">
+        <p className="mb-3 text-xs text-neutral-500">
+          El rastro técnico de cada fila (IP y user-agent) no es una identidad de usuario: el panel
+          se autentica con una contraseña compartida y sin tabla de usuarios, así que «quién lo hizo»
+          no se puede saber más allá de ese rastro.
+        </p>
         <div className="mb-3 flex flex-wrap items-center gap-2">
           <select className={inputCls} value={estado} onChange={(e) => setEstado(e.target.value)}>
             <option value="">Todos los resultados</option>
@@ -205,6 +218,14 @@ export function HistorialView(): JSX.Element {
             {SOURCES.map((s) => (
               <option key={s} value={s}>
                 {s}
+              </option>
+            ))}
+          </select>
+          <select className={inputCls} value={accion} onChange={(e) => setAccion(e.target.value)}>
+            <option value="">Toda acción</option>
+            {ACCIONES.map((a) => (
+              <option key={a} value={a}>
+                {ROTULO_ACCION[a]}
               </option>
             ))}
           </select>
@@ -238,7 +259,14 @@ export function HistorialView(): JSX.Element {
                 key: 'que',
                 header: 'Qué pasó',
                 className: 'min-w-[380px] whitespace-normal leading-snug',
-                render: (f) => <span className="text-neutral-200">{f.explicacion}</span>,
+                render: (f) => (
+                  <span className="text-neutral-200">
+                    <span className="mr-2 rounded bg-overlay/6 px-1.5 py-0.5 text-[11px] font-semibold text-neutral-400">
+                      {ROTULO_ACCION[f.action as keyof typeof ROTULO_ACCION] ?? f.action}
+                    </span>
+                    {f.explicacion}
+                  </span>
+                ),
               },
               {
                 key: 'regla',
@@ -277,6 +305,20 @@ export function HistorialView(): JSX.Element {
                       <span className="text-neutral-500">{f.object_id}</span>
                     )}
                     {f.error && <span className="ml-2 block text-bad-300">{f.error}</span>}
+                    {f.action === 'duplicate' && f.descendientes && f.descendientes.length > 0 && (
+                      <details className="mt-1">
+                        <summary className="cursor-pointer text-neutral-500 hover:text-neutral-300">
+                          objetos creados ({f.descendientes.length})
+                        </summary>
+                        <ul className="mt-1 space-y-0.5 rounded-lg bg-black/20 p-2">
+                          {f.descendientes.map((d) => (
+                            <li key={d.id} className="tabular-nums">
+                              {d.nivel}: {d.nombre ?? '(sin nombre)'} ({d.id})
+                            </li>
+                          ))}
+                        </ul>
+                      </details>
+                    )}
                     {Object.keys(f.metrics ?? {}).length > 0 && (
                       <details className="mt-1">
                         <summary className="cursor-pointer text-neutral-500 hover:text-neutral-300">métricas</summary>
@@ -288,6 +330,11 @@ export function HistorialView(): JSX.Element {
                           ))}
                         </ul>
                       </details>
+                    )}
+                    {f.actor_hint && (
+                      <span className="mt-1 block text-neutral-600" title="Rastro técnico del pedido, no una identidad de usuario">
+                        {f.actor_hint}
+                      </span>
                     )}
                   </span>
                 ),

@@ -33,6 +33,7 @@
  */
 
 import type {
+  DsaConjunto,
   MetaAd,
   MetaAdSet,
   MetaCampaign,
@@ -55,7 +56,38 @@ export type MetaInsightRow = {
   spend: number;
   impressions: number;
   clicks: number;
+  // Metricas_Creativo de video (R7 c4). null = la API no devolvió el campo;
+  // 0 = devolvió cero. La distinción es el punto de R7 c8/c14.
+  videoReproducciones: number | null;
+  videoThruplay: number | null;
+  videoP25: number | null;
+  videoP50: number | null;
+  videoP75: number | null;
+  videoP100: number | null;
 };
+
+/**
+ * Los campos de video llegan como desglose por tipo de acción
+ * (`[{action_type, value}]`), no como número plano. Esto los reduce sumando
+ * `value`. Devuelve **null y no 0** cuando el campo no vino: es lo que permite
+ * distinguir "la API no devolvió el campo" (`—`, R7 c8) de "devolvió cero"
+ * (`0`, R7 c14).
+ */
+export function sumarAcciones(raw: unknown): number | null {
+  if (Array.isArray(raw)) {
+    let total = 0;
+    for (const a of raw) {
+      if (a && typeof a === 'object' && 'value' in a) {
+        const n = Number((a as { value?: unknown }).value);
+        if (Number.isFinite(n)) total += n;
+      }
+    }
+    return total;
+  }
+  if (raw === null || raw === undefined) return null;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
+}
 
 export type MetaAccount = {
   accountId: string;
@@ -369,7 +401,28 @@ export async function fetchInsights(
   accountId: string,
   since: string,
   until: string,
+  /**
+   * Reintento degradado de R7 c11: pedir únicamente gasto, impresiones y clics.
+   * Las columnas de video quedan en NULL (no se pidieron), que es lo que hace
+   * distinguible "campo ausente" de "campo en cero".
+   */
+  soloBasico = false,
 ): Promise<MetaInsightRow[]> {
+  const camposVideo = soloBasico
+    ? []
+    : [
+        // Metricas_Creativo de video: entran en la MISMA llamada que el gasto
+        // (R7 c10). La cantidad de llamadas por cuenta y por rango sigue siendo
+        // una por página, con el tope de 100 páginas, independiente de la
+        // cantidad de anuncios. La task 12.1 confirma contra META_API_VERSION
+        // cuáles responden.
+        'video_play_actions',
+        'video_thruplay_watched_actions',
+        'video_p25_watched_actions',
+        'video_p50_watched_actions',
+        'video_p75_watched_actions',
+        'video_p100_watched_actions',
+      ];
   const fields = [
     'spend',
     'impressions',
@@ -380,6 +433,7 @@ export async function fetchInsights(
     'adset_name',
     'ad_id',
     'ad_name',
+    ...camposVideo,
   ].join(',');
   const timeRange = encodeURIComponent(JSON.stringify({ since, until }));
 
@@ -396,31 +450,121 @@ export async function fetchInsights(
     if (++vueltas > 100) {
       throw new MetaAdsError('la paginación de Meta no terminó después de 100 páginas');
     }
-    const d: Pagina<Record<string, string | undefined>> = await pedir<
-      Pagina<Record<string, string | undefined>>
+    const d: Pagina<Record<string, unknown>> = await pedir<
+      Pagina<Record<string, unknown>>
     >(url, accountId);
 
     for (const r of d.data ?? []) {
       // `spend` viene como string y puede faltar si el anuncio no gastó ese día.
       const spend = Number(r.spend ?? 0);
       out.push({
-        date: r.date_start ?? since,
+        date: typeof r.date_start === 'string' ? r.date_start : since,
         accountId,
-        campaignId: r.campaign_id ?? '',
-        campaignName: r.campaign_name ?? null,
-        adsetId: r.adset_id ?? '',
-        adsetName: r.adset_name ?? null,
-        adId: r.ad_id ?? '',
-        adName: r.ad_name ?? null,
+        campaignId: typeof r.campaign_id === 'string' ? r.campaign_id : '',
+        campaignName: typeof r.campaign_name === 'string' ? r.campaign_name : null,
+        adsetId: typeof r.adset_id === 'string' ? r.adset_id : '',
+        adsetName: typeof r.adset_name === 'string' ? r.adset_name : null,
+        adId: typeof r.ad_id === 'string' ? r.ad_id : '',
+        adName: typeof r.ad_name === 'string' ? r.ad_name : null,
         spend: Number.isFinite(spend) ? spend : 0,
         impressions: Number(r.impressions ?? 0) || 0,
         clicks: Number(r.clicks ?? 0) || 0,
+        videoReproducciones: sumarAcciones(r.video_play_actions),
+        videoThruplay: sumarAcciones(r.video_thruplay_watched_actions),
+        videoP25: sumarAcciones(r.video_p25_watched_actions),
+        videoP50: sumarAcciones(r.video_p50_watched_actions),
+        videoP75: sumarAcciones(r.video_p75_watched_actions),
+        videoP100: sumarAcciones(r.video_p100_watched_actions),
       });
     }
     url = d.paging?.next ? limpiarCursor(d.paging.next) : null;
   }
 
   return out;
+}
+
+/**
+ * POST con body urlencoded a una URL de la Marketing API, CON la contabilidad
+ * que toda llamada nueva tiene que respetar (R17 c8, c9, c10): token en el
+ * header, contador de llamadas y telemetría de cuota por cuenta con
+ * `x-business-use-case-usage`, con éxito o con error. NO tira por errores de
+ * Meta: devuelve la respuesta y el cuerpo para que el llamador los interprete
+ * (el Escritor_Copias usa su propio intérprete, no `enviar()`).
+ */
+export async function postForm(
+  url: string,
+  accountId: string,
+  campos: Record<string, string>,
+  timeoutMs = 30_000,
+): Promise<{ res: Response; cuerpo: (Record<string, unknown> & MetaErrorBody) | null }> {
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token()}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: new URLSearchParams(campos),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+  } catch (e) {
+    // R17 c10: la llamada cuenta también cuando termina en error de red.
+    contador.total += 1;
+    contador.porCuenta[accountId] = (contador.porCuenta[accountId] ?? 0) + 1;
+    throw new MetaAdsError(e instanceof Error ? e.message : String(e), undefined, undefined, undefined, true);
+  }
+  contador.total += 1;
+  contador.porCuenta[accountId] = (contador.porCuenta[accountId] ?? 0) + 1;
+  leerUso(res, accountId);
+  const cuerpo = (await res.json().catch(() => null)) as
+    | (Record<string, unknown> & MetaErrorBody)
+    | null;
+  return { res, cuerpo };
+}
+
+// ─── Lectura de alcance (Metricas_Rango, task 14.1) ─────────────────────────
+
+export type FilaAlcance = {
+  accountId: string;
+  objectId: string;
+  /** null = Meta no devolvió el campo. */
+  reach: number | null;
+  impressions: number | null;
+  frequency: number | null;
+};
+
+/**
+ * Alcance y frecuencia para UN nivel y UN rango, SIN `time_increment`: Meta
+ * devuelve una fila por objeto para el rango completo, que es exactamente el
+ * dato que no se puede sumar (R7 c5). Token en el header, paginación con el
+ * mismo cortafuegos de 100 páginas, contador de llamadas y telemetría de cuota
+ * por cuenta como el resto del Cliente_Meta.
+ */
+export async function fetchAlcance(
+  accountId: string,
+  level: NivelAds,
+  since: string,
+  until: string,
+): Promise<FilaAlcance[]> {
+  const idField = level === 'campaign' ? 'campaign_id' : level === 'adset' ? 'adset_id' : 'ad_id';
+  const url =
+    `${BASE}/${accountId}/insights` +
+    `?level=${level}&fields=${idField},reach,frequency,impressions` +
+    `&time_range=${encodeURIComponent(JSON.stringify({ since, until }))}&limit=500`;
+
+  const rows = await paginar<Record<string, string | undefined>>(url, accountId);
+  return rows.map((r) => {
+    const n = (v: string | undefined): number | null =>
+      v === undefined || v === '' ? null : Number(v);
+    return {
+      accountId,
+      objectId: r[idField] ?? '',
+      reach: n(r.reach),
+      impressions: n(r.impressions),
+      frequency: n(r.frequency),
+    };
+  });
 }
 
 // ─── Lectura de la jerarquía (T14) ──────────────────────────────────────────
@@ -443,6 +587,8 @@ type RawCampaign = {
   lifetime_budget?: string;
   bid_strategy?: string;
   created_time?: string;
+  start_time?: string;
+  end_time?: string;
 };
 
 /**
@@ -453,7 +599,7 @@ type RawCampaign = {
  */
 export async function fetchCampaigns(accountId: string): Promise<MetaCampaign[]> {
   const fields =
-    'id,name,objective,status,effective_status,daily_budget,lifetime_budget,bid_strategy,created_time';
+    'id,name,objective,status,effective_status,daily_budget,lifetime_budget,bid_strategy,created_time,start_time,end_time';
   const url = `${BASE}/${accountId}/campaigns?fields=${fields}&limit=200`;
   const rows = await paginar<RawCampaign>(url, accountId);
   return rows.map((r) => ({
@@ -466,6 +612,8 @@ export async function fetchCampaigns(accountId: string): Promise<MetaCampaign[]>
     lifetimeBudget: unidadesMinimas(r.lifetime_budget),
     bidStrategy: r.bid_strategy ?? null,
     createdTime: r.created_time ?? null,
+    startTime: r.start_time ?? null,
+    endTime: r.end_time ?? null,
   }));
 }
 
@@ -481,11 +629,13 @@ type RawAdSet = {
   billing_event?: string;
   bid_strategy?: string;
   created_time?: string;
+  start_time?: string;
+  end_time?: string;
 };
 
 export async function fetchAdSets(accountId: string): Promise<MetaAdSet[]> {
   const fields =
-    'id,name,campaign_id,status,effective_status,daily_budget,lifetime_budget,optimization_goal,billing_event,bid_strategy,created_time';
+    'id,name,campaign_id,status,effective_status,daily_budget,lifetime_budget,optimization_goal,billing_event,bid_strategy,created_time,start_time,end_time';
   const url = `${BASE}/${accountId}/adsets?fields=${fields}&limit=200`;
   const rows = await paginar<RawAdSet>(url, accountId);
   return rows.map((r) => ({
@@ -500,6 +650,8 @@ export async function fetchAdSets(accountId: string): Promise<MetaAdSet[]> {
     billingEvent: r.billing_event ?? null,
     bidStrategy: r.bid_strategy ?? null,
     createdTime: r.created_time ?? null,
+    startTime: r.start_time ?? null,
+    endTime: r.end_time ?? null,
   }));
 }
 
@@ -527,6 +679,28 @@ export async function fetchAds(accountId: string): Promise<MetaAd[]> {
     effectiveStatus: r.effective_status ?? null,
     creativeId: r.creative?.id ?? null,
     createdTime: r.created_time ?? null,
+  }));
+}
+
+/**
+ * Los datos de DSA de los conjuntos de la cuenta, en una llamada APARTE de
+ * `fetchAdSets` y best-effort a propósito (P-G01): si esos campos no son
+ * legibles en la versión que configura META_API_VERSION, el sync de la
+ * jerarquía no puede caerse por eso — la jerarquía es el inventario. El mismo
+ * patrón que `refrescarMetadatosCuentas()` usa para la zona horaria. La
+ * frescura es la del Sync_Jerarquia: sin caché propia ni TTL.
+ */
+export async function fetchDsaConjuntos(accountId: string): Promise<DsaConjunto[]> {
+  const url = `${BASE}/${accountId}/adsets?fields=id,dsa_payor,dsa_beneficiary&limit=200`;
+  const rows = await paginar<{
+    id?: string;
+    dsa_payor?: string;
+    dsa_beneficiary?: string;
+  }>(url, accountId);
+  return rows.map((r) => ({
+    adsetId: r.id ?? '',
+    dsaPayor: r.dsa_payor ?? null,
+    dsaBeneficiary: r.dsa_beneficiary ?? null,
   }));
 }
 
@@ -603,6 +777,22 @@ export async function setDailyBudget(objectId: string, unidadesMinimas: number):
 }
 
 /**
+ * POST /{objectId} con el nombre nuevo (R12). Devuelve el ResultadoEscritura
+ * sin tirar, como toda escritura: un timeout puede haberse aplicado igual.
+ */
+export async function setNombre(objectId: string, nombre: string): Promise<ResultadoEscritura> {
+  return enviar(objectId, { name: nombre });
+}
+
+/**
+ * POST /{objectId} con el inicio programado (R11). El instante llega ya resuelto
+ * por `resolverInicio` (ISO con offset explícito y segundos en 00).
+ */
+export async function setInicio(objectId: string, instante: string): Promise<ResultadoEscritura> {
+  return enviar(objectId, { start_time: instante });
+}
+
+/**
  * Lee UN objeto de Meta. Es la pieza que hace posible reconciliar: cuando un
  * POST termina en timeout no se sabe si se aplicó, y la única forma de
  * averiguarlo es preguntarle a Meta, que es el source of truth (§6b).
@@ -610,15 +800,17 @@ export async function setDailyBudget(objectId: string, unidadesMinimas: number):
 export async function fetchObjeto(objectId: string, level: NivelAds): Promise<MetaObjetoLeido | null> {
   const d = await pedir<{
     id?: string;
+    name?: string;
     status?: string;
     effective_status?: string;
     daily_budget?: string;
     lifetime_budget?: string;
     error?: { code?: number };
-  } | null>(`${BASE}/${objectId}?fields=id,status,effective_status,daily_budget,lifetime_budget`);
+  } | null>(`${BASE}/${objectId}?fields=id,name,status,effective_status,daily_budget,lifetime_budget`);
   if (!d || !d.id) return null;
   return {
     objectId: d.id,
+    name: d.name ?? null,
     status: d.status ?? null,
     effectiveStatus: d.effective_status ?? null,
     dailyBudget: unidadesMinimas(d.daily_budget),

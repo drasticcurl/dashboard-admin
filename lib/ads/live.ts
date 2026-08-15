@@ -103,13 +103,30 @@ async function correrSync(hoy: string): Promise<void> {
  * `hasta` es el último día del rango que se está mirando y `hoy` el día actual,
  * los dos ya resueltos en la zona del funnel. Si el rango no llega a hoy no hay
  * nada en vivo que traer: el gasto de un día cerrado no se mueve.
+ *
+ * `opts.forzar` (R1 c7): saltea SOLO la comparación contra el TTL. Es lo único
+ * que usa el Boton_Actualizar. El promise en vuelo compartido se mantiene, así
+ * que dos pestañas apretando el botón a la vez siguen compartiendo un solo
+ * sync. Sigue sin tirar nunca.
+ *
+ * `opts.timeoutMs` (R1 c7): presupuesto de espera antes de dibujar con lo que
+ * hay. Default el de hoy (8 s); el botón pide 60 s.
  */
-export async function ensureFreshAdSpend(hasta: string, hoy: string): Promise<FrescuraAds> {
+export async function ensureFreshAdSpend(
+  hasta: string,
+  hoy: string,
+  opts?: {
+    /** Ignora el TTL de frescura (R1 c7). Sólo el Boton_Actualizar lo usa. */
+    forzar?: boolean;
+    /** Presupuesto de espera. Default el de hoy (8 s); el botón usa 60 s. */
+    timeoutMs?: number;
+  },
+): Promise<FrescuraAds> {
   const antes = await leerFrescura();
   if (hasta < hoy) return { ...antes, refreshed: false };
 
   const ttl = ttlSegundos();
-  if (antes.ageSeconds !== null && antes.ageSeconds < ttl) {
+  if (!opts?.forzar && antes.ageSeconds !== null && antes.ageSeconds < ttl) {
     return { ...antes, refreshed: false };
   }
 
@@ -129,7 +146,7 @@ export async function ensureFreshAdSpend(hasta: string, hoy: string): Promise<Fr
   await Promise.race([
     enVuelo,
     new Promise<void>((resolve) => {
-      alarma = setTimeout(resolve, timeoutMs());
+      alarma = setTimeout(resolve, opts?.timeoutMs ?? timeoutMs());
     }),
   ]);
   if (alarma) clearTimeout(alarma);

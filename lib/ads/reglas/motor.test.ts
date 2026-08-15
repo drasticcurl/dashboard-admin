@@ -36,6 +36,17 @@ function fila(overrides: Partial<MetricasObjeto> = {}): MetricasObjeto {
     ctr: null,
     cpcEur: null,
     ultimaAccionAt: null,
+    cpmEur: null,
+    hookRate: null,
+    videoReproducciones: null,
+    videoThruplay: null,
+    videoP25: null,
+    videoP50: null,
+    videoP75: null,
+    videoP100: null,
+    alcance: null,
+    frecuencia: null,
+    inicioProgramado: null,
     ...overrides,
   };
 }

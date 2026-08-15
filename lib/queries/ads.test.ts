@@ -1,6 +1,12 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
-import { q } from '../db';
+import { existsSync } from 'node:fs';
+import path from 'node:path';
+import { q, q1 } from '../db';
 import { extraerIdDeUtm, filaDesdeRow, getMetricasAds, type RowMetricas } from './ads';
+
+if (typeof process.loadEnvFile === 'function' && existsSync(path.join(process.cwd(), '.env'))) {
+  process.loadEnvFile(path.join(process.cwd(), '.env'));
+}
 
 /**
  * Tests de T15. Dos grupos, igual que el resto del proyecto:
@@ -39,6 +45,15 @@ function row(over: Partial<RowMetricas>): RowMetricas {
     commissionsEur: '0',
     costsEur: '0',
     ultimaAccionAt: null,
+    videoReproducciones: null,
+    videoThruplay: null,
+    videoP25: null,
+    videoP50: null,
+    videoP75: null,
+    videoP100: null,
+    alcance: null,
+    alcanceImpresiones: null,
+    inicioProgramado: null,
     ...over,
   };
 }
@@ -281,5 +296,127 @@ describe.skipIf(!dbAvailable)('getMetricasAds (integración)', () => {
     } finally {
       await q(`DELETE FROM ad_accounts WHERE account_id = $1`, [CUENTA_BSAS]);
     }
+  });
+});
+
+// ─── Límites de la query (task 15.5): total, páginas, recorte y hayMas ──────
+
+describe.skipIf(!dbAvailable)('getMetricasAds — límites (R4 c9, c10, c13)', () => {
+  const CUENTA_LIM = 'act_t15_lim';
+
+  beforeAll(async () => {
+    await q(
+      `INSERT INTO ad_accounts (account_id, platform, name, currency, timezone, active)
+       VALUES ($1, 'meta', 'cuenta de límites T15', 'EUR', 'Europe/Lisbon', true)
+       ON CONFLICT (account_id) DO UPDATE SET timezone = 'Europe/Lisbon', active = true`,
+      [CUENTA_LIM],
+    );
+  });
+
+  afterEach(async () => {
+    await q(`DELETE FROM ad_spend WHERE account_id = $1`, [CUENTA_LIM]);
+  });
+
+  afterAll(async () => {
+    await q(`DELETE FROM ad_spend WHERE account_id = $1`, [CUENTA_LIM]);
+    await q(`DELETE FROM ad_accounts WHERE account_id = $1`, [CUENTA_LIM]);
+  });
+
+  async function sembrarGasto(n: number): Promise<void> {
+    const dia = (
+      await q1<{ hoy: string }>(`SELECT (now() AT TIME ZONE 'Europe/Lisbon')::date::text AS hoy`)
+    )!.hoy;
+    // UN solo INSERT con generate_series, no N inserts secuenciales. Con 1005 filas
+    // el loop tardaba más de 5 s: vitest abortaba el test a mitad del sembrado y las
+    // filas que seguían cayendo después del afterEach contaminaban al test siguiente,
+    // que veía 1026 filas en lugar de 21 y daba hayMas=true en la última página.
+    // Limpia antes de sembrar, no solo en el afterEach: si una corrida anterior
+    // quedó a medias, el residuo hacía fallar al primer test del bloque.
+    await q(`DELETE FROM ad_spend WHERE account_id = $1`, [CUENTA_LIM]);
+    await q(
+      `INSERT INTO ad_spend (platform, account_id, day, level, campaign_id, campaign_name,
+                             adset_id, adset_name, ad_id, ad_name, spend, currency, spend_eur,
+                             impressions, clicks, synced_at)
+       SELECT 'meta', $1, $2::date, 'ad',
+              '91' || lpad(g.i::text, 14, '0'),
+              'Campaña 91' || lpad(g.i::text, 14, '0'),
+              '', NULL, '', NULL,
+              (g.i + 1)::numeric, 'EUR', (g.i + 1)::numeric,
+              1, 1, now()
+         FROM generate_series(0, $3::int - 1) AS g(i)`,
+      [CUENTA_LIM, dia, n],
+    );
+  }
+
+  it('total y totalPaginas son los del conjunto completo, no los de la página (R4 c10, c13)', async () => {
+    await sembrarGasto(25);
+    const p1 = await getMetricasAds({
+      level: 'campaign',
+      period: 'today',
+      accountIds: [CUENTA_LIM],
+      orderBy: 'gastos',
+      orderDir: 'desc',
+      page: 1,
+      limit: 10,
+    });
+    expect(p1.total).toBe(25);
+    expect(p1.totalPaginas).toBe(3);
+    expect(p1.filas).toHaveLength(10);
+    expect(p1.hayMas).toBe(true);
+
+    const p3 = await getMetricasAds({
+      level: 'campaign',
+      period: 'today',
+      accountIds: [CUENTA_LIM],
+      orderBy: 'gastos',
+      orderDir: 'desc',
+      page: 3,
+      limit: 10,
+    });
+    expect(p3.filas).toHaveLength(5);
+    expect(p3.hayMas).toBe(false); // última página
+    expect(p3.pagina).toBe(3);
+  });
+
+  it('el recorte a 1000 se aplica DESPUÉS de resolver el orden (R4 c9)', async () => {
+    await sembrarGasto(1005);
+    const r = await getMetricasAds({
+      level: 'campaign',
+      period: 'today',
+      accountIds: [CUENTA_LIM],
+      orderBy: 'gastos',
+      orderDir: 'desc',
+      page: 1,
+      limit: 5000, // pedido por encima del tope del contrato
+    });
+    expect(r.filas).toHaveLength(1000);
+    expect(r.total).toBe(1005);
+    expect(r.totalPaginas).toBe(2);
+    // el orden manda sobre el recorte: la primera fila es la de mayor gasto
+    expect(r.filas[0]!.spendEur).toBe(1005);
+  });
+
+  it('hayMas es coherente con la paginación por página: páginas intermedias sí, la última no', async () => {
+    await sembrarGasto(21);
+    const p2 = await getMetricasAds({
+      level: 'campaign',
+      period: 'today',
+      accountIds: [CUENTA_LIM],
+      orderBy: 'gastos',
+      orderDir: 'desc',
+      page: 2,
+      limit: 10,
+    });
+    expect(p2.hayMas).toBe(true);
+    const p3 = await getMetricasAds({
+      level: 'campaign',
+      period: 'today',
+      accountIds: [CUENTA_LIM],
+      orderBy: 'gastos',
+      orderDir: 'desc',
+      page: 3,
+      limit: 10,
+    });
+    expect(p3.hayMas).toBe(false);
   });
 });

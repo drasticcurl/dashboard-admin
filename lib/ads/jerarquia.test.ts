@@ -24,6 +24,8 @@ function adset(parcial: Partial<MetaAdSet> & { adsetId: string; campaignId: stri
     billingEvent: null,
     bidStrategy: null,
     createdTime: null,
+    startTime: null,
+    endTime: null,
     ...parcial,
   };
 }

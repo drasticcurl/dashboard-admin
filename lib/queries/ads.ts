@@ -30,7 +30,9 @@
 
 import { q, q1 } from '@/lib/db';
 import { SQL_VIGENTE } from '@/lib/ads/jerarquia';
+import { esClaveOrden, ORDEN_SQL } from '@/lib/ads/orden';
 import type {
+  ClaveOrden,
   FiltrosAds,
   MetricasObjeto,
   NivelAds,
@@ -119,6 +121,23 @@ export type RowMetricas = {
   commissionsEur: string;
   costsEur: string;
   ultimaAccionAt: Date | string | null;
+
+  // ── Metricas_Creativo (P-G03). El SQL que las llena es la task 15.1; hasta
+  // entonces `filaDesdeRow` no las lee y devuelve null. ─────────────────────
+  videoReproducciones: string | null;
+  videoThruplay: string | null;
+  videoP25: string | null;
+  videoP50: string | null;
+  videoP75: string | null;
+  videoP100: string | null;
+
+  // ── Metricas_Rango. `alcanceImpresiones` es la base de la frecuencia
+  // (impresiones del rango ÷ alcance del rango, R7 c5). ─────────────────────
+  alcance: string | null;
+  alcanceImpresiones: string | null;
+
+  /** Inicio programado de la jerarquía (R11 c8). */
+  inicioProgramado: Date | string | null;
 };
 
 /**
@@ -178,7 +197,46 @@ export function filaDesdeRow(level: NivelAdsValido, row: RowMetricas): MetricasO
         : row.ultimaAccionAt instanceof Date
           ? row.ultimaAccionAt.toISOString()
           : new Date(row.ultimaAccionAt).toISOString(),
+    // ── Metricas_Creativo y Metricas_Rango. null y no 0: distinguir "campo
+    // ausente" de "campo en cero" es el punto de R7 c8/c14. Los cocientes se
+    // calculan acá, que es LA fuente de verdad de lo que se muestra: el SQL de
+    // `medidas` los tiene SOLO para el ORDER BY (design §4). ───────────────
+    cpmEur: impressions > 0 ? (spendEur * 1000) / impressions : null,
+    videoReproducciones: nullableNumber(row.videoReproducciones),
+    videoThruplay: nullableNumber(row.videoThruplay),
+    videoP25: nullableNumber(row.videoP25),
+    videoP50: nullableNumber(row.videoP50),
+    videoP75: nullableNumber(row.videoP75),
+    videoP100: nullableNumber(row.videoP100),
+    hookRate:
+      impressions > 0 && row.videoReproducciones !== null
+        ? (nullableNumber(row.videoReproducciones) ?? 0) / impressions
+        : null,
+    alcance: nullableNumber(row.alcance),
+    frecuencia: frecuenciaDesdeRow(row),
+    inicioProgramado:
+      row.inicioProgramado === null
+        ? null
+        : row.inicioProgramado instanceof Date
+          ? row.inicioProgramado.toISOString()
+          : new Date(row.inicioProgramado).toISOString(),
   };
+}
+
+/** bigint/numeric de pg (string) → number, conservando el null. */
+function nullableNumber(v: string | null | undefined): number | null {
+  if (v === null || v === undefined) return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** Frecuencia = impresiones del rango ÷ alcance del rango (R7 c5). Sólo con el
+ *  rango exacto guardado: si falta cualquiera de los dos, null → `—`. */
+function frecuenciaDesdeRow(row: RowMetricas): number | null {
+  const alcance = nullableNumber(row.alcance);
+  const impresiones = nullableNumber(row.alcanceImpresiones);
+  if (alcance === null || impresiones === null || alcance <= 0) return null;
+  return impresiones / alcance;
 }
 
 /**
@@ -232,7 +290,7 @@ const FRAGMENTOS: Record<NivelAdsValido, FragmentosNivel> = {
 };
 
 /** La rama de la jerarquía (objetos vigentes) para el nivel pedido. */
-function jerarquiaObjetos(level: NivelAdsValido, filtros: { status: string; extra: string }): string {
+function jerarquiaObjetos(level: NivelAdsValido, filtros: { status: string }): string {
   switch (level) {
     case 'campaign': {
       const vigencia = vigenciaDe('c');
@@ -245,9 +303,10 @@ function jerarquiaObjetos(level: NivelAdsValido, filtros: { status: string; extr
          CASE WHEN c.daily_budget IS NOT NULL THEN 'daily'
               WHEN c.lifetime_budget IS NOT NULL THEN 'lifetime'
               ELSE NULL END AS "budgetMode",
-         CASE WHEN c.daily_budget IS NOT NULL THEN c.daily_budget / 100.0 ELSE NULL END AS "dailyBudgetEur"
+         CASE WHEN c.daily_budget IS NOT NULL THEN c.daily_budget / 100.0 ELSE NULL END AS "dailyBudgetEur",
+         c.start_time AS "inicioProgramado"
     FROM jerarquia_camps c
-   WHERE ${vigencia}${filtros.status}${filtros.extra}`;
+   WHERE ${vigencia}${filtros.status}`;
     }
     case 'adset': {
       const vigencia = vigenciaDe('s');
@@ -260,10 +319,11 @@ function jerarquiaObjetos(level: NivelAdsValido, filtros: { status: string; extr
          CASE WHEN s.daily_budget IS NOT NULL THEN 'daily'
               WHEN s.lifetime_budget IS NOT NULL THEN 'lifetime'
               ELSE NULL END AS "budgetMode",
-         CASE WHEN s.daily_budget IS NOT NULL THEN s.daily_budget / 100.0 ELSE NULL END AS "dailyBudgetEur"
+         CASE WHEN s.daily_budget IS NOT NULL THEN s.daily_budget / 100.0 ELSE NULL END AS "dailyBudgetEur",
+         s.start_time AS "inicioProgramado"
     FROM jerarquia_sets s
     JOIN jerarquia_camps c ON c.campaign_id = s.campaign_id
-   WHERE ${vigencia}${filtros.status}${filtros.extra}`;
+   WHERE ${vigencia}${filtros.status}`;
     }
     case 'ad': {
       const vigencia = vigenciaDe('a');
@@ -272,9 +332,10 @@ function jerarquiaObjetos(level: NivelAdsValido, filtros: { status: string; extr
          a.campaign_id AS "campaignId", a.adset_id AS "adsetId", a.ad_id AS "adId",
          a."funnelId",
          a.status, a.effective_status AS "effectiveStatus",
-         NULL::text AS "budgetLevel", NULL::text AS "budgetMode", NULL::numeric AS "dailyBudgetEur"
+         NULL::text AS "budgetLevel", NULL::text AS "budgetMode", NULL::numeric AS "dailyBudgetEur",
+         NULL::timestamptz AS "inicioProgramado"
     FROM jerarquia_ads a
-   WHERE ${vigencia}${filtros.status}${filtros.extra}`;
+   WHERE ${vigencia}${filtros.status}`;
     }
   }
 }
@@ -334,6 +395,33 @@ function comun(
   )`;
 }
 
+/** El rango del período, resuelto en la zona de la cuenta (misma fuente que
+ *  getMetricasAds: el route lo usa para pedir el alcance ANTES de leer). */
+export async function rangoDePeriodo(
+  period: PeriodoAds,
+  tz: string,
+): Promise<{ desde: string; hasta: string }> {
+  const rango = await q1<{ desde: string; hasta: string }>(
+    `SELECT CASE $1::text
+                WHEN 'today'          THEN (now() AT TIME ZONE $2)::date
+                WHEN 'yesterday'      THEN ((now() AT TIME ZONE $2)::date - 1)
+                WHEN '7d'             THEN ((now() AT TIME ZONE $2)::date - 6)
+                WHEN '7d_excl_today'  THEN ((now() AT TIME ZONE $2)::date - 7)
+              END::text AS desde,
+            CASE $1::text
+                WHEN 'today'          THEN (now() AT TIME ZONE $2)::date
+                WHEN 'yesterday'      THEN ((now() AT TIME ZONE $2)::date - 1)
+                WHEN '7d'             THEN (now() AT TIME ZONE $2)::date
+                WHEN '7d_excl_today'  THEN ((now() AT TIME ZONE $2)::date - 1)
+              END::text AS hasta`,
+    [period, tz],
+  );
+  return {
+    desde: rango?.desde ?? '1970-01-01',
+    hasta: rango?.hasta ?? '1970-01-01',
+  };
+}
+
 export async function getMetricasAds(f: FiltrosAds): Promise<ResultadoMetricas> {
   const level = f.level;
   const period = f.period;
@@ -368,23 +456,7 @@ export async function getMetricasAds(f: FiltrosAds): Promise<ResultadoMetricas> 
   const tz = cuentas[0]?.tz ?? TZ_DEFAULT;
 
   // ── 2. Rango del período, resuelto en la zona de la cuenta. ──
-  const rango = await q1<{ desde: string; hasta: string }>(
-    `SELECT CASE $1::text
-                WHEN 'today'          THEN (now() AT TIME ZONE $2)::date
-                WHEN 'yesterday'      THEN ((now() AT TIME ZONE $2)::date - 1)
-                WHEN '7d'             THEN ((now() AT TIME ZONE $2)::date - 6)
-                WHEN '7d_excl_today'  THEN ((now() AT TIME ZONE $2)::date - 7)
-              END::text AS desde,
-            CASE $1::text
-                WHEN 'today'          THEN (now() AT TIME ZONE $2)::date
-                WHEN 'yesterday'      THEN ((now() AT TIME ZONE $2)::date - 1)
-                WHEN '7d'             THEN (now() AT TIME ZONE $2)::date
-                WHEN '7d_excl_today'  THEN ((now() AT TIME ZONE $2)::date - 1)
-              END::text AS hasta`,
-    [period, tz],
-  );
-  const desde = rango?.desde ?? '1970-01-01';
-  const hasta = rango?.hasta ?? '1970-01-01';
+  const { desde, hasta } = await rangoDePeriodo(period, tz);
 
   // ── 3. Parámetros de la query de filas ──
   const params: unknown[] = [];
@@ -400,8 +472,8 @@ export async function getMetricasAds(f: FiltrosAds): Promise<ResultadoMetricas> 
   const pHasta = p(hasta);
   const pTz = p(tz);
 
-  // Filtros sobre la jerarquía (status + campaignId/adsetId). El alias de la
-  // tabla del objeto es el del nivel pedido.
+  // Filtro de estado sobre la jerarquía. La cascada NO se filtra acá: va al
+  // WHERE de `base` (ver la nota de correctitud en la cadena de CTEs).
   const aliasStatus = level === 'campaign' ? 'c' : level === 'adset' ? 's' : 'a';
   const statusFiltro =
     f.status === 'active'
@@ -409,25 +481,37 @@ export async function getMetricasAds(f: FiltrosAds): Promise<ResultadoMetricas> 
       : f.status === 'paused'
         ? ` AND ${aliasStatus}.status = 'PAUSED'`
         : '';
-  const extras: string[] = [];
-  if (f.campaignId) {
-    const phC = p(f.campaignId);
-    extras.push(` AND ${level === 'campaign' ? 'c' : level === 'adset' ? 's' : 'a'}.campaign_id = ${phC}`);
-  }
-  if (f.adsetId && level !== 'campaign') {
-    const phA = p(f.adsetId);
-    extras.push(` AND ${level === 'adset' ? 's' : 'a'}.adset_id = ${phA}`);
-  }
-  const extra = extras.join('');
+
+  // Filtro_Cascada: los arrays nuevos (R8 c11). Los campos singulares
+  // `campaignId`/`adsetId` se conservan por compatibilidad y se envuelven en
+  // arrays. Tope de 50 ids por lista (R8 c1, c14).
+  const campaignIds = f.campaignIds ?? (f.campaignId ? [f.campaignId] : null);
+  const adsetIds = f.adsetIds ?? (f.adsetId && level !== 'campaign' ? [f.adsetId] : null);
+
+  // Orden_Tabla normalizado (R4 c3). Default: gastos descendente.
+  const claveOrden = f.orderBy && esClaveOrden(f.orderBy) ? f.orderBy : ('gastos' as ClaveOrden);
+  const dir = f.orderDir === 'asc' ? 'asc' : 'desc';
+  const conPagina = typeof f.page === 'number' && Number.isFinite(f.page) && f.page >= 1;
+  const pagina = conPagina ? Math.floor(f.page!) : 1;
+  const offset = (pagina - 1) * lim;
 
   const pNombre = p(f.nombre ?? null);
-  const pAfter = p(f.after ?? null);
-  const pLimit = p(lim + 1);
+  const pCampaignIds = p(campaignIds);
+  const pAdsetIds = p(adsetIds);
+  const pNivel = p(level);
 
   const com = comun(pAccounts, pDesde, pHasta, pTz, frag);
-  const jerObj = jerarquiaObjetos(level, { status: statusFiltro, extra });
+  const jerObj = jerarquiaObjetos(level, { status: statusFiltro });
 
-  const filasSql = `WITH${com},
+  // ── La cadena de CTEs. `base` es el SELECT final de antes, sin ORDER BY ni
+  // LIMIT, y con el Filtro_Cascada aplicado sobre las columnas
+  // desnormalizadas que TODAS las ramas de `objetos` traen. ───────────────
+  // NOTA DE CORRECTITUD: antes la cascada se filtraba dentro de la jerarquía,
+  // así que la rama `UNION ALL` de objetos que sólo tienen gasto NO la
+  // respetaba: un objeto con gasto de otra campaña aparecía igual. Movido al
+  // WHERE de `base`, la contención de R8 c3 es cierta por construcción (la
+  // Property 7 lo verifica, incluida esa rama).
+  const cadenaComun = `WITH${com},
   gasto AS (
     SELECT s.account_id AS "accountId",
            ${frag.gastoObjectId} AS "objectId",
@@ -435,7 +519,16 @@ export async function getMetricasAds(f: FiltrosAds): Promise<ResultadoMetricas> 
            ${frag.gastoNombre} AS "objectName",
            COALESCE(sum(s.spend_eur), 0) AS "spendEur",
            COALESCE(sum(s.impressions), 0) AS impressions,
-           COALESCE(sum(s.clicks), 0) AS clicks
+           COALESCE(sum(s.clicks), 0) AS clicks,
+           -- sin COALESCE a propósito: si todas las filas del rango tienen el
+           -- campo ausente (sync degradado), la suma es NULL y la columna
+           -- muestra —, que es distinto de 0 (R7 c8/c14).
+           sum(s.video_plays) AS "videoReproducciones",
+           sum(s.video_thruplay) AS "videoThruplay",
+           sum(s.video_p25) AS "videoP25",
+           sum(s.video_p50) AS "videoP50",
+           sum(s.video_p75) AS "videoP75",
+           sum(s.video_p100) AS "videoP100"
       FROM ad_spend s
       JOIN cuenta cu ON cu."accountId" = s.account_id
      WHERE s.day BETWEEN ${pDesde}::date AND ${pHasta}::date
@@ -450,7 +543,8 @@ export async function getMetricasAds(f: FiltrosAds): Promise<ResultadoMetricas> 
            g."campaignId", g."adsetId", g."adId",
            cu."funnelId",
            NULL::text AS status, NULL::text AS "effectiveStatus",
-           NULL::text AS "budgetLevel", NULL::text AS "budgetMode", NULL::numeric AS "dailyBudgetEur"
+           NULL::text AS "budgetLevel", NULL::text AS "budgetMode", NULL::numeric AS "dailyBudgetEur",
+           NULL::timestamptz AS "inicioProgramado"
       FROM gasto g
       JOIN cuenta cu ON cu."accountId" = g."accountId"
      WHERE NOT EXISTS (SELECT 1 FROM jerarquia_objetos h
@@ -472,27 +566,83 @@ export async function getMetricasAds(f: FiltrosAds): Promise<ResultadoMetricas> 
       FROM ad_actions
      WHERE NOT dry_run
      GROUP BY object_id
-  )
-SELECT o."objectId", o."objectName", o."accountId", o."campaignId", o."adsetId", o."adId",
-       o."funnelId", o.status, o."effectiveStatus", o."budgetLevel", o."budgetMode",
-       o."dailyBudgetEur",
-       COALESCE(g."spendEur", 0) AS "spendEur",
-       COALESCE(g.impressions, 0) AS impressions,
-       COALESCE(g.clicks, 0) AS clicks,
-       COALESCE(v."sales", 0) AS "sales",
-       COALESCE(v."revenueEur", 0) AS "revenueEur",
-       COALESCE(v."refundedEur", 0) AS "refundedEur",
-       COALESCE(v."commissionsEur", 0) AS "commissionsEur",
-       COALESCE(v."costsEur", 0) AS "costsEur",
-       u."ultimaAccionAt"
-  FROM objetos o
-  LEFT JOIN gasto g ON g."accountId" = o."accountId" AND g."objectId" = o."objectId"
-  LEFT JOIN ventas v ON v.account_id = o."accountId" AND v."objectId" = o."objectId"
-  LEFT JOIN ultima_accion u ON u.object_id = o."objectId"
- WHERE (${pNombre}::text IS NULL OR o."objectName" ILIKE '%' || ${pNombre} || '%')
-   AND (${pAfter}::text IS NULL OR o."objectId" > ${pAfter})
- ORDER BY o."objectId"
- LIMIT ${pLimit}`;
+  ),
+  base AS (
+    SELECT o."objectId", o."objectName", o."accountId",
+           o."campaignId", o."adsetId", o."adId", o."funnelId",
+           o.status, o."effectiveStatus", o."budgetLevel", o."budgetMode", o."dailyBudgetEur",
+           COALESCE(g."spendEur", 0) AS "spendEur",
+           COALESCE(g.impressions, 0) AS impressions,
+           COALESCE(g.clicks, 0) AS clicks,
+           g."videoReproducciones", g."videoThruplay",
+           g."videoP25", g."videoP50", g."videoP75", g."videoP100",
+           COALESCE(v."sales", 0) AS "sales",
+           COALESCE(v."revenueEur", 0) AS "revenueEur",
+           COALESCE(v."refundedEur", 0) AS "refundedEur",
+           COALESCE(v."commissionsEur", 0) AS "commissionsEur",
+           COALESCE(v."costsEur", 0) AS "costsEur",
+           al.reach AS "alcance",
+           al.impressions AS "alcanceImpresiones",
+           u."ultimaAccionAt",
+           o."inicioProgramado"
+      FROM objetos o
+      LEFT JOIN gasto g ON g."accountId" = o."accountId" AND g."objectId" = o."objectId"
+      LEFT JOIN ventas v ON v.account_id = o."accountId" AND v."objectId" = o."objectId"
+      -- Metricas_Rango: igualdad EXACTA del rango (P-G07). Sin fila → NULL → —.
+      LEFT JOIN ad_alcance al
+             ON al.platform = 'meta' AND al.account_id = o."accountId"
+            AND al.level = ${pNivel}::text AND al.object_id = o."objectId"
+            AND al.date_from = ${pDesde}::date AND al.date_to = ${pHasta}::date
+      LEFT JOIN ultima_accion u ON u.object_id = o."objectId"
+     WHERE (${pNombre}::text IS NULL OR o."objectName" ILIKE '%' || ${pNombre} || '%')
+       -- Filtro_Cascada: acá y no dentro de la jerarquía, para que alcance
+       -- también a los objetos que sólo tienen gasto (R8 c2, c3).
+       AND (${pCampaignIds}::text[] IS NULL OR cardinality(${pCampaignIds}) = 0
+            OR o."campaignId" = ANY(${pCampaignIds}))
+       AND (${pAdsetIds}::text[] IS NULL OR cardinality(${pAdsetIds}) = 0
+            OR o."adsetId" = ANY(${pAdsetIds}))
+  ),
+  -- Los cocientes existen SOLO para el ORDER BY. Lo que la API devuelve lo
+  -- sigue calculando filaDesdeRow: una sola fuente de verdad para lo que se
+  -- muestra (la Property 6 impide que las dos mitades se separen).
+  medidas AS (
+    SELECT b.*,
+           (b."revenueEur" - b."refundedEur" - b."commissionsEur" - b."costsEur") AS "netEur",
+           (b."revenueEur" - b."refundedEur" - b."commissionsEur" - b."costsEur") - b."spendEur" AS "profitEur",
+           b."revenueEur" / NULLIF(b."spendEur", 0) AS "roas",
+           (b."revenueEur" - b."refundedEur" - b."commissionsEur" - b."costsEur") / NULLIF(b."spendEur", 0) AS "roi",
+           b."spendEur" / NULLIF(b."sales", 0) AS "cpaEur",
+           b.clicks::numeric / NULLIF(b.impressions, 0) AS "ctr",
+           b."spendEur" / NULLIF(b.clicks, 0) AS "cpcEur",
+           b."spendEur" * 1000 / NULLIF(b.impressions, 0) AS "cpmEur",
+           b."alcanceImpresiones"::numeric / NULLIF(b."alcance", 0) AS "frecuencia",
+           b."videoReproducciones"::numeric / NULLIF(b.impressions, 0) AS "hookRate"
+      FROM base b
+  )`;
+
+  // `page` tiene precedencia sobre `after` (design §4). Con `after` se conserva
+  // el comportamiento viejo por compatibilidad; con `page`, el orden es el del
+  // Orden_Tabla resuelto SOBRE TODO el conjunto filtrado, y el recorte de
+  // página va DESPUÉS (R4 c3, c9). `count(*) OVER ()` se evalúa antes del
+  // ORDER BY/LIMIT externo: es el total real, no el de la página (R4 c13).
+  // Los parámetros de la cola se crean POR RAMA: Postgres rechaza un parámetro
+  // no referenciado, así que cada rama sólo agrega los que usa.
+  const filasSql = conPagina
+    ? `${cadenaComun}
+SELECT m.*, count(*) OVER () AS "totalFilas"
+  FROM medidas m
+ ORDER BY ${ORDEN_SQL[claveOrden]} ${dir === 'asc' ? 'ASC' : 'DESC'} NULLS LAST, m."objectId" ASC
+ OFFSET ${p(offset)}
+ LIMIT ${p(lim)}`
+    : (() => {
+        const pAfter = p(f.after ?? null);
+        return `${cadenaComun}
+SELECT m.*, count(*) OVER () AS "totalFilas"
+  FROM medidas m
+ WHERE (${pAfter}::text IS NULL OR m."objectId" > ${pAfter})
+ ORDER BY m."objectId" ASC
+ LIMIT ${p(lim)}`;
+      })();
 
   // ── 4. Ventas sin atribuir (D-A8), para el nivel pedido. ──
   const sinSql = `WITH${com}
@@ -504,21 +654,28 @@ SELECT count(*) FILTER (WHERE status = 'approved')::int AS "sales",
   const sinParams: unknown[] = [accountIds, desde, hasta, tz];
 
   const [filasRaw, sinRow] = await Promise.all([
-    q<RowMetricas>(filasSql, params),
+    q<RowMetricas & { totalFilas: string }>(filasSql, params),
     q1<{ sales: number; revenueEur: string }>(sinSql, sinParams),
   ]);
 
-  const hayMas = filasRaw.length > lim;
-  const filas = (hayMas ? filasRaw.slice(0, lim) : filasRaw).map((r) => filaDesdeRow(level, r));
+  const total = filasRaw.length > 0 ? Number(filasRaw[0]!.totalFilas) : 0;
+  const totalPaginas = total === 0 ? 0 : Math.ceil(total / lim);
+  const filas = filasRaw.map((r) => filaDesdeRow(level, r));
 
   return {
     filas,
-    hayMas,
+    hayMas: conPagina ? pagina < totalPaginas : total > lim,
     sinAtribuir: {
       sales: sinRow?.sales ?? 0,
       revenueEur: sinRow ? Number(sinRow.revenueEur) : 0,
     },
     rango: { from: desde, to: hasta, timezone: tz },
     generatedAt,
+    total,
+    pagina,
+    totalPaginas,
+    orden: { clave: claveOrden, dir },
+    alcanceError: null,
   };
 }
+

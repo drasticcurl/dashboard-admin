@@ -1,11 +1,16 @@
 /**
- * Contratos congelados del módulo de Anuncios (§4, §5 y §6 de 00-PLAN-ANUNCIOS.md).
+ * Contratos del módulo de Anuncios (§4, §5 y §6 de 00-PLAN-ANUNCIOS.md).
  *
- * ESTE ARCHIVO LO ESCRIBE SOLO T13.
- * Seis tasks lo importan y NINGUNA puede modificarlo. Si una task cree que
- * necesita cambiar una firma, la anota en §10 del plan en lugar de editarla:
- * con tres tasks escribiendo en paralelo contra estos tipos, un cambio acá
- * rompe a las tres a la vez.
+ * ESTE ARCHIVO ESTUVO CONGELADO hasta la spec gestion-campanas-anuncios
+ * (P-G03 de su design.md). Esa spec lo extiende de forma ESTRICTAMENTE ADITIVA:
+ * nada se quita, nada se renombra, ninguna semántica existente cambia. Las dos
+ * reglas que hacen seguro el cambio:
+ *   - todo campo nuevo de los tipos de SALIDA (`MetricasObjeto`,
+ *     `ResultadoMetricas`) es OBLIGATORIO y `| null`: `filaDesdeRow` es el único
+ *     productor y el compilador tiene que obligarlo a poblar cada campo. Un `?`
+ *     acá dejaría una columna en `—` para siempre sin que nadie se entere.
+ *   - todo campo nuevo de los tipos de ENTRADA (`FiltrosAds`) es OPCIONAL con
+ *     `?`: hay muchos llamadores y cada filtro nuevo es opt-in.
  *
  * Acá viven SOLO tipos y firmas. Ninguna implementación: `getMetricasAds` se
  * implementa en `lib/queries/ads.ts` (T15), `evaluar` en `lib/ads/reglas/motor.ts`
@@ -95,9 +100,40 @@ export type MetricasObjeto = {
 
   /** Última acción real (no simulada) sobre este objeto. Columna ÚLT. ACTUALIZACIÓN. */
   ultimaAccionAt: string | null;
+
+  // ── Agregados de gestion-campanas-anuncios (P-G03). OBLIGATORIOS y `| null`:
+  // el compilador obliga a `filaDesdeRow` a poblarlos. ─────────────────────
+
+  /** Metricas_Creativo derivadas. null = denominador cero (R7 c3). */
+  cpmEur: number | null; // gasto × 1000 ÷ impresiones del período
+  hookRate: number | null; // video_play_actions ÷ impresiones (cociente, se muestra ×100)
+
+  /** Video. null = la Marketing API no devolvió el campo (R7 c8, c14). 0 = devolvió cero. */
+  videoReproducciones: number | null;
+  videoThruplay: number | null;
+  videoP25: number | null;
+  videoP50: number | null;
+  videoP75: number | null;
+  videoP100: number | null;
+
+  /** Metricas_Rango. null = no hay fila para el (from,to) exacto (R7 c6). NUNCA sumadas. */
+  alcance: number | null;
+  frecuencia: number | null;
+
+  /** Inicio programado que devolvió Meta, ISO 8601. null = sin inicio (R11 c8). */
+  inicioProgramado: string | null;
 };
 
 export type PeriodoAds = 'today' | 'yesterday' | '7d' | '7d_excl_today';
+
+/** Clave de columna del Catalogo_Metricas, reutilizada como clave de Orden_Tabla. */
+export type ClaveOrden =
+  | 'nombre' | 'estado' | 'ultimaActualizacion' | 'inicioProgramado'
+  | 'presupuesto' | 'ventas' | 'cpa' | 'gastos' | 'ingresos' | 'ganancia'
+  | 'roas' | 'roi' | 'impresiones' | 'clics' | 'ctr' | 'cpc' | 'cpm'
+  | 'alcance' | 'frecuencia' | 'hookRate'
+  | 'videoReproducciones' | 'videoThruplay'
+  | 'videoP25' | 'videoP50' | 'videoP75' | 'videoP100';
 
 export type FiltrosAds = {
   level: NivelAds;
@@ -112,7 +148,32 @@ export type FiltrosAds = {
    * y la UI/motor saben si se cortó por `hayMas`.
    */
   limit?: number;
-  /** Cursor estable para la página siguiente: el objectId de la última fila. */
+
+  // ── Agregados de gestion-campanas-anuncios (P-G03). OPCIONALES: cada
+  // llamador opta por usarlos. ─────────────────────────────────────────────
+
+  /** Filtro_Cascada por campaña. Hasta 50 ids. Ausente o vacío = sin cascada (R8 c11). */
+  campaignIds?: string[];
+  /** Filtro_Cascada por conjunto. Hasta 50 ids. */
+  adsetIds?: string[];
+
+  /** Orden_Tabla. Default 'gastos' descendente cuando no se indica. */
+  orderBy?: ClaveOrden;
+  orderDir?: 'asc' | 'desc';
+  /** Página 1-based (R4 c10). Si viene, `after` se ignora. */
+  page?: number;
+
+  /**
+   * Las columnas visibles. Sirve para NO pedirle a Meta las Metricas_Rango
+   * cuando ninguna Vista las muestra. Ausente = ninguna Metricas_Rango.
+   */
+  columnas?: ClaveOrden[];
+
+  /**
+   * @deprecated Cursor por objectId. Incompatible con Orden_Tabla (R4 c3).
+   * Se conserva declarado para no romper llamadores; `page` lo reemplaza y
+   * tiene precedencia. Se retira cuando no queden consumidores.
+   */
   after?: string;
 };
 
@@ -130,6 +191,20 @@ export type ResultadoMetricas = {
    */
   rango: { from: string; to: string; timezone: string };
   generatedAt: string;
+
+  // ── Agregados de gestion-campanas-anuncios (P-G03). OBLIGATORIOS: la
+  // paginación por página no puede romperse en silencio. ───────────────────
+
+  /** Total de filas que los filtros alcanzan, antes del recorte de página (R4 c10, c13). */
+  total: number;
+  /** Página devuelta, 1-based. */
+  pagina: number;
+  /** Páginas alcanzadas por los filtros vigentes. */
+  totalPaginas: number;
+  /** El Orden_Tabla con el que se resolvió, ya normalizado. */
+  orden: { clave: ClaveOrden; dir: 'asc' | 'desc' };
+  /** Cuando alguna Metricas_Rango se pidió y no se pudo traer. null = sin problema. */
+  alcanceError: string | null;
 };
 
 export type FirmaGetMetricasAds = (f: FiltrosAds) => Promise<ResultadoMetricas>;
@@ -255,6 +330,9 @@ export type MetaCampaign = {
   lifetimeBudget: number | null; // unidades mínimas. Se lee, NO se escribe (D-A10)
   bidStrategy: string | null;
   createdTime: string | null; // ISO 8601, tal como viene de Meta
+  // Programación (R11 c8): ISO 8601 tal como viene de Meta. null = sin inicio/fin.
+  startTime: string | null;
+  endTime: string | null;
 };
 
 export type MetaAdSet = {
@@ -269,6 +347,17 @@ export type MetaAdSet = {
   billingEvent: string | null;
   bidStrategy: string | null;
   createdTime: string | null;
+  // Agregados de gestion-campanas-anuncios (R11 c8): programación tal como la
+  // devuelve Meta, ISO 8601. null = sin inicio/fin programado.
+  startTime: string | null;
+  endTime: string | null;
+};
+
+/** Los datos de DSA de un conjunto, leídos best-effort (P-G01). */
+export type DsaConjunto = {
+  adsetId: string;
+  dsaPayor: string | null;
+  dsaBeneficiary: string | null;
 };
 
 export type MetaAd = {
@@ -293,6 +382,28 @@ export type ResultadoEscritura =
   | { estado: 'fallido'; error: MetaAdsError }
   | { estado: 'indeterminado'; error: MetaAdsError };
 
+/**
+ * Vocabulario_Acciones completo (R15 c2): los seis valores originales del CHECK
+ * `ad_actions_action_valida` más los tres de gestion-campanas-anuncios
+ * (migración 018 §1).
+ */
+export type AccionAds =
+  | 'pause' | 'activate'
+  | 'budget_increase' | 'budget_decrease' | 'budget_set'
+  | 'config'
+  | 'duplicate' | 'rename' | 'schedule';
+
+/**
+ * El resultado de UNA Copia (R10 c8). No reusa `ResultadoEscritura` a propósito:
+ * una duplicación indeterminada puede haber creado PARTE de los objetos, y
+ * `ResultadoEscritura` no tiene dónde poner esa lista. `creados` lleva los ids
+ * que Meta confirmó, aunque falten los demás.
+ */
+export type ResultadoCopia =
+  | { estado: 'confirmado'; creados: string[] }
+  | { estado: 'fallido'; error: MetaAdsError; creados: string[] }
+  | { estado: 'indeterminado'; error: MetaAdsError; creados: string[]; handle: string | null };
+
 /** El consumo que informó Meta para ESA CUENTA. Lo lee el backoff (D-A14). */
 export type UsoCuenta = {
   callCount: number;
@@ -310,6 +421,7 @@ export type MetaCuenta = {
 
 export type MetaObjetoLeido = {
   objectId: string;
+  name: string | null;
   status: string | null;
   effectiveStatus: string | null;
   dailyBudget: number | null;
