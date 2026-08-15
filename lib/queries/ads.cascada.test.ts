@@ -63,52 +63,99 @@ async function sembrar(arbol: ArbolAds, fantasmas: GastoFantasma[], dia: string)
   await q('DELETE FROM ad_sets WHERE account_id = $1', [CUENTA]);
   await q('DELETE FROM ad_campaigns WHERE account_id = $1', [CUENTA]);
 
-  for (const c of arbol.campanias) {
+  // UN INSERT por tabla con unnest, en orden de FK. Antes era un insert por fila:
+  // un árbol de 5x4x6 son ~180 round-trips por iteración y con 100 iteraciones la
+  // propiedad se pasaba del timeout, la abortaban a mitad del sembrado y el test
+  // siguiente fallaba con violación de ads_adset_id_fkey sobre datos parciales.
+  const cIds = arbol.campanias.map((c) => c.campaignId);
+  if (cIds.length > 0) {
     await q(
       `INSERT INTO ad_campaigns (campaign_id, account_id, name, status, effective_status,
                                  budget_level, currency, synced_at)
-       VALUES ($1, $2, $3, 'ACTIVE', 'ACTIVE', 'adset', 'EUR', now())`,
-      [c.campaignId, CUENTA, `Campaña ${c.campaignId}`],
+       SELECT u.cid, $2, 'Campaña ' || u.cid, 'ACTIVE', 'ACTIVE', 'adset', 'EUR', now()
+         FROM unnest($1::text[]) AS u(cid)`,
+      [cIds, CUENTA],
     );
+  }
+
+  const sIds: string[] = [];
+  const sCamp: string[] = [];
+  for (const c of arbol.campanias) {
     for (const s of c.conjuntos) {
-      await q(
-        `INSERT INTO ad_sets (adset_id, campaign_id, account_id, name, status, effective_status,
-                              currency, synced_at)
-         VALUES ($1, $2, $3, $4, 'ACTIVE', 'ACTIVE', 'EUR', now())`,
-        [s.adsetId, s.campaignId, CUENTA, `Conjunto ${s.adsetId}`],
-      );
+      sIds.push(s.adsetId);
+      sCamp.push(s.campaignId);
+    }
+  }
+  if (sIds.length > 0) {
+    await q(
+      `INSERT INTO ad_sets (adset_id, campaign_id, account_id, name, status, effective_status,
+                            currency, synced_at)
+       SELECT u.sid, u.cid, $3, 'Conjunto ' || u.sid, 'ACTIVE', 'ACTIVE', 'EUR', now()
+         FROM unnest($1::text[], $2::text[]) AS u(sid, cid)`,
+      [sIds, sCamp, CUENTA],
+    );
+  }
+
+  const aIds: string[] = [];
+  const aSet: string[] = [];
+  const aCamp: string[] = [];
+  for (const c of arbol.campanias) {
+    for (const s of c.conjuntos) {
       for (const a of s.anuncios) {
-        await q(
-          `INSERT INTO ads (ad_id, adset_id, campaign_id, account_id, name, status,
-                            effective_status, synced_at)
-           VALUES ($1, $2, $3, $4, $5, 'ACTIVE', 'ACTIVE', now())`,
-          [a.adId, s.adsetId, s.campaignId, CUENTA, `Anuncio ${a.adId}`],
-        );
+        aIds.push(a.adId);
+        aSet.push(s.adsetId);
+        aCamp.push(s.campaignId);
       }
     }
   }
+  if (aIds.length > 0) {
+    await q(
+      `INSERT INTO ads (ad_id, adset_id, campaign_id, account_id, name, status,
+                        effective_status, synced_at)
+       SELECT u.aid, u.sid, u.cid, $4, 'Anuncio ' || u.aid, 'ACTIVE', 'ACTIVE', now()
+         FROM unnest($1::text[], $2::text[], $3::text[]) AS u(aid, sid, cid)`,
+      [aIds, aSet, aCamp, CUENTA],
+    );
+  }
 
   // Gasto de los objetos reales (un anuncio por conjunto) y de los fantasmas.
+  const gCamp: string[] = [];
+  const gSet: string[] = [];
+  const gAd: string[] = [];
   for (const c of arbol.campanias) {
     for (const s of c.conjuntos) {
       if (s.anuncios.length === 0) continue;
-      const a = s.anuncios[0]!;
-      await q(
-        `INSERT INTO ad_spend (platform, account_id, day, level, campaign_id, campaign_name,
-                               adset_id, adset_name, ad_id, ad_name, spend, currency, spend_eur,
-                               impressions, clicks, synced_at)
-         VALUES ('meta', $1, $2::date, 'ad', $3, $4, $5, $6, $7, $8, 5, 'EUR', 5, 1, 1, now())`,
-        [CUENTA, dia, c.campaignId, `Campaña ${c.campaignId}`, s.adsetId, `Conjunto ${s.adsetId}`, a.adId, `Anuncio ${a.adId}`],
-      );
+      gCamp.push(c.campaignId);
+      gSet.push(s.adsetId);
+      gAd.push(s.anuncios[0]!.adId);
     }
   }
-  for (const f of fantasmas) {
+  if (gCamp.length > 0) {
     await q(
       `INSERT INTO ad_spend (platform, account_id, day, level, campaign_id, campaign_name,
                              adset_id, adset_name, ad_id, ad_name, spend, currency, spend_eur,
                              impressions, clicks, synced_at)
-       VALUES ('meta', $1, $2::date, 'ad', $3, 'fantasma', $4, 'fantasma', $5, 'fantasma', 7, 'EUR', 7, 1, 1, now())`,
-      [CUENTA, dia, f.campaignId, f.adsetId, f.adId],
+       SELECT 'meta', $4, $5::date, 'ad', u.cid, 'Campaña ' || u.cid, u.sid,
+              'Conjunto ' || u.sid, u.aid, 'Anuncio ' || u.aid, 5, 'EUR', 5, 1, 1, now()
+         FROM unnest($1::text[], $2::text[], $3::text[]) AS u(cid, sid, aid)`,
+      [gCamp, gSet, gAd, CUENTA, dia],
+    );
+  }
+  if (fantasmas.length > 0) {
+    await q(
+      `INSERT INTO ad_spend (platform, account_id, day, level, campaign_id, campaign_name,
+                             adset_id, adset_name, ad_id, ad_name, spend, currency, spend_eur,
+                             impressions, clicks, synced_at)
+       SELECT 'meta', $4, $5::date, 'ad', u.cid, 'fantasma', u.sid, 'fantasma', u.aid,
+              'fantasma', 7, 'EUR', 7, 1, 1, now()
+         FROM unnest($1::text[], $2::text[], $3::text[]) AS u(cid, sid, aid)`,
+      [
+        fantasmas.map((f) => f.campaignId),
+        fantasmas.map((f) => f.adsetId),
+        fantasmas.map((f) => f.adId),
+        CUENTA,
+        dia,
+      ],
     );
   }
 }

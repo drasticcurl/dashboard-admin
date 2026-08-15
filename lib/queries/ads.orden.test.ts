@@ -81,15 +81,27 @@ async function sembrar(filas: Sembrada[], dia: string): Promise<void> {
     [CUENTA, ZONA],
   );
   await q('DELETE FROM ad_spend WHERE account_id = $1', [CUENTA]);
-  for (const f of filas) {
-    await q(
-      `INSERT INTO ad_spend (platform, account_id, day, level, campaign_id, campaign_name,
-                             adset_id, adset_name, ad_id, ad_name, spend, currency, spend_eur,
-                             impressions, clicks, synced_at)
-       VALUES ('meta', $1, $2::date, 'ad', $3, $4, '', NULL, '', NULL, $5, 'EUR', $5, $6, $7, now())`,
-      [CUENTA, dia, f.objectId, f.name, f.spend, f.impressions, f.clicks],
-    );
-  }
+  if (filas.length === 0) return;
+  // UN solo INSERT con unnest, no uno por fila: 300 filas x 100 iteraciones eran
+  // 30.000 round-trips secuenciales y la propiedad se pasaba del timeout.
+  await q(
+    `INSERT INTO ad_spend (platform, account_id, day, level, campaign_id, campaign_name,
+                           adset_id, adset_name, ad_id, ad_name, spend, currency, spend_eur,
+                           impressions, clicks, synced_at)
+     SELECT 'meta', $1, $2::date, 'ad', u.oid, u.nom, '', NULL, '', NULL,
+            u.spend, 'EUR', u.spend, u.impr, u.clicks, now()
+       FROM unnest($3::text[], $4::text[], $5::numeric[], $6::bigint[], $7::bigint[])
+            AS u(oid, nom, spend, impr, clicks)`,
+    [
+      CUENTA,
+      dia,
+      filas.map((f) => f.objectId),
+      filas.map((f) => f.name),
+      filas.map((f) => f.spend),
+      filas.map((f) => f.impressions),
+      filas.map((f) => f.clicks),
+    ],
+  );
 }
 
 /** Para la Property 6, algunos objetos viven también en la jerarquía: nombre,
@@ -116,17 +128,25 @@ function genSiembraP6(): fc.Arbitrary<SembradaConJerarquia[]> {
 
 async function sembrarJerarquia(filas: SembradaConJerarquia[]): Promise<void> {
   await q('DELETE FROM ad_campaigns WHERE account_id = $1', [CUENTA]);
-  for (const f of filas) {
-    if (!f.enJerarquia) continue;
-    await q(
-      `INSERT INTO ad_campaigns (campaign_id, account_id, name, status, effective_status,
-                                 budget_level, daily_budget, currency, synced_at)
-       VALUES ($1, $2, $3, $4, $4, CASE WHEN $5::bigint IS NULL THEN 'adset' ELSE 'campaign' END,
-               $5::bigint, 'EUR', now())
-       ON CONFLICT (campaign_id) DO UPDATE SET synced_at = now()`,
-      [f.objectId, CUENTA, f.name ?? 'sin nombre', f.status, f.dailyBudget],
-    );
-  }
+  const enJ = filas.filter((f) => f.enJerarquia);
+  if (enJ.length === 0) return;
+  await q(
+    `INSERT INTO ad_campaigns (campaign_id, account_id, name, status, effective_status,
+                               budget_level, daily_budget, currency, synced_at)
+     SELECT u.oid, $1, u.nom, u.st, u.st,
+            CASE WHEN u.bud IS NULL THEN 'adset' ELSE 'campaign' END,
+            u.bud, 'EUR', now()
+       FROM unnest($2::text[], $3::text[], $4::text[], $5::bigint[])
+            AS u(oid, nom, st, bud)
+     ON CONFLICT (campaign_id) DO UPDATE SET synced_at = now()`,
+    [
+      CUENTA,
+      enJ.map((f) => f.objectId),
+      enJ.map((f) => f.name ?? 'sin nombre'),
+      enJ.map((f) => f.status),
+      enJ.map((f) => f.dailyBudget),
+    ],
+  );
 }
 
 async function hoyLocal(): Promise<string> {

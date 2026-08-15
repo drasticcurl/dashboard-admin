@@ -18,5 +18,9 @@ export default defineConfig({
     // Los tests de integración corren contra las MISMAS tablas: en paralelo se
     // pisan y aparecen timeouts flaky. Serializar archivos los estabiliza.
     fileParallelism: false,
+    // Las propiedades que corren contra Postgres hacen 100 iteraciones de
+    // sembrar + consultar: con los 5 s por defecto se cortaban a mitad del
+    // sembrado y dejaban las tablas inconsistentes para el test siguiente.
+    testTimeout: 30_000,
   },
 });
