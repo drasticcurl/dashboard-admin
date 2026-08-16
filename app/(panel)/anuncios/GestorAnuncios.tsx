@@ -23,6 +23,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import type { FrescuraAds } from '@/lib/ads/live';
+import { textoEdadGasto, usePollingGasto } from '@/lib/ads/polling';
 import type {
   AccionAds,
   ClaveOrden,
@@ -187,6 +188,11 @@ export function GestorAnuncios({
   const [refrescando, setRefrescando] = useState(false);
   const [frenoSegundos, setFrenoSegundos] = useState<number | null>(null);
   const ultimoRefresco = useRef<number>(0);
+  // El tick automático del gasto: estado propio y separado de `refrescando`,
+  // que es el del Boton_Actualizar. Si compartieran uno, el tick deshabilitaría
+  // el botón cada minuto y le correría el freno de 10 s al usuario.
+  const [refrescandoFondo, setRefrescandoFondo] = useState(false);
+  const tickEnVuelo = useRef(false);
 
   const [confirmacion, setConfirmacion] = useState<{
     accion: AccionAds;
@@ -481,13 +487,46 @@ export function GestorAnuncios({
       });
   };
 
-  const edadGasto = ((): string => {
-    if (frescura.error) return 'sync con error';
-    const s = frescura.ageSeconds;
-    if (s === null) return 'nunca sincronizado';
-    if (s < 3600) return `hace ${Math.max(0, Math.floor(s / 60))} min`;
-    return `hace ${Math.floor(s / 3600)} h`;
-  })();
+  // ── El tick automático del gasto (lib/ads/polling.ts) ────────────────────
+  // Es el mismo pedido del Boton_Actualizar pero SIN `forzar`: el TTL del server
+  // decide si toca a Meta o devuelve lo que ya está guardado, así que dejar la
+  // pantalla abierta toda la tarde no multiplica las llamadas. Y es silencioso:
+  // no toca `loading` (eso cambia la tabla por el esqueleto cada minuto), no
+  // pisa la selección y no corre el freno de 10 s, que es del usuario.
+  usePollingGasto(
+    () => {
+      if (tickEnVuelo.current) return;
+      tickEnVuelo.current = true;
+      setRefrescandoFondo(true);
+      pedirFilas()
+        .then((body) => {
+          setData(body);
+          if (body.adsFreshness) setFrescura(body.adsFreshness);
+          // Si el refetch de después de un lote había fallado (R16 c7), este
+          // pedido es el que vuelve a poner la tabla al día: dejar el aviso de
+          // tabla vieja sería avisar de algo que ya no pasa.
+          setAvisoTablaVieja(false);
+        })
+        .catch(() => {
+          // Un tick que falla no dice nada: las filas y la marca anteriores
+          // siguen en pantalla, el mismo criterio de R1 c9. La marca de frescura
+          // va a ir contando el atraso sola, y el próximo tick reintenta.
+        })
+        .finally(() => {
+          tickEnVuelo.current = false;
+          setRefrescandoFondo(false);
+        });
+    },
+    {
+      // Nada de moverle la mesa al usuario: con un diálogo abierto, un lote
+      // corriendo, filas fantasma esperando respuesta o cualquier otro pedido
+      // en curso, el tick se saltea y vuelve a intentar al minuto siguiente.
+      pausado:
+        loading || refrescando || ejecutando || confirmacion !== null || enProceso.length > 0,
+    },
+  );
+
+  const edadGasto = textoEdadGasto(frescura) ?? '—';
 
   // ── Acciones ─────────────────────────────────────────────────────────────
   const toggleEstado = async (fila: MetricasObjeto): Promise<void> => {
@@ -781,6 +820,9 @@ export function GestorAnuncios({
 
       <div className="flex flex-wrap items-center justify-end gap-3">
         {loading && <span className="text-xs text-neutral-500">Actualizando…</span>}
+        {!loading && refrescandoFondo && (
+          <span className="text-xs text-neutral-500">actualizando gasto…</span>
+        )}
         <BarraFrescura
           edad={edadGasto}
           error={frescura.error}

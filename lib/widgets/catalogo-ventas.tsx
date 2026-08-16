@@ -53,6 +53,7 @@ import { Badge, ChartFrame, EmptyState, Table, fmtAxis, fmtDateTime, fmtInt, fmt
 import type { Tone } from '@/components/ui';
 import { panelColors } from '@/tailwind.config';
 import type { FrescuraAds } from '@/lib/ads/live';
+import { textoEdadGasto } from '@/lib/ads/polling';
 import type { OrderRow, SalesData, SalesTotals, TierRow } from '@/lib/queries/sales';
 import type { WidgetCatalogo, WidgetDef, WidgetGrupo, WidgetPlacement, WidgetSize } from './tipos';
 
@@ -92,18 +93,6 @@ function aovReal(byTier: TierRow[], net: number): number {
   const front = byTier.find((r) => r.tier === 'front')?.orders ?? 0;
   if (front === 0) return 0;
   return net / front;
-}
-
-/** Antigüedad del gasto en palabras, del valor que trajo el server. */
-function edadAds(f: FrescuraAds | null | undefined): string | null {
-  if (!f) return null;
-  if (f.error) return 'sync con error';
-  const s = f.ageSeconds;
-  if (s === null) return 'nunca sincronizado';
-  if (s < 90) return 'al día';
-  if (s < 3600) return `hace ${Math.round(s / 60)} min`;
-  if (s < 86_400) return `hace ${Math.round(s / 3600)} h`;
-  return `hace ${Math.round(s / 86_400)} d`;
 }
 
 const TONE_TEXT: Record<Tone, string> = {
@@ -474,7 +463,7 @@ export const catalogoVentas: WidgetCatalogo<VentasWidgetData> = {
       const s = d.showEur;
       const cpa = s ? t.cpaEur : t.cpa;
       const base = cpa > 0 ? `CPA ${fmtMoney(cpa, curDe(t, s))}` : 'gasto de publicidad';
-      const edad = edadAds(d.frescura);
+      const edad = textoEdadGasto(d.frescura);
       return edad ? `${base} · ${edad}` : base;
     },
     tone: (d) =>

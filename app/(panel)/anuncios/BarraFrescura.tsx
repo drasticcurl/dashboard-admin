@@ -6,7 +6,11 @@
  *
  * - La Marca_Frescura dice la antigüedad del gasto guardado en minutos enteros
  *   mientras sea menor a 60 minutos, en horas enteras a partir de 60, y un
- *   texto propio cuando nunca se obtuvo gasto (R1 c6).
+ *   texto propio cuando nunca se obtuvo gasto (R1 c6). El texto lo arma
+ *   `textoEdadGasto` en lib/ads/polling.ts, compartido con el widget de gasto de
+ *   Ventas y con el Resumen para que las tres pantallas digan lo mismo; abajo de
+ *   90 segundos dice "al día" en vez de "hace 0 min", que con el tick automático
+ *   de cada minuto es el caso normal y no vale la pena contarlo en minutos.
  * - El Boton_Actualizar dispara `onActualizar`; el freno de un refresco cada
  *   10 segundos es del llamador (useRef con el timestamp del disparo), que pasa
  *   `segundosRestantes` entre 1 y 10 para informarlo sin llamar a nada (R1 c10,

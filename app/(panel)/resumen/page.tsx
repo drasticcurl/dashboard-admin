@@ -56,7 +56,7 @@ export default async function ResumenPage({ searchParams }: { searchParams: Sear
   // con gasto del cron de hace una hora. `ensureFreshAdSpend` reconstruye
   // también el rollup del día, que es de donde lee esta pantalla.
   const hoy = await today(timezone);
-  await ensureFreshAdSpend(range.to, hoy);
+  const adsFreshness = await ensureFreshAdSpend(range.to, hoy);
 
   const [data, layoutRow] = await Promise.all([
     getOverviewData(range),
@@ -69,5 +69,11 @@ export default async function ResumenPage({ searchParams }: { searchParams: Sear
   const layoutGuardado =
     layoutRow === null || layoutRow.value === null ? null : (layoutRow.value as WidgetLayout);
 
-  return <ResumenView initialData={data} layoutGuardado={layoutGuardado} />;
+  return (
+    <ResumenView
+      initialData={data}
+      adsFreshness={adsFreshness}
+      layoutGuardado={layoutGuardado}
+    />
+  );
 }

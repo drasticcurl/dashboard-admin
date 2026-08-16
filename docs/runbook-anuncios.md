@@ -117,6 +117,36 @@ SQL
 atrasa, el cron de respaldo (`--health`, cada 30 min) manda un aviso por
 Telegram.
 
+### El gasto se ve atrasado
+
+Mirá primero la marca de frescura del panel (arriba a la derecha en Resumen y
+Anuncios, y en el sub de la tarjeta de gasto en Ventas). Dice cuándo fue el
+último sync que terminó, y con eso se separa el problema:
+
+| La marca dice | Dónde está el problema |
+|---|---|
+| `al día` o `hace 1 min` | En Meta, no en el panel. Sus números se recalculan cada varios minutos: el panel ya trajo lo último que Meta tiene para dar |
+| `hace 5 min` o más, con la pestaña a la vista | El tick del cliente no está corriendo o los pedidos fallan. Consola del browser → `/api/data/*` en rojo; y revisá que el build tenga `NEXT_PUBLIC_ADS_POLL_SECONDS` distinto de `0` |
+| `sync con error` | El sync corre y falla. El texto completo está en el `title` de la marca y en `ad_accounts.last_sync_error` |
+| `nunca sincronizado` | Nunca entró gasto: token, permisos o cuenta inactiva. `npm run ads:token` |
+
+```sql
+-- Lo que ve el panel para decidir la frescura (min: manda la cuenta más atrasada)
+SELECT account_id, active, last_sync_at, now() - last_sync_at AS edad, last_sync_error
+  FROM ad_accounts WHERE platform = 'meta' ORDER BY last_sync_at;
+```
+
+Las dos perillas, y no se tocan igual:
+
+- `ADS_LIVE_TTL_SECONDS` (60) es el freno contra los rate limits, se compara
+  contra `last_sync_at` y por lo tanto es global: mil pedidos por minuto siguen
+  siendo una llamada a Meta. Se lee en caliente, sube con un restart.
+- `NEXT_PUBLIC_ADS_POLL_SECONDS` (60) es cada cuánto el panel repite el pedido.
+  Se hornea en el build: cambiarla necesita deploy. Bajarla NO sube las llamadas
+  a Meta, sube los pedidos al panel y las consultas a la base.
+
+Si Meta empieza a devolver `17` / `613`, la que hay que subir es la primera.
+
 ---
 
 ## 4. Los errores de Meta que se van a ver

@@ -24,15 +24,16 @@
  * client. Los tipos entran como `import type` (se borran en compilación).
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 import type { Funnel } from '@/lib/funnels';
 import type { FrescuraAds } from '@/lib/ads/live';
 import type { SalesData } from '@/lib/queries/sales';
-import { Badge, Banner, Grid, Skeleton, fmtInt, fmtMoney } from '@/components/ui';
+import { Badge, Banner, Grid, Skeleton, Spinner, fmtInt, fmtMoney } from '@/components/ui';
 import { WidgetGrid } from '@/components/WidgetGrid';
+import { usePollingGasto } from '@/lib/ads/polling';
 import { catalogoVentas, LAYOUT_VENTAS_POR_DEFECTO } from '@/lib/widgets/catalogo-ventas';
 import type { VentasWidgetData } from '@/lib/widgets/catalogo-ventas';
 import type { WidgetLayout } from '@/lib/widgets/tipos';
@@ -71,12 +72,14 @@ export function VentasView({
   const [data, setData] = useState<SalesData>(initialData);
   const [frescura, setFrescura] = useState<FrescuraAds>(adsFreshness);
   const [loading, setLoading] = useState(false);
+  const [refrescando, setRefrescando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [retryTick, setRetryTick] = useState(0);
 
   // La primera pintura ya trae los datos del server: no refetchear al
   // montar, solo ante cambios (funnel, rango, filtros, retry).
   const firstRun = useRef(true);
+  const enVuelo = useRef<AbortController | null>(null);
 
   const rangeParam = searchParams.get('range');
   const fromParam = searchParams.get('from');
@@ -86,20 +89,75 @@ export function VentasView({
   const srcParam = searchParams.get('source');
   const statusParam = searchParams.get('status');
 
-  // La clave del refetch: funnel + rango + filtros. `cur` NO está a propósito:
-  // el toggle es de visualización y no justifica un request. Sin esta clave,
-  // el `useSearchParams` del efecto se dispararía con cada toggle y haría un
-  // fetch de más (y peor: un toggle de moneda no debe mover el layout).
-  const fetchKey = useMemo(
-    () =>
-      [
-        fParam,
-        fromParam && toParam ? `${fromParam}~${toParam}` : rangeParam ?? 'today',
-        tierParam ?? '',
-        campParam ?? '',
-        srcParam ?? '',
-        statusParam ?? '',
-      ].join('|'),
+  // Un solo camino de fetch para los dos disparadores: el cambio de funnel,
+  // rango o filtros, y el tick del gasto. `silencioso` es la única diferencia y
+  // NO es cosmética: `loading` reemplaza la grilla por el esqueleto, y hacer eso
+  // cada minuto haría parpadear la pantalla entera y tiraría las ediciones de
+  // layout sin guardar. El tick cambia los números en su lugar y nada más.
+  //
+  // Las dependencias son funnel + rango + filtros. `cur` NO está a propósito: el
+  // toggle es de visualización y no justifica un request (y peor: un toggle de
+  // moneda no debe mover el layout).
+  const cargar = useCallback(
+    ({ silencioso }: { silencioso: boolean }): void => {
+      if (enVuelo.current) {
+        // El polling cede: si ya hay un pedido abierto (un cambio de filtro, o
+        // el tick anterior que tardó más que el intervalo), este tick se
+        // saltea. El cambio de filtro es al revés: manda, y aborta lo que haya.
+        if (silencioso) return;
+        enVuelo.current.abort();
+      }
+      const ctrl = new AbortController();
+      enVuelo.current = ctrl;
+
+      if (silencioso) {
+        setRefrescando(true);
+      } else {
+        setLoading(true);
+        setError(null);
+      }
+
+      const params = new URLSearchParams({ f: fParam });
+      if (fromParam && toParam) {
+        params.set('from', fromParam);
+        params.set('to', toParam);
+      } else {
+        params.set('range', rangeParam ?? 'today');
+      }
+      if (tierParam) params.set('tier', tierParam);
+      if (campParam) params.set('campaign', campParam);
+      if (srcParam) params.set('source', srcParam);
+      if (statusParam) params.set('status', statusParam);
+
+      fetch(`/api/data/sales?${params.toString()}`, {
+        signal: ctrl.signal,
+        cache: 'no-store',
+      })
+        .then(async (res) => {
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          return (await res.json()) as SalesData & { adsFreshness?: FrescuraAds };
+        })
+        .then((body) => {
+          setData(body);
+          // El route refresca el gasto igual que el server: si no se tomara la
+          // frescura nueva, la tarjeta seguiría diciendo la antigüedad del primer
+          // render y en un rato mostraría "hace 40 min" con el número al día.
+          if (body.adsFreshness) setFrescura(body.adsFreshness);
+        })
+        .catch((err: unknown) => {
+          if (err instanceof DOMException && err.name === 'AbortError') return;
+          // Un tick que falla no tapa la pantalla con el banner rojo: los
+          // números que se están viendo siguen siendo válidos, solo quedaron
+          // viejos, y la tarjeta de gasto ya cuenta su antigüedad. El error del
+          // cambio de filtro sí se muestra, que ahí no quedó nada para mirar.
+          if (!silencioso) setError(err instanceof Error ? err.message : 'Error de red');
+        })
+        .finally(() => {
+          if (enVuelo.current === ctrl) enVuelo.current = null;
+          if (silencioso) setRefrescando(false);
+          else setLoading(false);
+        });
+    },
     [fParam, rangeParam, fromParam, toParam, tierParam, campParam, srcParam, statusParam],
   );
 
@@ -108,45 +166,15 @@ export function VentasView({
       firstRun.current = false;
       return;
     }
-    const ctrl = new AbortController();
-    setLoading(true);
-    setError(null);
+    cargar({ silencioso: false });
+    return () => enVuelo.current?.abort();
+  }, [cargar, retryTick]);
 
-    const params = new URLSearchParams({ f: fParam });
-    if (fromParam && toParam) {
-      params.set('from', fromParam);
-      params.set('to', toParam);
-    } else {
-      params.set('range', rangeParam ?? 'today');
-    }
-    if (tierParam) params.set('tier', tierParam);
-    if (campParam) params.set('campaign', campParam);
-    if (srcParam) params.set('source', srcParam);
-    if (statusParam) params.set('status', statusParam);
-
-    fetch(`/api/data/sales?${params.toString()}`, {
-      signal: ctrl.signal,
-      cache: 'no-store',
-    })
-      .then(async (res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        return (await res.json()) as SalesData & { adsFreshness?: FrescuraAds };
-      })
-      .then((body) => {
-        setData(body);
-        // El route refresca el gasto igual que el server: si no se tomara la
-        // frescura nueva, la tarjeta seguiría diciendo la antigüedad del primer
-        // render y en un rato mostraría "hace 40 min" con el número al día.
-        if (body.adsFreshness) setFrescura(body.adsFreshness);
-      })
-      .catch((err: unknown) => {
-        if (err instanceof DOMException && err.name === 'AbortError') return;
-        setError(err instanceof Error ? err.message : 'Error de red');
-      })
-      .finally(() => setLoading(false));
-
-    return () => ctrl.abort();
-  }, [fetchKey, retryTick]);
+  // El gasto de Meta cada minuto (lib/ads/polling.ts): /api/data/sales refresca
+  // contra Meta antes de leer, así que repetir el pedido ES el refresco. Con un
+  // rango cerrado no cuesta una llamada — `ensureFreshAdSpend` sale antes — y el
+  // pedido igual repinta las ventas, que sí se mueven.
+  usePollingGasto(() => cargar({ silencioso: true }), { pausado: loading });
 
   const toggleCur = (eur: boolean): void => {
     const params = new URLSearchParams(searchParams.toString());
@@ -205,6 +233,14 @@ export function VentasView({
             <Badge tone="warn">Sin atribuir</Badge>
           ) : (
             <Badge tone="info">{funnel!.name}</Badge>
+          )}
+          {/* El tick del gasto no toca la grilla, así que sin este aviso los
+              números cambiarían solos y sin explicación. La antigüedad la sigue
+              contando la tarjeta de gasto en ads. */}
+          {refrescando && (
+            <span className="flex items-center gap-1.5 text-xs text-neutral-500">
+              <Spinner /> actualizando gasto…
+            </span>
           )}
         </div>
 

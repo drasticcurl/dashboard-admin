@@ -24,13 +24,15 @@
  * del client. Los tipos entran como `import type`.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { WidgetGrid } from '@/components/WidgetGrid';
 import { catalogoResumen } from '@/lib/widgets/catalogo-resumen';
 import { layoutPorDefectoResumen } from './layout-por-defecto';
 import type { OverviewData } from '@/lib/queries/overview';
+import type { FrescuraAds } from '@/lib/ads/live';
 import type { WidgetLayout } from '@/lib/widgets/tipos';
+import { textoEdadGasto, usePollingGasto } from '@/lib/ads/polling';
 import { Banner, EmptyState, Skeleton, Spinner, fmtDateTime } from '@/components/ui';
 
 // El reloj '14:20' de los avisos. La query lo arma con DASHBOARD_TZ en el
@@ -59,60 +61,110 @@ function EsqueletoResumen(): JSX.Element {
 
 export function ResumenView({
   initialData,
+  adsFreshness,
   layoutGuardado,
 }: {
   initialData: OverviewData;
+  adsFreshness: FrescuraAds;
   layoutGuardado: WidgetLayout | null;
 }) {
   const searchParams = useSearchParams();
 
   const [data, setData] = useState<OverviewData>(initialData);
+  const [frescura, setFrescura] = useState<FrescuraAds>(adsFreshness);
   const [loading, setLoading] = useState(false);
+  const [refrescando, setRefrescando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [retryTick, setRetryTick] = useState(0);
 
   // La primera pintura ya trae los datos del server: no refetchear al
   // montar, solo ante cambios de rango o retry.
   const firstRun = useRef(true);
+  const enVuelo = useRef<AbortController | null>(null);
+
+  // Un solo camino de fetch para los dos disparadores: el cambio de rango y el
+  // tick del gasto. `silencioso` es la única diferencia y NO es cosmética:
+  // `loading` desmonta el WidgetGrid, y hacerlo cada minuto haría parpadear la
+  // pantalla entera y tiraría las ediciones de layout sin guardar. El tick
+  // cambia los números en su lugar y nada más.
+  const cargar = useCallback(
+    ({ silencioso }: { silencioso: boolean }): void => {
+      if (enVuelo.current) {
+        // El polling cede: si ya hay un pedido abierto (un cambio de rango, o
+        // el tick anterior que tardó más que el intervalo), este tick se
+        // saltea. El cambio de rango es al revés: manda, y aborta lo que haya.
+        if (silencioso) return;
+        enVuelo.current.abort();
+      }
+      const ctrl = new AbortController();
+      enVuelo.current = ctrl;
+
+      if (silencioso) {
+        setRefrescando(true);
+      } else {
+        setLoading(true);
+        setError(null);
+      }
+
+      const params = new URLSearchParams();
+      const range = searchParams.get('range');
+      const from = searchParams.get('from');
+      const to = searchParams.get('to');
+      if (from && to) {
+        params.set('from', from);
+        params.set('to', to);
+      } else {
+        params.set('range', range ?? 'today');
+      }
+
+      fetch(`/api/data/overview?${params.toString()}`, {
+        signal: ctrl.signal,
+        cache: 'no-store',
+      })
+        .then(async (res) => {
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          return (await res.json()) as OverviewData & { adsFreshness?: FrescuraAds };
+        })
+        .then((body) => {
+          setData(body);
+          // El route refresca el gasto igual que el render del server: sin
+          // tomar la frescura nueva, la marca seguiría contando la antigüedad
+          // del primer render con los números ya al día.
+          if (body.adsFreshness) setFrescura(body.adsFreshness);
+        })
+        .catch((err: unknown) => {
+          if (err instanceof DOMException && err.name === 'AbortError') return;
+          // Un tick que falla no tapa la pantalla con el banner rojo: los
+          // números que se están viendo siguen siendo válidos, solo quedaron
+          // viejos, y la marca de frescura ya lo cuenta. El error del cambio de
+          // rango sí se muestra, que ahí no quedó nada para mirar.
+          if (!silencioso) setError(err instanceof Error ? err.message : 'Error de red');
+        })
+        .finally(() => {
+          if (enVuelo.current === ctrl) enVuelo.current = null;
+          if (silencioso) setRefrescando(false);
+          else setLoading(false);
+        });
+    },
+    [searchParams],
+  );
 
   useEffect(() => {
     if (firstRun.current) {
       firstRun.current = false;
       return;
     }
-    const ctrl = new AbortController();
-    setLoading(true);
-    setError(null);
+    cargar({ silencioso: false });
+    return () => enVuelo.current?.abort();
+  }, [cargar, retryTick]);
 
-    const params = new URLSearchParams();
-    const range = searchParams.get('range');
-    const from = searchParams.get('from');
-    const to = searchParams.get('to');
-    if (from && to) {
-      params.set('from', from);
-      params.set('to', to);
-    } else {
-      params.set('range', range ?? 'today');
-    }
+  // El gasto de Meta cada minuto (lib/ads/polling.ts): el route refresca contra
+  // Meta antes de leer, así que repetir el pedido ES el refresco. Con un rango
+  // cerrado no cuesta una llamada — `ensureFreshAdSpend` sale antes — y el
+  // pedido igual repinta las ventas, que sí se mueven.
+  usePollingGasto(() => cargar({ silencioso: true }), { pausado: loading });
 
-    fetch(`/api/data/overview?${params.toString()}`, {
-      signal: ctrl.signal,
-      cache: 'no-store',
-    })
-      .then(async (res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        return (await res.json()) as OverviewData;
-      })
-      .then(setData)
-      .catch((err: unknown) => {
-        if (err instanceof DOMException && err.name === 'AbortError') return;
-        setError(err instanceof Error ? err.message : 'Error de red');
-      })
-      .finally(() => setLoading(false));
-
-    return () => ctrl.abort();
-  }, [searchParams, retryTick]);
-
+  const edadGasto = textoEdadGasto(frescura) ?? '—';
   const empty = data.funnels.every((f) => f.sessions === 0 && f.orders === 0);
 
   return (
@@ -127,6 +179,22 @@ export function ResumenView({
             </span>
           )}
         </div>
+
+        {/* La marca de frescura del gasto. El de ads es el único número de esta
+            pantalla que puede quedar atrás sin que nada falle: las ventas las
+            escribe un webhook cuando pasan, el gasto hay que ir a buscarlo a
+            Meta. Decir la antigüedad acá es lo que permite leer el Resultado y
+            el ROAS sin desconfiar. El título tiene el error completo cuando el
+            sync viene fallando. */}
+        <span
+          title={frescura.error ?? undefined}
+          className={`flex items-center gap-2 text-xs ${
+            frescura.error ? 'text-amber-400' : 'text-neutral-500'
+          }`}
+        >
+          {refrescando && <Spinner />}
+          gasto {edadGasto}
+        </span>
       </div>
 
       {error && (

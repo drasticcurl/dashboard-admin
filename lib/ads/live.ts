@@ -27,6 +27,14 @@
  *
  * El cron sigue existiendo y no es redundante: cubre las horas en las que nadie
  * abre el panel, y reprocesa ayer, que Meta ajusta después del cierre.
+ *
+ * QUIÉN LLAMA A ESTO
+ * Los renders de Resumen, Ventas y Anuncios, los routes /api/data/overview,
+ * /api/data/sales y /api/data/ads, y desde `lib/ads/polling.ts` un intervalo en
+ * el cliente que repite el pedido cada minuto mientras la pestaña está a la
+ * vista. Ese intervalo es lo que hace que el TTL sirva: antes de existir, una
+ * pestaña abierta se quedaba con el número del primer render hasta el próximo F5
+ * o cambio de rango, y el TTL de 60 s no lo consultaba nadie.
  */
 
 import { q1 } from '../db';
@@ -43,6 +51,25 @@ function ttlSegundos(): number {
 function timeoutMs(): number {
   const n = Number(process.env.ADS_LIVE_TIMEOUT_MS ?? 8000);
   return Number.isFinite(n) && n > 0 ? n : 8000;
+}
+
+/**
+ * Margen con el que se compara contra el TTL, para que un polling del MISMO
+ * período no se saltee un tick de cada dos.
+ *
+ * `last_sync_at` se escribe cuando el sync TERMINA, no cuando arranca. Con un
+ * polling cada 60 s y un TTL de 60 s, la edad que ve el tick siguiente es 60
+ * menos lo que tardó la llamada a Meta (3 a 5 s es normal): 56 s, o sea "todavía
+ * fresco", así que se saltea y el gasto se mueve cada DOS minutos. El margen
+ * absorbe la duración del sync sin tener que bajar el TTL, que es el freno
+ * global contra los rate limits y conviene dejar donde está.
+ *
+ * Es proporcional para no romper los TTL chicos: con 60 s el piso queda en 50 s,
+ * con 8 s queda en 6 s. Un margen fijo de 10 s dejaría a un TTL de 8 s en 0, o
+ * sea sin freno.
+ */
+function pisoDeFrescura(ttl: number): number {
+  return Math.max(0, ttl - Math.min(10, ttl / 4));
 }
 
 export type FrescuraAds = {
@@ -126,7 +153,7 @@ export async function ensureFreshAdSpend(
   if (hasta < hoy) return { ...antes, refreshed: false };
 
   const ttl = ttlSegundos();
-  if (!opts?.forzar && antes.ageSeconds !== null && antes.ageSeconds < ttl) {
+  if (!opts?.forzar && antes.ageSeconds !== null && antes.ageSeconds < pisoDeFrescura(ttl)) {
     return { ...antes, refreshed: false };
   }
 
