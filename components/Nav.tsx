@@ -22,6 +22,7 @@ const TABS = [
   { href: '/embudo', label: 'Embudo' },
   { href: '/ventas', label: 'Ventas' },
   { href: '/anuncios', label: 'Anuncios' },
+  { href: '/finanzas', label: 'Finanzas' },
   { href: '/leads', label: 'Leads' },
   { href: '/config', label: 'Config' },
 ];

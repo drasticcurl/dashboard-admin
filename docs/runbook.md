@@ -205,6 +205,27 @@ tail -50 /var/log/panel/rollup.log
 tail -50 /var/log/panel/db.log
 ```
 
+## 4.1 Finanzas
+
+**Qué hace:** `finance-rollup.ts` calcula el profit diario (todos los funnels, agregado) desde
+`daily_metrics`, 1 vez al día (05:35, después del rollup nocturno de las 05:25).
+`finance-scheduled-payments.ts` (05:40) genera el gasto de cualquier pago programado activo cuyo
+día ya pasó este mes. Los dos escriben en `/var/log/panel/finance.log`.
+
+| Síntoma | Dónde mirar |
+|---|---|
+| el patrimonio no se mueve de un día para otro | `SELECT * FROM finance_daily_profit ORDER BY day DESC LIMIT 3;` — ¿corrió el cron anoche? |
+| un pago programado activo no generó su gasto | `finance_scheduled_payment_runs` para ese `scheduled_payment_id` y el mes actual; si no hay fila, revisar `/var/log/panel/finance.log` |
+| un pago se ejecutó dos veces (no debería poder pasar) | el `PRIMARY KEY (scheduled_payment_id, month)` de `finance_scheduled_payment_runs` lo impide a nivel de base; si esto pasa, es un bug — reportarlo, no hay procedimiento de "arreglar a mano" documentado |
+
+Correr a mano, si hace falta:
+
+```bash
+cd /srv/panel/current
+node --env-file=.env.production ./node_modules/.bin/tsx scripts/finance-rollup.ts
+node --env-file=.env.production ./node_modules/.bin/tsx scripts/finance-scheduled-payments.ts
+```
+
 ## 5. Restaurar un backup
 
 El backup diario (cron de las 04:30) es la única copia de las ventas

@@ -71,6 +71,19 @@
 30 4 * * * sudo -u postgres pg_dump panel | gzip > /srv/panel/backups/panel-$(date +\%F).sql.gz
 35 4 * * * find /srv/panel/backups -name 'panel-*.sql.gz' -mtime +14 -delete
 
+# Finanzas: profit diario (T01/T04). DESPUÉS del rollup nocturno de daily_metrics
+# (05:25): el profit del día se calcula agregando daily_metrics de TODOS los
+# funnels, así que si corriera antes, sumaría datos de hasta 24 h viejos.
+# Recalcula ayer y hoy (plan §5): el profit de "hoy" sigue moviéndose durante
+# el día, así que la corrida de la madrugada corrige el de ayer una vez más.
+35 5 * * * cd /srv/panel/current && /usr/bin/node --env-file=.env.production ./node_modules/.bin/tsx scripts/finance-rollup.ts >> /var/log/panel/finance.log 2>&1
+
+# Finanzas: pagos programados (T01/T04). DESPUÉS del profit diario de arriba,
+# para que si alguien mira /finanzas a las 5:40 de la mañana vea los dos ya
+# actualizados juntos. No depende funcionalmente del profit (son tablas
+# distintas), es sólo para que la foto sea consistente.
+40 5 * * * cd /srv/panel/current && /usr/bin/node --env-file=.env.production ./node_modules/.bin/tsx scripts/finance-scheduled-payments.ts >> /var/log/panel/finance.log 2>&1
+
 # ─── Anuncios ──────────────────────────────────────────────────────────────
 # GASTO de anuncios → ad_spend. ESTA LÍNEA YA ESTABA EN EL CRONTAB DE LA VPS Y
 # NO ESTABA EN ESTE ARCHIVO: el crontab vivo y el repo habían divergido.
@@ -80,6 +93,13 @@
 # alguien abre la pantalla y sólo para el rango que incluye hoy: sin esta línea,
 # un día que nadie mira el panel se queda sin gasto y el rollup de daily_metrics
 # guarda ceros. La regresión no da ningún error, sólo números que faltan.
+#
+# Y NO, EL POLLING DEL PANEL NO LA REEMPLAZA. `lib/ads/polling.ts` repite el
+# pedido cada minuto, pero sólo con una pestaña abierta y a la vista: se frena
+# con `document.hidden` y no existe de noche ni los fines de semana. Esta línea
+# es la única cadencia que no depende de que haya alguien mirando. Tampoco hace
+# falta bajarla de una hora por el atraso que se ve en pantalla: eso ya lo cubre
+# el polling, y bajarla acá multiplica las llamadas a Meta las 24 horas.
 #
 # Si instalás este archivo con `crontab -u deploy -`, verificá ANTES que no estés
 # perdiendo líneas que estén vivas y no acá:
