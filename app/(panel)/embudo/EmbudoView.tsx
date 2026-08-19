@@ -12,6 +12,19 @@
  * por etapas (EmbudoChart), que sale de `funnel_stages` (D-R07). El toggle
  * de base ahora vive en `?base=` (D-R14) y sobrevive al refresh.
  *
+ * El control que está arriba del embudo por etapas es UNO de dos, según el
+ * rango tenga test A/B o no:
+ *
+ *  - con test  → toggle de portada (A y B / Landing A / Landing B). Recorta el
+ *                embudo entero, así que muestra en qué etapa pierde gente cada
+ *                entrada, que es lo que un test de portada necesita responder.
+ *  - sin test  → toggle de base (paso 0 vs paso 1), el que estaba solo hasta
+ *                ahora. No se borró: sin variantes en el rango el otro no tendría
+ *                nada que ofrecer.
+ *
+ * `?base=` sigue funcionando por URL en los dos casos, así que la base se puede
+ * cambiar incluso cuando su toggle no está a la vista.
+ *
  * El "peor paso" se calcula acá, sobre las filas ya armadas: es la de mayor
  * dropFromPrevious entre filas consecutivas, excluyendo la base — la misma
  * regla del panel viejo (FunnelView.tsx:238-247), sobre la matemática que
@@ -23,6 +36,9 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import type { Funnel } from '@/lib/funnels';
 import type { BaseMode, ExperimentoRow, FunnelData } from '@/lib/queries/funnel';
+// El centinela viene de `lib/experimento.ts` y NO de `lib/queries/funnel`: ese
+// módulo importa `pg` y esto es un componente de cliente.
+import { SIN_EXPERIMENTO } from '@/lib/experimento';
 import { EmbudoChart } from '@/components/EmbudoChart';
 import {
   Badge,
@@ -92,6 +108,20 @@ export function debeMostrarCardTestAB(experiments: ExperimentoRow[]): boolean {
  */
 export function debeMostrarSelectorExperimento(opciones: string[]): boolean {
   return opciones.length > 1;
+}
+
+/**
+ * Etiqueta CORTA de una variante, para el toggle que está arriba del embudo por
+ * etapas. Es otra función que `etiquetaExperimento` a propósito: ahí las
+ * etiquetas describen qué cambia cada variante ('A · control (portada actual)')
+ * porque la tabla tiene ancho para eso, y acá tienen que caber en un botón al
+ * lado del otro.
+ */
+export function etiquetaCortaExperimento(v: string): string {
+  if (v === 'A') return 'Landing A';
+  if (v === 'B') return 'Landing B';
+  if (v === SIN_EXPERIMENTO) return 'Sin asignar';
+  return v;
 }
 
 export function debeMostrarCardVariantes(variants: string[]): boolean {
@@ -269,15 +299,37 @@ export function EmbudoView({
         />
       </div>
 
+      {/*
+        El toggle de este bloque cambia según haya test o no.
+
+        Con test corriendo manda la comparación de portadas: es la pregunta que se
+        está haciendo en ese momento, y recorta el embudo por etapas completo, así
+        que se ve en qué etapa pierde gente cada entrada.
+
+        Sin test cae al toggle de base (paso 0 vs paso 1), que es el que estaba
+        acá antes. No se borró: en un rango donde el experimento no corrió, o en un
+        funnel que no testea, el de variantes no tendría nada que ofrecer y el de
+        base sigue siendo útil. `?base=` sigue andando por URL en los dos casos.
+      */}
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/[0.06] bg-[#13131a] p-4">
         <div>
-          <p className="text-sm text-neutral-300">
-            % de personas que llegan a cada paso, medido desde{' '}
-            <span className="font-semibold text-neutral-100">
-              {base === 'landing' ? 'la landing (entrada)' : 'el inicio del quiz (1ª pregunta)'}
-            </span>
-            .
-          </p>
+          {debeMostrarSelectorExperimento(expOptions) ? (
+            <p className="text-sm text-neutral-300">
+              Comparando{' '}
+              <span className="font-semibold text-neutral-100">
+                {experiment === '' ? 'las dos portadas juntas' : etiquetaCortaExperimento(experiment)}
+              </span>
+              . El recorte aplica a todo el embudo de abajo.
+            </p>
+          ) : (
+            <p className="text-sm text-neutral-300">
+              % de personas que llegan a cada paso, medido desde{' '}
+              <span className="font-semibold text-neutral-100">
+                {base === 'landing' ? 'la landing (entrada)' : 'el inicio del quiz (1ª pregunta)'}
+              </span>
+              .
+            </p>
+          )}
           <p className="mt-1 text-xs text-neutral-500">
             Landing → inicio del quiz:{' '}
             <span className="font-semibold tabular-nums text-neutral-300">
@@ -286,36 +338,84 @@ export function EmbudoView({
             — es la caída más grande de todo el embudo.
           </p>
         </div>
-        <div
-          role="group"
-          aria-label="Base de medición del porcentaje"
-          className="flex items-center gap-1 rounded-lg border border-white/[0.06] bg-white/[0.02] p-1"
-        >
-          <button
-            type="button"
-            onClick={() => setBase('landing')}
-            aria-pressed={base === 'landing'}
-            className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500/50 ${
-              base === 'landing'
-                ? 'bg-white/[0.08] text-neutral-50'
-                : 'text-neutral-400 hover:bg-white/[0.05] hover:text-neutral-200'
-            }`}
+
+        {debeMostrarSelectorExperimento(expOptions) ? (
+          <div
+            role="group"
+            aria-label="Portada del test A/B"
+            className="flex items-center gap-1 rounded-lg border border-white/[0.06] bg-white/[0.02] p-1"
           >
-            Desde la landing
-          </button>
-          <button
-            type="button"
-            onClick={() => setBase('start')}
-            aria-pressed={base === 'start'}
-            className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500/50 ${
-              base === 'start'
-                ? 'bg-white/[0.08] text-neutral-50'
-                : 'text-neutral-400 hover:bg-white/[0.05] hover:text-neutral-200'
-            }`}
+            {/*
+              La opción de "juntas" va primero y con value '' (el mismo que
+              significa "sin filtro" en el resto de la vista). Sin ella el toggle
+              te encerraría en una variante, y el embudo total —el que se mira
+              cuando no estás pensando en el test— quedaría inaccesible.
+            */}
+            <button
+              type="button"
+              onClick={() => setExperiment('')}
+              aria-pressed={experiment === ''}
+              className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500/50 ${
+                experiment === ''
+                  ? 'bg-white/[0.08] text-neutral-50'
+                  : 'text-neutral-400 hover:bg-white/[0.05] hover:text-neutral-200'
+              }`}
+            >
+              A y B
+            </button>
+            {/*
+              Un botón por variante REALMENTE presente en el rango, no por valor
+              declarado en el funnel: en un rango donde solo corrió una, ofrecer la
+              otra daría un embudo vacío.
+            */}
+            {expOptions.map((v) => (
+              <button
+                key={v}
+                type="button"
+                onClick={() => setExperiment(v)}
+                aria-pressed={experiment === v}
+                className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500/50 ${
+                  experiment === v
+                    ? 'bg-white/[0.08] text-neutral-50'
+                    : 'text-neutral-400 hover:bg-white/[0.05] hover:text-neutral-200'
+                }`}
+              >
+                {etiquetaCortaExperimento(v)}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div
+            role="group"
+            aria-label="Base de medición del porcentaje"
+            className="flex items-center gap-1 rounded-lg border border-white/[0.06] bg-white/[0.02] p-1"
           >
-            Desde la 1ª pregunta
-          </button>
-        </div>
+            <button
+              type="button"
+              onClick={() => setBase('landing')}
+              aria-pressed={base === 'landing'}
+              className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500/50 ${
+                base === 'landing'
+                  ? 'bg-white/[0.08] text-neutral-50'
+                  : 'text-neutral-400 hover:bg-white/[0.05] hover:text-neutral-200'
+              }`}
+            >
+              Desde la landing
+            </button>
+            <button
+              type="button"
+              onClick={() => setBase('start')}
+              aria-pressed={base === 'start'}
+              className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500/50 ${
+                base === 'start'
+                  ? 'bg-white/[0.08] text-neutral-50'
+                  : 'text-neutral-400 hover:bg-white/[0.05] hover:text-neutral-200'
+              }`}
+            >
+              Desde la 1ª pregunta
+            </button>
+          </div>
+        )}
       </div>
 
       <Card
@@ -459,33 +559,11 @@ export function EmbudoView({
       <Card title="Filtros" hint="Cada filtro recorta el embudo completo">
         <div className="flex flex-wrap items-center gap-2">
           {/*
-            El selector del experimento sale de las FILAS del desglose y no de
-            `funnel.experiments`: así ofrece los valores que de verdad tienen
-            sesiones en el rango, incluido el centinela. Con `funnel.experiments`
-            listaría 'A' y 'B' incluso en un rango donde el test no corrió, y cada
-            opción devolvería un embudo vacío.
-
-            Elegir una variante recorta TODO: los pasos, las etapas y las
-            campañas. Es lo que contesta "¿en qué pregunta pierde gente la
-            entrada B?", que la card sola no puede responder.
+            Acá NO va un selector de la variante del A/B: eso lo maneja el toggle
+            que está arriba del embudo por etapas. Dos controles para el mismo
+            estado es la forma más rápida de que la vista muestre una cosa y el
+            control diga otra.
           */}
-          {debeMostrarSelectorExperimento(expOptions) && (
-            <select
-              value={experiment}
-              onChange={(e) => setExperiment(e.target.value)}
-              aria-label="Variante del test A/B"
-              className={SELECT_CLS}
-            >
-              <option value="" className="bg-[#13131a] text-neutral-200">
-                A y B juntas
-              </option>
-              {expOptions.map((v) => (
-                <option key={v} value={v} className="bg-[#13131a] text-neutral-200">
-                  {etiquetaExperimento(v)}
-                </option>
-              ))}
-            </select>
-          )}
           {debeMostrarCardVariantes(funnel.variants) && (
             <select
               value={variant}

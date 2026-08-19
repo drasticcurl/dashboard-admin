@@ -4,6 +4,7 @@ import {
   debeMostrarCardTestAB,
   debeMostrarCardVariantes,
   debeMostrarSelectorExperimento,
+  etiquetaCortaExperimento,
   etiquetaExperimento,
 } from './EmbudoView';
 import { SIN_EXPERIMENTO, type ExperimentoRow } from '@/lib/queries/funnel';
@@ -101,6 +102,33 @@ describe('debeMostrarSelectorExperimento (puro)', () => {
     const opcionesEstables = ['A', 'B'];
     expect(debeMostrarCardTestAB(desgloseFiltrado)).toBe(false);
     expect(debeMostrarSelectorExperimento(opcionesEstables)).toBe(true);
+  });
+});
+
+/**
+ * Las etiquetas cortas del toggle que está arriba del embudo por etapas. Son
+ * OTRAS que las de la tabla: ahí hay ancho para describir qué cambia cada
+ * variante, en un botón no.
+ */
+describe('etiquetaCortaExperimento (pura)', () => {
+  it('A y B se nombran por su portada, el centinela se acorta y el resto pasa tal cual', () => {
+    expect(etiquetaCortaExperimento('A')).toBe('Landing A');
+    expect(etiquetaCortaExperimento('B')).toBe('Landing B');
+    expect(etiquetaCortaExperimento(SIN_EXPERIMENTO)).toBe('Sin asignar');
+    expect(etiquetaCortaExperimento('C')).toBe('C');
+    expect(etiquetaCortaExperimento('')).toBe('');
+  });
+
+  it('son más cortas que las de la tabla, que es la razón de que existan', () => {
+    for (const v of ['A', 'B']) {
+      expect(etiquetaCortaExperimento(v).length).toBeLessThan(etiquetaExperimento(v).length);
+    }
+  });
+
+  it('ninguna menciona el pop-up', () => {
+    for (const v of ['A', 'B', 'C', SIN_EXPERIMENTO]) {
+      expect(etiquetaCortaExperimento(v).toLowerCase()).not.toContain('pop-up');
+    }
   });
 });
 

@@ -197,15 +197,17 @@ export function calcularTasasExperimento(filas: ExperimentoContadores[]): Experi
 // ($n::text IS NULL OR col = $n) deja que una sola SQL cubra todas las
 // combinaciones de filtro sin armar el WHERE concatenando strings. Los
 // valores SIEMPRE van como parámetros.
-// Centinela de la dimensión del experimento: las sesiones que no participaron
-// (experiment NULL) agrupan bajo este valor en el desglose. Empieza con '(' a
-// propósito, para que la función pura de orden (calcularTasasExperimento)
-// pueda mandarlo SIEMPRE al final sin depender de la collation del servidor.
+// El centinela de la dimensión del experimento vive en `lib/experimento.ts`
+// porque este módulo importa `pg` y los componentes de cliente lo necesitan sin
+// arrastrarlo al bundle (mismo patrón que `nombreVisible` en `lib/funnels.ts`).
+// Se re-exporta para que el código de servidor y los tests lo sigan encontrando
+// acá, junto al resto del embudo.
 //
-// Se declara ACÁ arriba, y no junto a los otros centinelas, porque
-// `WHERE_SESSIONS` lo interpola: un template literal se evalúa cuando el módulo
-// carga, así que dejarlo abajo lo tiraba con un ReferenceError de TDZ.
-export const SIN_EXPERIMENTO = '(sin asignar)';
+// Se importa Y se re-exporta: un `export ... from` solo no trae el valor al
+// scope de este módulo, y `WHERE_SESSIONS` lo interpola. El import va ARRIBA de
+// esa constante porque un template literal se evalúa cuando el módulo carga.
+import { SIN_EXPERIMENTO } from '@/lib/experimento';
+export { SIN_EXPERIMENTO };
 
 // El filtro del experimento entra ACÁ y no en cada query: así recorta el embudo
 // COMPLETO (histograma de pasos, etapas, campañas, países, dispositivos) con
