@@ -3,9 +3,16 @@
 /**
  * ReglasView — la pantalla /anuncios/reglas (T19).
  *
- * Lista de reglas con su switch de estado y su switch de modo sombra, el banner
- * de los dos interruptores globales (D-A12b), el formulario de crear/editar y
- * el diálogo de confirmación escrita para sacar el modo sombra.
+ * Lista de reglas con su switch de estado, el banner de los dos interruptores
+ * globales (D-A12b), el formulario de crear/editar y el diálogo de confirmación
+ * escrita para sacar el modo sombra.
+ *
+ * DÓNDE VIVE EL MODO SOMBRA / REAL
+ * En el menú «⋮» de cada fila, no en una columna: el badge SOMBRA repetido en
+ * todas las filas era ruido (es el default de toda regla nueva) y el modo se
+ * consulta justo cuando se lo va a cambiar. En la tabla sólo queda un badge
+ * REAL, y sólo en las reglas que pueden tocar Meta: ese estado sí no puede
+ * quedar invisible.
  *
  * Los switches y el constructor de condiciones viven acá (D-A19): no se toca
  * `components/ui.tsx`. La referencia es `ConfigView.tsx` (formularios de
@@ -15,7 +22,7 @@
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { DotsThreeVertical } from '@phosphor-icons/react';
+import { DotsThreeVertical, X } from '@phosphor-icons/react';
 import type { Condicion, NivelAds, PeriodoAds } from '@/lib/ads/tipos';
 import type { ResultadoCorrida } from '@/lib/ads/reglas/ejecutor';
 import type { CuentaAds, EstadoInterruptores, ReglaFila } from './_tipos';
@@ -169,6 +176,14 @@ type ItemMenu = {
   onSelect: () => void;
   /** Rojo, para lo que borra. */
   peligro?: boolean;
+  /** Ámbar, para lo que le da permiso a la regla de tocar Meta. */
+  aviso?: boolean;
+  /**
+   * Segunda línea, más chica, debajo del label. Es donde vive la explicación
+   * del modo sombra/real: la columna «Modo» de la tabla se fue, y una etiqueta
+   * de tres palabras no alcanza para decir qué implica cambiarlo.
+   */
+  detalle?: string;
   title?: string;
 };
 
@@ -181,6 +196,10 @@ type ItemMenu = {
  * overflow y, peor, ensancha el scroll horizontal de la tabla. Con
  * `createPortal` a `document.body` + `position: fixed` calculado desde el rect
  * del disparador, el menú se dibuja por encima de todo y la tabla no se mueve.
+ *
+ * `encabezado` es la línea de estado de arriba (el modo de la regla) y va
+ * AFUERA del `role="menu"`: un texto que no se puede elegir no puede ser hijo
+ * de un menú.
  *
  * ACCESIBILIDAD (no hay ningún menú previo en el repo del que copiarla)
  *   - El disparador es un `<button>` real con `aria-haspopup="menu"`,
@@ -200,11 +219,14 @@ function MenuAcciones({
   items,
   disabled,
   variante = 'icono',
+  encabezado,
 }: {
   etiqueta: string;
   items: ItemMenu[];
   disabled?: boolean;
   variante?: 'icono' | 'texto';
+  /** Línea de estado arriba de las opciones (el modo de la regla). */
+  encabezado?: string;
 }): JSX.Element {
   const [abierto, setAbierto] = useState(false);
   const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
@@ -222,15 +244,21 @@ function MenuAcciones({
     const el = triggerRef.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
-    // Alto estimado: 30 px por opción más el padding. Sólo se usa para decidir
-    // si el menú se abre hacia arriba, así que una aproximación alcanza.
-    const alto = items.length * 30 + 10;
+    // Alto estimado: 30 px por opción simple, 46 si tiene segunda línea, más el
+    // encabezado y el padding. Sólo se usa para decidir si el menú se abre hacia
+    // arriba, así que una aproximación alcanza.
+    const alto =
+      items.reduce((acc, it) => acc + (it.detalle ? 46 : 30), 0) + (encabezado ? 34 : 0) + 10;
     const cabeAbajo = window.innerHeight - r.bottom > alto + 8;
+    // `documentElement.clientWidth` y no `window.innerWidth`: innerWidth incluye
+    // el ancho de la barra de scroll y `position: fixed` no, así que el menú
+    // quedaba corrido ~15 px a la izquierda del botón.
+    const anchoViewport = document.documentElement.clientWidth;
     setPos({
       top: cabeAbajo ? r.bottom + 4 : Math.max(8, r.top - alto - 4),
       // Anclado a la derecha: el disparador está en el borde derecho de la
       // tabla y un menú que crece hacia la derecha se saldría de la pantalla.
-      right: Math.max(8, window.innerWidth - r.right),
+      right: Math.max(8, anchoViewport - r.right),
     });
     setAbierto(true);
   }
@@ -314,36 +342,50 @@ function MenuAcciones({
             <div
               ref={panelRef}
               id={idPanel}
-              role="menu"
-              aria-label={etiqueta}
-              onKeyDown={navegar}
               style={{ position: 'fixed', top: pos.top, right: pos.right }}
-              className="z-[60] min-w-[14rem] rounded-xl border border-border-strong bg-surface-raised p-1 shadow-2xl"
+              className="z-[60] w-[17rem] overflow-hidden rounded-xl border border-border-strong bg-surface-raised shadow-2xl"
             >
-              {items.map((it, i) => (
-                <button
-                  key={it.label}
-                  ref={(el) => {
-                    itemsRef.current[i] = el;
-                  }}
-                  type="button"
-                  role="menuitem"
-                  title={it.title}
-                  onClick={() => {
-                    // Cerrar sin devolver el foco: la acción casi siempre abre
-                    // el formulario o un diálogo, y ahí va a ir el foco.
-                    setAbierto(false);
-                    it.onSelect();
-                  }}
-                  className={`block w-full rounded-lg px-3 py-1.5 text-left text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-good-500/50 ${
-                    it.peligro
-                      ? 'text-bad-300 hover:bg-bad-500/10'
-                      : 'text-neutral-200 hover:bg-overlay/8 hover:text-neutral-50'
-                  }`}
-                >
-                  {it.label}
-                </button>
-              ))}
+              {/* El encabezado va AFUERA del role="menu": un texto que no es una
+                  opción no puede ser hijo de un menú (un lector de pantalla lo
+                  anunciaría como si se pudiera elegir). */}
+              {encabezado && (
+                <p className="border-b border-border-subtle px-3 py-2 text-[11px] leading-snug text-neutral-400">
+                  {encabezado}
+                </p>
+              )}
+              <div role="menu" aria-label={etiqueta} onKeyDown={navegar} className="p-1">
+                {items.map((it, i) => (
+                  <button
+                    key={it.label}
+                    ref={(el) => {
+                      itemsRef.current[i] = el;
+                    }}
+                    type="button"
+                    role="menuitem"
+                    title={it.title}
+                    onClick={() => {
+                      // Cerrar sin devolver el foco: la acción casi siempre abre
+                      // el formulario o un diálogo, y ahí va a ir el foco.
+                      setAbierto(false);
+                      it.onSelect();
+                    }}
+                    className={`block w-full rounded-lg px-3 py-1.5 text-left text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-good-500/50 ${
+                      it.peligro
+                        ? 'text-bad-300 hover:bg-bad-500/10'
+                        : it.aviso
+                          ? 'text-warn-300 hover:bg-warn-500/10'
+                          : 'text-neutral-200 hover:bg-overlay/8 hover:text-neutral-50'
+                    }`}
+                  >
+                    {it.label}
+                    {it.detalle && (
+                      <span className="mt-0.5 block text-[10px] font-normal leading-snug text-neutral-500">
+                        {it.detalle}
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
             </div>,
             document.body,
           )
@@ -581,10 +623,6 @@ export function ReglasView({
   const [importando, setImportando] = useState(false);
   const [resultadoImport, setResultadoImport] = useState<RespuestaImport | null>(null);
   const [vaciando, setVaciando] = useState(false);
-  // El contenedor del formulario, para llevar la vista hasta él al abrirlo: con
-  // dos cuentas y varias reglas, la Card del formulario queda a dos pantallas
-  // de scroll y «Editar» parecía no hacer nada.
-  const formRef = useRef<HTMLDivElement>(null);
 
   const show = useCallback((tone: 'good' | 'bad', text: string) => setFlash({ tone, text }), []);
 
@@ -713,14 +751,9 @@ export function ReglasView({
     setDuplicando(null);
   }
 
-  // Llevar la vista al formulario cuando se abre o cuando pasa de una regla a
-  // otra. La Card del formulario se pinta DEBAJO de la lista, y con dos cuentas
-  // cargadas queda a dos pantallas de scroll: «Editar» abría el editor fuera de
-  // la vista y no había ninguna señal de que hubiera pasado algo.
-  useEffect(() => {
-    if (!nueva && !editando && !duplicando) return;
-    formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }, [nueva, editando, duplicando]);
+  // El formulario es un popup y ya no una Card al final de la página: no hace
+  // falta ningún scrollIntoView para que «Editar» se note (era el arreglo de
+  // cuando el editor se pintaba a dos pantallas de scroll de la lista).
 
   /** Baja el CSV. El route manda Content-Disposition: attachment. */
   function exportarCsv(accountId?: string) {
@@ -853,7 +886,7 @@ export function ReglasView({
           <p className="text-[13px] leading-snug">
             {sw.forzarSombra
               ? 'Ninguna regla está tocando Meta: todas registran lo que habrían hecho. Revisá el historial y apagá este interruptor cuando quieras que actúen de verdad.'
-              : 'Las reglas marcadas como ACTIVA están cambiando estados y presupuestos en Meta de verdad.'}
+              : 'Las reglas prendidas que estén en modo real (badge REAL) están cambiando estados y presupuestos en Meta de verdad.'}
           </p>
           <div className="flex flex-wrap items-center gap-x-6 gap-y-2 pt-1">
             <label className="flex items-center gap-2 text-xs text-neutral-300">
@@ -919,7 +952,7 @@ export function ReglasView({
       {/* ── Lista ── */}
       <Card
         title={`Reglas · ${reglas.length}`}
-        hint="El switch de modo sombra por fila y los dos interruptores globales de arriba son los cuatro controles del módulo: ninguno es una variable de entorno."
+        hint="El switch de estado de cada fila, el modo sombra/real en el menú «⋮» de cada regla y los dos interruptores globales de arriba son los controles del módulo: ninguno es una variable de entorno."
       >
         {cuentas.length === 0 ? (
           // Sin Cuenta_Activa cargada no se puede crear ninguna regla: el API y
@@ -967,17 +1000,25 @@ export function ReglasView({
                         ),
                       },
                       {
-                        key: 'modo',
-                        header: 'Modo',
-                        render: (r) =>
-                          r.dryRun ? <Badge tone="info">SOMBRA</Badge> : <Badge tone="warn">ACTIVA</Badge>,
-                      },
-                      {
                         key: 'nombre',
                         header: 'Nombre',
                         render: (r) => (
                           <span className="font-medium text-neutral-100">
                             {r.name}
+                            {/*
+                              La columna «Modo» se fue de la tabla (el modo vive
+                              en el menú de los tres puntos), pero el estado
+                              PELIGROSO no puede quedar invisible: una regla en
+                              real puede pausar campañas o mover presupuesto.
+                              Por eso el badge aparece sólo cuando dryRun es
+                              false. «SOMBRA» no se muestra: es el default de
+                              todas las reglas y llenaba la tabla de ruido.
+                            */}
+                            {!r.dryRun && (
+                              <span className="ml-2">
+                                <Badge tone="warn">REAL</Badge>
+                              </span>
+                            )}
                             {r.condiciones.length === 0 && (
                               <span className="ml-2">
                                 <Badge tone="bad">sin condiciones: se aplica a todo</Badge>
@@ -1010,12 +1051,26 @@ export function ReglasView({
                             <MenuAcciones
                               etiqueta={`Acciones de ${r.name}`}
                               disabled={busy}
+                              // El modo de la regla se lee acá, en el menú, y no
+                              // en una columna: es un dato que se consulta al ir
+                              // a cambiarlo, no en cada barrido de la tabla.
+                              encabezado={
+                                r.dryRun
+                                  ? 'Modo sombra: anota lo que haría, no toca Meta.'
+                                  : sw.forzarSombra
+                                    ? 'Modo real, frenado por el modo simulación global de arriba.'
+                                    : 'Modo real: cuando está prendida, cambia Meta de verdad.'
+                              }
                               items={[
                                 { label: 'Editar', onSelect: () => editar(r) },
                                 { label: 'Duplicar', onSelect: () => duplicar(r) },
                                 { label: 'Correr ahora (simulado)', onSelect: () => correrAhora(r) },
                                 {
-                                  label: r.dryRun ? 'Activar en real…' : 'Volver a modo sombra',
+                                  label: r.dryRun ? 'Pasar a modo real…' : 'Volver a modo sombra',
+                                  detalle: r.dryRun
+                                    ? 'Le da permiso para tocar Meta cuando esté prendida'
+                                    : 'Vuelve a simular: deja de tocar Meta',
+                                  aviso: r.dryRun,
                                   title:
                                     'Sacar el modo sombra da permiso a la regla para tocar Meta cuando esté habilitada',
                                   onSelect: () =>
@@ -1038,42 +1093,41 @@ export function ReglasView({
 
       </Card>
 
-      {/* ── Formulario ── */}
-      <div ref={formRef}>
-        {(nueva || editando || duplicando) && (
-          <FormularioRegla
-            /*
-             * LA `key` ES EL ARREGLO DEL BOTÓN «EDITAR», no una optimización.
-             *
-             * `FormularioRegla` copia `inicial` a estado local con `useState`, y
-             * useState sólo lee su argumento en el PRIMER render. Sin `key`,
-             * React reusaba el componente ya montado al pasar de una regla a
-             * otra (o de «Crear regla» a «Editar»): los campos seguían
-             * mostrando lo anterior y el botón parecía no hacer nada. Y era
-             * peor que un no-op: `editId` SÍ es una prop y sí cambiaba, así que
-             * «Guardar cambios» escribía los valores de una regla sobre el id
-             * de la otra. Con una key distinta por destino, el componente se
-             * remonta y `useState` vuelve a leer `inicial`.
-             *
-             * El nombre entra en la key de duplicar porque duplicar dos veces
-             * la misma regla da el mismo id y distinto nombre («(copia 2)»).
-             */
-            key={
-              editando
-                ? `editar-${editando.id}`
-                : duplicando
-                  ? `duplicar-${duplicando.id}-${duplicando.name}`
-                  : `nueva-${nuevaEnCuenta ?? ''}`
-            }
-            cuentas={cuentas}
-            maxDailyBudgetEur={sw.maxDailyBudgetEur}
-            inicial={editando ? formDeRegla(editando) : duplicando ? formDeRegla(duplicando) : formVacio(nuevaEnCuenta ?? '')}
-            editId={editando?.id}
-            onCancel={cerrarFormulario}
-            onSave={guardar}
-          />
-        )}
-      </div>
+      {/* ── Formulario (popup) ── */}
+      {(nueva || editando || duplicando) && (
+        <FormularioRegla
+          /*
+           * LA `key` ES EL ARREGLO DEL BOTÓN «EDITAR», no una optimización.
+           *
+           * `FormularioRegla` copia `inicial` a estado local con `useState`, y
+           * useState sólo lee su argumento en el PRIMER render. Sin `key`,
+           * React reusaba el componente ya montado al pasar de una regla a
+           * otra (o de «Crear regla» a «Editar»): los campos seguían
+           * mostrando lo anterior y el botón parecía no hacer nada. Y era
+           * peor que un no-op: `editId` SÍ es una prop y sí cambiaba, así que
+           * «Guardar cambios» escribía los valores de una regla sobre el id
+           * de la otra. Con una key distinta por destino, el componente se
+           * remonta y `useState` vuelve a leer `inicial`.
+           *
+           * El nombre entra en la key de duplicar porque duplicar dos veces
+           * la misma regla da el mismo id y distinto nombre («(copia 2)»).
+           */
+          key={
+            editando
+              ? `editar-${editando.id}`
+              : duplicando
+                ? `duplicar-${duplicando.id}-${duplicando.name}`
+                : `nueva-${nuevaEnCuenta ?? ''}`
+          }
+          cuentas={cuentas}
+          maxDailyBudgetEur={sw.maxDailyBudgetEur}
+          inicial={editando ? formDeRegla(editando) : duplicando ? formDeRegla(duplicando) : formVacio(nuevaEnCuenta ?? '')}
+          editId={editando?.id}
+          guardando={busy}
+          onCancel={cerrarFormulario}
+          onSave={guardar}
+        />
+      )}
 
       {/* ── Diálogo de confirmación escrita (sacar el modo sombra) ── */}
       {confirmar && (
@@ -1100,6 +1154,18 @@ export function ReglasView({
               A partir de ahora, cuando la regla esté habilitada, cambiará estados y presupuestos en Meta de verdad.
               Escribí el nombre de la regla para confirmar.
             </p>
+            {/* Las tres llaves: prendida + regla en real + simulación global
+                apagada. Sin este aviso, sacarle el modo sombra a una regla
+                "no hacía nada" y no había forma de saber por qué. */}
+            {(sw.forzarSombra || !confirmar.regla.enabled || !sw.habilitado) && (
+              <Banner tone="info" title="Todavía va a seguir simulando">
+                <ul className="list-inside list-disc space-y-0.5 text-xs">
+                  {sw.forzarSombra && <li>El «Modo simulación global» de arriba está prendido: apagalo para que actúe.</li>}
+                  {!sw.habilitado && <li>El interruptor «Reglas habilitadas» está apagado: ninguna regla corre.</li>}
+                  {!confirmar.regla.enabled && <li>Esta regla está apagada: prendé su switch en la columna Estado.</li>}
+                </ul>
+              </Banner>
+            )}
             <input
               className={inputCls}
               value={confirmar.texto}
@@ -1117,7 +1183,7 @@ export function ReglasView({
                   await actualizarRegla(r, { dryRun: false });
                 }}
               >
-                Activar en real
+                Pasar a modo real
               </button>
               <button type="button" className={btnGhost} onClick={() => setConfirmar(null)}>
                 Cancelar
@@ -1430,18 +1496,80 @@ function DialogoImportar({
 
 // ─── Modal ───────────────────────────────────────────────────────────────────
 
-function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }): JSX.Element {
+/**
+ * El popup de la pantalla: encabezado fijo con el título y la X, cuerpo
+ * scrolleable y pie opcional.
+ *
+ * POR QUÉ SCROLLEA EL CUERPO Y NO LA PÁGINA
+ * El formulario de reglas tiene veinte campos y no entra en una notebook. Si el
+ * diálogo crece libre, «Guardar» termina abajo del borde de la ventana y no hay
+ * forma de llegar (el fondo no scrollea). Con `max-h` en el panel, el cuerpo en
+ * `overflow-y-auto` y el pie afuera de ese cuerpo, los botones quedan siempre a
+ * la vista.
+ *
+ * `cerrarAlClickAfuera=false` es para el formulario: un click al costado no
+ * puede tirar a la basura veinte campos recién llenados. Escape sí cierra
+ * siempre — es lo que se espera de un diálogo.
+ */
+function Modal({
+  title,
+  hint,
+  onClose,
+  children,
+  footer,
+  ancho = 'sm',
+  cerrarAlClickAfuera = true,
+}: {
+  title: string;
+  hint?: string;
+  onClose: () => void;
+  children: React.ReactNode;
+  footer?: React.ReactNode;
+  ancho?: 'sm' | 'lg';
+  cerrarAlClickAfuera?: boolean;
+}): JSX.Element {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+      // `e.target === e.currentTarget`: sólo el fondo cierra. Con un onClick
+      // pelado, arrastrar el mouse desde un input hasta afuera también cerraba.
+      onMouseDown={(e) => {
+        if (cerrarAlClickAfuera && e.target === e.currentTarget) onClose();
+      }}
+    >
       <div
-        className="w-full max-w-lg rounded-2xl border border-border-subtle bg-surface p-5 shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
+        className={`flex max-h-[calc(100vh-2rem)] w-full flex-col overflow-hidden rounded-2xl border border-border-subtle bg-surface shadow-2xl ${
+          ancho === 'lg' ? 'max-w-3xl' : 'max-w-lg'
+        }`}
         role="dialog"
         aria-modal="true"
         aria-label={title}
       >
-        <h2 className="mb-3 text-sm font-semibold text-neutral-100">{title}</h2>
-        {children}
+        <div className="flex items-start justify-between gap-3 border-b border-border-subtle px-5 py-3.5">
+          <div className="min-w-0">
+            <h2 className="text-sm font-semibold text-neutral-100">{title}</h2>
+            {hint && <p className="mt-0.5 text-xs leading-snug text-neutral-500">{hint}</p>}
+          </div>
+          <button
+            type="button"
+            aria-label="Cerrar"
+            title="Cerrar"
+            onClick={onClose}
+            className="-mr-1 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-neutral-400 transition-colors hover:bg-overlay/8 hover:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-good-500/50"
+          >
+            <X size={14} weight="bold" aria-hidden="true" />
+          </button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">{children}</div>
+        {footer && <div className="border-t border-border-subtle px-5 py-3">{footer}</div>}
       </div>
     </div>
   );
@@ -1454,6 +1582,7 @@ function FormularioRegla({
   maxDailyBudgetEur,
   inicial,
   editId,
+  guardando,
   onCancel,
   onSave,
 }: {
@@ -1461,6 +1590,7 @@ function FormularioRegla({
   maxDailyBudgetEur: number;
   inicial: FormEstado;
   editId?: number;
+  guardando?: boolean;
   onCancel: () => void;
   onSave: (payload: Record<string, unknown>, id?: number) => Promise<void>;
 }): JSX.Element {
@@ -1489,9 +1619,39 @@ function FormularioRegla({
     setF((prev) => ({ ...prev, conditions: prev.conditions.filter((_, idx) => idx !== i) }));
   }
 
+  const puedeGuardar = Boolean(f.name.trim()) && Boolean(f.accountId) && prob === null && !guardando;
+
   return (
-    <Card title={editId ? `Editar regla #${editId}` : 'Nueva regla'} hint="Una regla nueva nace apagada y en modo simulación.">
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+    <Modal
+      title={editId ? `Actualizar regla #${editId}` : 'Nueva regla'}
+      hint={
+        editId
+          ? 'Los cambios se aplican en la próxima corrida. El modo sombra/real no se toca acá: está en el menú «⋮» de la fila.'
+          : 'Una regla nueva nace apagada y en modo sombra: prenderla y pasarla a real son dos pasos aparte, desde el menú «⋮» de su fila.'
+      }
+      ancho="lg"
+      // Un click afuera no puede descartar el formulario a medio llenar.
+      cerrarAlClickAfuera={false}
+      onClose={onCancel}
+      footer={
+        <div className="flex items-center justify-end gap-2">
+          <button type="button" className={btnGhost} onClick={onCancel}>
+            Cancelar
+          </button>
+          <button
+            type="button"
+            className={btnPrimary}
+            disabled={!puedeGuardar}
+            onClick={() => onSave(payloadDeForm(f, editId), editId)}
+          >
+            {guardando ? 'Guardando…' : editId ? 'Guardar cambios' : 'Crear regla'}
+          </button>
+        </div>
+      }
+    >
+      {/* Dos columnas como máximo: en el popup (max-w-3xl) tres columnas dejan
+          los selects tan angostos que no se lee el valor elegido. */}
+      <div className="grid gap-3 sm:grid-cols-2">
         <label className="flex flex-col gap-1 text-xs text-neutral-500">
           Nombre de la regla
           <input className={inputCls} value={f.name} onChange={(e) => set({ name: e.target.value })} placeholder="Apagar - Gasto +$10" />
@@ -1729,32 +1889,20 @@ function FormularioRegla({
         )}
       </div>
 
-      {/* ── Validación y acciones ── */}
-      {prob && (
-        <Banner tone="warn" title="Revisá antes de guardar">
-          {prob}
-        </Banner>
-      )}
-      {f.action === 'budget_increase' && f.budgetMax !== '' && Number(f.budgetMax) > maxDailyBudgetEur && (
-        <Banner tone="warn" title="El techo supera el máximo absoluto">
-          El techo de {eur(Number(f.budgetMax))} está por encima del máximo absoluto por objeto ({eur(maxDailyBudgetEur)}): las
-          subidas se van a cortar siempre en ese tope.
-        </Banner>
-      )}
-
-      <div className="mt-4 flex gap-2">
-        <button
-          type="button"
-          className={btnPrimary}
-          disabled={!f.name.trim() || !f.accountId || prob !== null}
-          onClick={() => onSave(payloadDeForm(f, editId), editId)}
-        >
-          {editId ? 'Guardar cambios' : 'Crear regla'}
-        </button>
-        <button type="button" className={btnGhost} onClick={onCancel}>
-          Cancelar
-        </button>
+      {/* ── Validación (los botones viven en el pie del popup) ── */}
+      <div className="mt-4 space-y-3">
+        {prob && (
+          <Banner tone="warn" title="Revisá antes de guardar">
+            {prob}
+          </Banner>
+        )}
+        {f.action === 'budget_increase' && f.budgetMax !== '' && Number(f.budgetMax) > maxDailyBudgetEur && (
+          <Banner tone="warn" title="El techo supera el máximo absoluto">
+            El techo de {eur(Number(f.budgetMax))} está por encima del máximo absoluto por objeto ({eur(maxDailyBudgetEur)}): las
+            subidas se van a cortar siempre en ese tope.
+          </Banner>
+        )}
       </div>
-    </Card>
+    </Modal>
   );
 }
