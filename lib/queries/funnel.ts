@@ -31,6 +31,20 @@ export type FunnelFilters = {
   utmCampaign?: string;
   utmSource?: string;
   country?: string;
+  /**
+   * Variante del experimento A/B (`sessions.experiment`). undefined = todas.
+   *
+   * El experimento pasó de dimensión de SALIDA a dimensión de ENTRADA: la 020
+   * lo dejó como un GROUP BY de una card y nada más, pero un test de PORTADA
+   * necesita responder "¿dónde pierde gente la entrada B?", y eso es recortar
+   * el embudo completo —los 17 pasos, las etapas, las campañas— a una variante.
+   * Por eso entra al WHERE compartido y no a una query aparte.
+   *
+   * El centinela `SIN_EXPERIMENTO` filtra las sesiones que NO participaron
+   * (`experiment IS NULL`): sin esa traducción, elegir "(sin asignar)" en la UI
+   * compararía contra el string literal y devolvería siempre cero.
+   */
+  experiment?: string;
 };
 
 export type FunnelStepRow = {
@@ -63,17 +77,23 @@ export type FunnelData = {
   // agrega sin tocar los campos que ya existían. Los porcentajes van 0-100,
   // la misma convención que FunnelStepRow.
   porEtapas: EmbudoPorEtapas;
-  // Desglose por dimensión del experimento A/B (spec ab-test-popup-descuento).
-  // `variants` sigue intacto: es otra dimensión, con su propio gate.
+  // Desglose por dimensión del experimento A/B. `variants` sigue intacto: es
+  // otra dimensión (país), con su propio gate.
   experiments: ExperimentoRow[];
 };
 
-// ─── Desglose del experimento A/B (spec ab-test-popup-descuento) ─────────────
+// ─── Desglose del experimento A/B ───────────────────────────────────────────
 //
 // Una fila por valor distinto de sessions.experiment (el centinela agrupa los
-// NULL). Las cuatro tasas son derivadas y viven en `calcularTasasExperimento`,
-// pura y testeable sin base (R9.7): son aritmética que se equivoca en
-// silencio y conviene tener vigilada igual que buildEmbudoPorEtapas.
+// NULL). Las tasas son derivadas y viven en `calcularTasasExperimento`, pura y
+// testeable sin base (R9.7): son aritmética que se equivoca en silencio y
+// conviene tener vigilada igual que buildEmbudoPorEtapas.
+//
+// El desglose llega hasta el FINAL del funnel (upsell, downsell y plata) y no
+// hasta la compra del front. Un test de PORTADA se decide por lo que la entrada
+// factura, no por cuántos front vendió: una entrada puede traer más compras y
+// menos upsells y terminar valiendo menos. Cortar en `purchases` es exactamente
+// el error que hace elegir la entrada equivocada.
 
 /** Contadores crudos de una fila del desglose, tal como salen de SQL. */
 export type ExperimentoContadores = {
@@ -82,14 +102,42 @@ export type ExperimentoContadores = {
   salesViews: number;
   checkoutClicks: number;
   purchases: number;
+  /** Sesiones que vieron el upsell (`upsell_view_at` no nulo). */
+  upsellViews: number;
+  /** Sesiones que clickearon comprar en el upsell (`upsell_click_at`). */
+  upsellClicks: number;
+  /** Sesiones que vieron el downsell (`downsell_view_at`). */
+  downsellViews: number;
+  /**
+   * Plata aprobada atribuida a las sesiones de esta fila, en la moneda de venta
+   * del funnel. Sale de `orders` (la fuente real de la facturación, la misma que
+   * usa Ventas), NO de `events.value_cents`: el value del evento es el precio
+   * que el funnel *pretendía* cobrar y no sabe de reembolsos ni de órdenes que
+   * nunca se aprobaron.
+   */
+  revenue: number;
 };
 
-/** Una fila del desglose con sus cuatro tasas derivadas, 0-100. */
+/** Una fila del desglose con sus tasas derivadas. Las de % van 0-100. */
 export type ExperimentoRow = ExperimentoContadores & {
   pctSalesView: number; // sesión → vio la venta
   pctCheckoutClick: number; // vio la venta → clickeó comprar
   pctPurchase: number; // clickeó comprar → compró
   pctSessionToPurchase: number; // sesión → compró
+  /**
+   * Compró el front → clickeó comprar el upsell. El take rate del upsell: es la
+   * parte del funnel que la card vieja no miraba.
+   */
+  pctUpsellTake: number;
+  /**
+   * Plata por sesión, en la moneda de venta. NO es un porcentaje.
+   *
+   * Es LA métrica que decide un test de entrada: normaliza por tráfico, así que
+   * compara A contra B aunque el reparto 50/50 no haya quedado perfecto, y
+   * cuenta upsells y reembolsos. Cuando `pctSessionToPurchase` y esta columna
+   * no coinciden en quién gana, gana esta.
+   */
+  revenuePerSession: number;
 };
 
 /**
@@ -132,6 +180,14 @@ export function calcularTasasExperimento(filas: ExperimentoContadores[]): Experi
     pctCheckoutClick: pct(f.checkoutClicks, f.salesViews),
     pctPurchase: pct(f.purchases, f.checkoutClicks),
     pctSessionToPurchase: pct(f.purchases, f.sessions),
+    // El denominador del take rate del upsell son las COMPRAS del front, no las
+    // vistas del upsell: la pregunta es "de los que compraron, cuántos sumaron
+    // el upsell". Con `upsellViews` abajo, una variante que muestra mal el
+    // upsell se vería con mejor take rate del que tiene.
+    pctUpsellTake: pct(f.upsellClicks, f.purchases),
+    // Plata por sesión: NO pasa por `pct` porque no es un porcentaje y no está
+    // acotada a 100. Mismo cuidado con el denominador 0 (sesiones 0 ⇒ 0).
+    revenuePerSession: f.sessions === 0 ? 0 : f.revenue / f.sessions,
   }));
 }
 
@@ -141,13 +197,34 @@ export function calcularTasasExperimento(filas: ExperimentoContadores[]): Experi
 // ($n::text IS NULL OR col = $n) deja que una sola SQL cubra todas las
 // combinaciones de filtro sin armar el WHERE concatenando strings. Los
 // valores SIEMPRE van como parámetros.
+// Centinela de la dimensión del experimento: las sesiones que no participaron
+// (experiment NULL) agrupan bajo este valor en el desglose. Empieza con '(' a
+// propósito, para que la función pura de orden (calcularTasasExperimento)
+// pueda mandarlo SIEMPRE al final sin depender de la collation del servidor.
+//
+// Se declara ACÁ arriba, y no junto a los otros centinelas, porque
+// `WHERE_SESSIONS` lo interpola: un template literal se evalúa cuando el módulo
+// carga, así que dejarlo abajo lo tiraba con un ReferenceError de TDZ.
+export const SIN_EXPERIMENTO = '(sin asignar)';
+
+// El filtro del experimento entra ACÁ y no en cada query: así recorta el embudo
+// COMPLETO (histograma de pasos, etapas, campañas, países, dispositivos) con
+// una sola línea, en vez de siete queries que se olvidan una.
+//
+// $8 tiene dos lecturas y por eso son dos condiciones y no una: con el centinela
+// se piden las sesiones que NO participaron (`experiment IS NULL`), con
+// cualquier otro valor se compara la columna. Un solo `= $8` devolvería cero
+// filas al elegir "(sin asignar)", porque en SQL nada es igual a NULL.
 const WHERE_SESSIONS = `
   funnel_id = $1
   AND day BETWEEN $2::date AND $3::date
   AND ($4::text IS NULL OR variant      = $4)
   AND ($5::text IS NULL OR utm_campaign = $5)
   AND ($6::text IS NULL OR utm_source   = $6)
-  AND ($7::text IS NULL OR country      = $7)`;
+  AND ($7::text IS NULL OR country      = $7)
+  AND ($8::text IS NULL
+       OR ($8 = '${SIN_EXPERIMENTO}' AND experiment IS NULL)
+       OR experiment = $8)`;
 
 function filterParams(f: FunnelFilters): unknown[] {
   return [
@@ -158,6 +235,7 @@ function filterParams(f: FunnelFilters): unknown[] {
     f.utmCampaign ?? null,
     f.utmSource ?? null,
     f.country ?? null,
+    f.experiment ?? null,
   ];
 }
 
@@ -177,11 +255,6 @@ type WarningRow = { reason: string; count: number };
 // devuelve NULL. Se usa el centinela '(sin dato)' en vez de propagar null al
 // JSON, la misma convención que los '(directo)' de los UTMs.
 const NO_DATA = '(sin dato)';
-// Centinela de la dimensión del experimento: las sesiones que no participaron
-// (experiment NULL) agrupan bajo este valor en el desglose. Empieza con '(' a
-// propósito, para que la función pura de orden (calcularTasasExperimento)
-// pueda mandarlo SIEMPRE al final sin depender de la collation del servidor.
-export const SIN_EXPERIMENTO = '(sin asignar)';
 
 // La tabla de campañas con 300 filas es ilegible: se corta en 20 y el resto
 // se suma en una fila '(otras)' (task T06 §2).
@@ -464,18 +537,57 @@ export async function getFunnelData(f: FunnelFilters): Promise<FunnelData> {
          ORDER BY stage_order`,
         [f.funnelId],
       ),
-      // Desglose por dimensión del experimento (spec ab-test-popup-descuento):
-      // una consulta más contra `sessions`, ninguna contra `events`, con el
-      // MISMO WHERE_SESSIONS y los MISMOS parámetros posicionales que el resto
-      // del embudo. El centinela agrupa los NULL; el orden de las filas lo
-      // decide `calcularTasasExperimento`, no un ORDER BY (la collation de la
-      // base pondría el centinela en cualquier lado según el servidor).
+      // Desglose por dimensión del experimento: una consulta más contra
+      // `sessions`, ninguna contra `events`, con el MISMO WHERE_SESSIONS y los
+      // MISMOS parámetros posicionales que el resto del embudo. El centinela
+      // agrupa los NULL; el orden de las filas lo decide
+      // `calcularTasasExperimento`, no un ORDER BY (la collation de la base
+      // pondría el centinela en cualquier lado según el servidor).
+      //
+      // La plata sale de `orders`, la fuente real de la facturación (la misma que
+      // usa Ventas), con una subconsulta correlacionada por sesión. Las
+      // decisiones que no son obvias:
+      //
+      //  - Subconsulta y NO un join a `orders`: una sesión con front + upsell
+      //    tiene DOS órdenes, y un join plano la duplicaría en todos los
+      //    `count(*)` de arriba, inflando sesiones y conversiones. Sumando de a
+      //    una sesión los contadores quedan intactos.
+      //  - Va dentro de `sum(...)`, así que la sesión sin órdenes aporta 0 y
+      //    sigue contando en el denominador. Si desaparecieran las que no
+      //    compraron, toda variante mostraría ~100% de conversión.
+      //  - `status = 'approved'`: la plata reembolsada no es plata. Mismo
+      //    criterio que el bruto de Ventas (lib/queries/sales.ts).
+      //  - El join es por `session_id` SOLO. `orders.funnel_id` es atribución
+      //    denormalizada y puede ser NULL (D10 de la migración 004): sumarlo a la
+      //    condición descartaría en silencio las ventas que no se pudieron
+      //    atribuir pero sí tienen sesión. El funnel ya lo acota el WHERE de
+      //    `sessions`, que corre sobre una sola columna `funnel_id`.
+      //  - `WHERE_SESSIONS` se interpola TAL CUAL, sin alias: por eso la
+      //    subconsulta se correlaciona con `sessions.id` calificado y no se
+      //    renombra la tabla. Un alias obligaría a reescribir el WHERE
+      //    compartido, que es justo lo que lo mantiene sincronizado con el resto
+      //    del embudo.
+      //
+      // La atribución es por COHORTE de entrada: la orden cuenta en el día en que
+      // empezó la SESIÓN (el rango filtra `sessions.day`), no en el día en que se
+      // cobró. Es lo correcto para un test de entrada —la compra de mañana
+      // pertenece a la portada que la trajo hoy— y es también la razón de que esta
+      // columna no tenga por qué coincidir con el bruto de Ventas del mismo rango.
       q<ExperimentoContadores>(
         `SELECT COALESCE(experiment, '${SIN_EXPERIMENTO}') AS experiment,
-                count(*)::int                                              AS sessions,
-                count(*) FILTER (WHERE sales_view_at     IS NOT NULL)::int  AS "salesViews",
-                count(*) FILTER (WHERE checkout_click_at IS NOT NULL)::int  AS "checkoutClicks",
-                count(*) FILTER (WHERE purchased_at      IS NOT NULL)::int  AS purchases
+                count(*)::int                                                  AS sessions,
+                count(*) FILTER (WHERE sales_view_at     IS NOT NULL)::int      AS "salesViews",
+                count(*) FILTER (WHERE checkout_click_at IS NOT NULL)::int      AS "checkoutClicks",
+                count(*) FILTER (WHERE purchased_at      IS NOT NULL)::int      AS purchases,
+                count(*) FILTER (WHERE upsell_view_at    IS NOT NULL)::int      AS "upsellViews",
+                count(*) FILTER (WHERE upsell_click_at   IS NOT NULL)::int      AS "upsellClicks",
+                count(*) FILTER (WHERE downsell_view_at  IS NOT NULL)::int      AS "downsellViews",
+                COALESCE(sum((
+                  SELECT COALESCE(sum(o.amount), 0)
+                  FROM orders o
+                  WHERE o.session_id = sessions.id
+                    AND o.status     = 'approved'
+                )), 0)::float8                                                 AS revenue
          FROM sessions
          WHERE ${WHERE_SESSIONS}
          GROUP BY 1`,

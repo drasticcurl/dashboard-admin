@@ -55,6 +55,11 @@ export async function GET(req: NextRequest) {
     utmCampaign: sp.get('campaign') ?? undefined,
     utmSource: sp.get('source') ?? undefined,
     country: sp.get('country') ?? undefined,
+    // `exp` es la variante del A/B: recorta el embudo COMPLETO, no solo la card
+    // del desglose. Sin validar contra funnels.experiments a propósito: un valor
+    // que nadie sembró devuelve cero filas, que es la respuesta correcta y no un
+    // 400. El valor va como parámetro de la query, nunca concatenado.
+    experiment: sp.get('exp') ?? undefined,
   });
 
   return NextResponse.json({ ok: true, ...data }, {

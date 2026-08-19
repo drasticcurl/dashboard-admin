@@ -34,6 +34,7 @@ import {
   StatCard,
   Table,
   fmtInt,
+  fmtMoney,
   fmtPct,
 } from '@/components/ui';
 import { CaretDown, CaretUp } from '@phosphor-icons/react';
@@ -47,10 +48,23 @@ type CampaignSortKey = 'campaign' | 'sessions' | 'purchases' | 'conversion';
 /**
  * Etiqueta de la fila del desglose del experimento (R9.14). Cualquier otro
  * valor —incluido el centinela '(sin asignar)'— se devuelve tal cual.
+ *
+ * El texto ESPEJA `HERO_VARIANT_LABEL` del funnel (lib/quiz-v2/heroVariant.ts),
+ * que es la fuente de verdad de qué renderiza cada variante. No se puede
+ * importar (son dos repos), así que está duplicado a mano: si allá se cambia la
+ * portada B, acá hay que seguirlo.
+ *
+ * OJO con la trampa de este campo: `sessions.experiment` es UN SOLO SLOT y el
+ * payload manda el valor ('A'/'B') sin decir de qué experimento es. Estas
+ * etiquetas describen el test de PORTADA, que es el único que reporta hoy. Las
+ * sesiones del test del pop-up de descuento —retirado, el control ganó— tienen
+ * 'A' y 'B' en la misma columna, así que un rango de fechas que cruce los dos
+ * los muestra mezclados y rotulados como portada. El rango es la única defensa:
+ * mirá desde el día que arrancó el test de portada.
  */
 export function etiquetaExperimento(v: string): string {
-  if (v === 'A') return 'A · control (sin pop-up)';
-  if (v === 'B') return 'B · pop-up 83%';
+  if (v === 'A') return 'A · control (portada actual)';
+  if (v === 'B') return 'B · portada con pregunta';
   return v;
 }
 
@@ -63,6 +77,21 @@ export function etiquetaExperimento(v: string): string {
  */
 export function debeMostrarCardTestAB(experiments: ExperimentoRow[]): boolean {
   return experiments.length > 1;
+}
+
+/**
+ * ¿Se muestra el selector de variante? Cuenta las opciones ESTABLES (las de la
+ * última respuesta sin filtrar), no las filas del desglose visible.
+ *
+ * Es un gate aparte y no `debeMostrarCardTestAB` aplicado a otra lista, porque
+ * responde otra pregunta. La card pregunta "¿hay algo que comparar acá?" y con
+ * el filtro puesto la respuesta es no. El selector pregunta "¿existe más de una
+ * variante en este funnel y rango?", y eso tiene que seguir siendo cierto
+ * MIENTRAS el filtro está puesto: si no, el control desaparece justo cuando hace
+ * falta para volver atrás.
+ */
+export function debeMostrarSelectorExperimento(opciones: string[]): boolean {
+  return opciones.length > 1;
 }
 
 export function debeMostrarCardVariantes(variants: string[]): boolean {
@@ -87,6 +116,22 @@ export function EmbudoView({
   const [variant, setVariant] = useState('');
   const [campaign, setCampaign] = useState('');
   const [country, setCountry] = useState('');
+  // La variante del A/B arranca de la URL: la página del server ya filtró con
+  // `?exp=`, así que si el select arrancara vacío mostraría "A y B juntas" arriba
+  // de un embudo que es solo de B.
+  const [experiment, setExperiment] = useState(searchParams.get('exp') ?? '');
+
+  /**
+   * Opciones del selector del experimento. Van en estado propio y NO se derivan
+   * de `data.experiments` en cada pintura: al filtrar por B el desglose devuelve
+   * UNA fila, y un select alimentado por esa lista se quedaría con una sola
+   * opción —sin forma de volver a "A y B juntas"— y encima se auto-ocultaría por
+   * su propio gate. Se refrescan solo con las respuestas SIN filtrar, que son las
+   * únicas que ven el universo completo.
+   */
+  const [expOptions, setExpOptions] = useState<string[]>(() =>
+    initialData.experiments.map((r) => r.experiment),
+  );
 
   const [data, setData] = useState<FunnelData>(initialData);
   const [loading, setLoading] = useState(false);
@@ -110,6 +155,8 @@ export function EmbudoView({
     setVariant('');
     setCampaign('');
     setCountry('');
+    // El experimento también: la 'B' de un funnel no es la 'B' de otro.
+    setExperiment('');
   }, [funnel.slug]);
 
   useEffect(() => {
@@ -134,6 +181,7 @@ export function EmbudoView({
     if (variant) params.set('variant', variant);
     if (campaign) params.set('campaign', campaign);
     if (country) params.set('country', country);
+    if (experiment) params.set('exp', experiment);
 
     fetch(`/api/data/funnel?${params.toString()}`, {
       signal: ctrl.signal,
@@ -143,7 +191,12 @@ export function EmbudoView({
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return (await res.json()) as FunnelData;
       })
-      .then(setData)
+      .then((fresh) => {
+        setData(fresh);
+        // Solo la respuesta SIN filtrar por experimento ve todas las variantes:
+        // es la única que puede refrescar las opciones del select sin amputarlo.
+        if (!experiment) setExpOptions(fresh.experiments.map((r) => r.experiment));
+      })
       .catch((err: unknown) => {
         if (err instanceof DOMException && err.name === 'AbortError') return;
         setError(err instanceof Error ? err.message : 'Error de red');
@@ -151,7 +204,7 @@ export function EmbudoView({
       .finally(() => setLoading(false));
 
     return () => ctrl.abort();
-  }, [base, variant, campaign, country, funnel.slug, searchParams, retryTick]);
+  }, [base, variant, campaign, country, experiment, funnel.slug, searchParams, retryTick]);
 
   // El peor paso: la fila de mayor caída contra la anterior. La primera fila
   // (el paso base) no participa: no tiene caída contra nada (T06 §3).
@@ -344,10 +397,15 @@ export function EmbudoView({
         )}
       </Card>
 
-      {debeMostrarCardTestAB(data.experiments) && (
+      {/*
+        Con el filtro puesto el desglose trae una sola fila y el gate diría que no
+        hay nada que mostrar. Pero ahí la card es justamente lo que se quiere ver:
+        el recorrido completo de ESA variante, plata incluida. Por eso el `||`.
+      */}
+      {(debeMostrarCardTestAB(data.experiments) || experiment !== '') && (
         <Card
-          title="Test A/B"
-          hint="Embudo por variante del experimento del pop-up. El desglose respeta los mismos filtros que el resto del embudo."
+          title="Test A/B de la portada"
+          hint="El funnel completo por variante de entrada, de la sesión hasta la plata. Respeta los mismos filtros que el resto del embudo. Las dos últimas columnas son las que deciden el test."
         >
           <Table
             rows={data.experiments}
@@ -365,11 +423,33 @@ export function EmbudoView({
               { key: 'pctCheckoutClick', header: '% click', align: 'right', render: (r) => fmtPct(r.pctCheckoutClick, 1) },
               { key: 'purchases', header: 'Compras', align: 'right', render: (r) => fmtInt(r.purchases) },
               { key: 'pctPurchase', header: '% compra', align: 'right', render: (r) => fmtPct(r.pctPurchase, 1) },
+              // El tramo que la card vieja no miraba: sin esto una entrada que
+              // vende más front y menos upsell parece ganadora sin serlo.
+              { key: 'upsellViews', header: 'Vio upsell', align: 'right', render: (r) => fmtInt(r.upsellViews) },
+              { key: 'upsellClicks', header: 'Upsell', align: 'right', render: (r) => fmtInt(r.upsellClicks) },
+              { key: 'pctUpsellTake', header: '% upsell', align: 'right', render: (r) => fmtPct(r.pctUpsellTake, 1) },
+              { key: 'downsellViews', header: 'Vio downsell', align: 'right', render: (r) => fmtInt(r.downsellViews) },
               {
                 key: 'pctSessionToPurchase',
                 header: 'Conv. total',
                 align: 'right',
                 render: (r) => fmtPct(r.pctSessionToPurchase, 2),
+              },
+              {
+                key: 'revenue',
+                header: 'Facturado',
+                align: 'right',
+                render: (r) => fmtMoney(r.revenue, funnel.sellCurrency),
+              },
+              // El veredicto. Va última y resaltada porque es la única columna
+              // que ya tiene adentro el tráfico, los upsells y los reembolsos: si
+              // discrepa con "Conv. total", esta gana.
+              {
+                key: 'revenuePerSession',
+                header: '$ / sesión',
+                align: 'right',
+                className: 'text-neutral-50',
+                render: (r) => fmtMoney(r.revenuePerSession, funnel.sellCurrency),
               },
             ]}
           />
@@ -378,6 +458,34 @@ export function EmbudoView({
 
       <Card title="Filtros" hint="Cada filtro recorta el embudo completo">
         <div className="flex flex-wrap items-center gap-2">
+          {/*
+            El selector del experimento sale de las FILAS del desglose y no de
+            `funnel.experiments`: así ofrece los valores que de verdad tienen
+            sesiones en el rango, incluido el centinela. Con `funnel.experiments`
+            listaría 'A' y 'B' incluso en un rango donde el test no corrió, y cada
+            opción devolvería un embudo vacío.
+
+            Elegir una variante recorta TODO: los pasos, las etapas y las
+            campañas. Es lo que contesta "¿en qué pregunta pierde gente la
+            entrada B?", que la card sola no puede responder.
+          */}
+          {debeMostrarSelectorExperimento(expOptions) && (
+            <select
+              value={experiment}
+              onChange={(e) => setExperiment(e.target.value)}
+              aria-label="Variante del test A/B"
+              className={SELECT_CLS}
+            >
+              <option value="" className="bg-[#13131a] text-neutral-200">
+                A y B juntas
+              </option>
+              {expOptions.map((v) => (
+                <option key={v} value={v} className="bg-[#13131a] text-neutral-200">
+                  {etiquetaExperimento(v)}
+                </option>
+              ))}
+            </select>
+          )}
           {debeMostrarCardVariantes(funnel.variants) && (
             <select
               value={variant}

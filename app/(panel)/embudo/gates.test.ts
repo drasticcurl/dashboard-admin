@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   debeMostrarCardTestAB,
   debeMostrarCardVariantes,
+  debeMostrarSelectorExperimento,
   etiquetaExperimento,
 } from './EmbudoView';
 import { SIN_EXPERIMENTO, type ExperimentoRow } from '@/lib/queries/funnel';
@@ -22,10 +23,16 @@ function fila(experiment: string, sessions: number = 1): ExperimentoRow {
     salesViews: 0,
     checkoutClicks: 0,
     purchases: 0,
+    upsellViews: 0,
+    upsellClicks: 0,
+    downsellViews: 0,
+    revenue: 0,
     pctSalesView: 0,
     pctCheckoutClick: 0,
     pctPurchase: 0,
     pctSessionToPurchase: 0,
+    pctUpsellTake: 0,
+    revenuePerSession: 0,
   };
 }
 
@@ -73,12 +80,47 @@ describe('gates de la vista del embudo (puros)', () => {
   });
 });
 
+/**
+ * El gate del selector es OTRA pregunta que el de la card, y el bug que evita es
+ * concreto: al filtrar por B el desglose vuelve con una sola fila, así que un
+ * select alimentado por `data.experiments` se auto-ocultaría justo cuando hace
+ * falta para volver a "A y B juntas". Por eso mira la lista ESTABLE de opciones.
+ */
+describe('debeMostrarSelectorExperimento (puro)', () => {
+  it('se muestra con dos o más opciones y se esconde con una o ninguna', () => {
+    expect(debeMostrarSelectorExperimento([])).toBe(false);
+    expect(debeMostrarSelectorExperimento(['A'])).toBe(false);
+    expect(debeMostrarSelectorExperimento(['A', 'B'])).toBe(true);
+    expect(debeMostrarSelectorExperimento(['A', 'B', SIN_EXPERIMENTO])).toBe(true);
+  });
+
+  it('sobrevive al filtro: con el desglose recortado a una fila, el selector sigue en pie', () => {
+    // La situación exacta del bug: el usuario eligió B, la card se esconde
+    // (nada que comparar) pero el control tiene que quedar para poder salir.
+    const desgloseFiltrado = [fila('B', 500)];
+    const opcionesEstables = ['A', 'B'];
+    expect(debeMostrarCardTestAB(desgloseFiltrado)).toBe(false);
+    expect(debeMostrarSelectorExperimento(opcionesEstables)).toBe(true);
+  });
+});
+
 describe('etiquetaExperimento (pura)', () => {
-  it('A y B llevan su etiqueta, y cualquier otro valor —incluido el centinela— se devuelve tal cual', () => {
-    expect(etiquetaExperimento('A')).toBe('A · control (sin pop-up)');
-    expect(etiquetaExperimento('B')).toBe('B · pop-up 83%');
+  it('A y B llevan la etiqueta de la PORTADA, y cualquier otro valor —incluido el centinela— se devuelve tal cual', () => {
+    // El test del pop-up de descuento se retiró (ganó el control) y el slot
+    // `sessions.experiment` lo ocupa el test de portada: las etiquetas tienen que
+    // hablar de la portada o la card miente sobre lo que se está mirando.
+    expect(etiquetaExperimento('A')).toBe('A · control (portada actual)');
+    expect(etiquetaExperimento('B')).toBe('B · portada con pregunta');
     expect(etiquetaExperimento(SIN_EXPERIMENTO)).toBe(SIN_EXPERIMENTO);
     expect(etiquetaExperimento('C')).toBe('C');
     expect(etiquetaExperimento('')).toBe('');
+  });
+
+  it('ninguna etiqueta menciona el pop-up', () => {
+    // Guarda contra el copy viejo volviendo por un merge o un copy-paste.
+    for (const v of ['A', 'B', 'C', SIN_EXPERIMENTO]) {
+      expect(etiquetaExperimento(v).toLowerCase()).not.toContain('pop-up');
+      expect(etiquetaExperimento(v).toLowerCase()).not.toContain('popup');
+    }
   });
 });

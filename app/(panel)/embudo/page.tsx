@@ -65,6 +65,9 @@ export default async function EmbudoPage({ searchParams }: { searchParams: Searc
     utmCampaign: single(searchParams.campaign),
     utmSource: single(searchParams.source),
     country: single(searchParams.country),
+    // La variante del A/B viaja en la URL como los otros filtros: así un link a
+    // "el embudo de la entrada B" se comparte y sobrevive al refresh.
+    experiment: single(searchParams.exp),
   });
 
   return <EmbudoView funnel={funnel} initialData={data} />;

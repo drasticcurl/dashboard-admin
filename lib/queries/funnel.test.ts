@@ -352,14 +352,22 @@ describe.skipIf(!(dbAvailable && schemaReady))('getFunnelData (integración)', (
   });
 
   afterEach(async () => {
-    await q('DELETE FROM sessions WHERE day IN ($1::date, $2::date)', [DAY, DAY_EMPTY]);
+    await limpiarDiasDePrueba();
   });
 
   /**
    * Una sesión con el max_step_index dado y opciones de contexto/hitos.
    * `hitos` marca cuántos hitos de venta tiene (1 = sales_view, 2 = +
    * checkout, 3 = + purchase): los tests del peor paso dependen de eso.
-   * `experiment` es la dimensión del A/B del pop-up (null/undefined = NULL).
+   * `experiment` es la dimensión del A/B (null/undefined = NULL).
+   *
+   * `upsell` / `downsell` son los hitos de la cola del funnel, independientes de
+   * `hitos` a propósito: la SQL del desglose los cuenta por columna no nula, así
+   * que el test tiene que poder sembrar combinaciones que la vida real no daría
+   * (un upsell sin compra) y comprobar que la query no los inventa ni los pierde.
+   *
+   * `revenue` siembra una orden aprobada atada a la sesión. Es la única forma de
+   * verificar la subconsulta de plata: `sessions` no tiene monto.
    */
   async function seedSession(
     funnelId: number,
@@ -371,17 +379,26 @@ describe.skipIf(!(dbAvailable && schemaReady))('getFunnelData (integración)', (
       hitos?: number;
       day?: string;
       experiment?: string | null;
+      upsellView?: boolean;
+      upsellClick?: boolean;
+      downsellView?: boolean;
+      revenue?: number;
+      /** Órdenes NO aprobadas (reembolsos): tienen que quedar afuera del total. */
+      revenueRechazado?: number;
     } = {},
   ): Promise<void> {
     const day = opts.day ?? DAY;
     const hitos = opts.hitos ?? 0;
+    const sessionId = randomUUID();
     await q(
       `INSERT INTO sessions (id, funnel_id, visitor_id, variant, day, started_at, last_seen_at,
-         max_step_index, sales_view_at, checkout_click_at, purchased_at, utm_campaign, country, experiment)
+         max_step_index, sales_view_at, checkout_click_at, purchased_at, utm_campaign, country, experiment,
+         upsell_view_at, upsell_click_at, downsell_view_at)
        VALUES ($1::uuid, $2, $3::uuid, $4, $5::date, $6::timestamptz, $6::timestamptz, $7,
-               $8::timestamptz, $9::timestamptz, $10::timestamptz, $11, $12, $13)`,
+               $8::timestamptz, $9::timestamptz, $10::timestamptz, $11, $12, $13,
+               $14::timestamptz, $15::timestamptz, $16::timestamptz)`,
       [
-        randomUUID(),
+        sessionId,
         funnelId,
         randomUUID(),
         opts.variant ?? 'default',
@@ -394,8 +411,26 @@ describe.skipIf(!(dbAvailable && schemaReady))('getFunnelData (integración)', (
         opts.campaign ?? '(directo)',
         opts.country ?? null,
         opts.experiment ?? null,
+        opts.upsellView ? `${day}T12:05:00Z` : null,
+        opts.upsellClick ? `${day}T12:06:00Z` : null,
+        opts.downsellView ? `${day}T12:07:00Z` : null,
       ],
     );
+
+    // Las órdenes se siembran DESPUÉS y apuntando a la sesión: así el test
+    // ejercita el mismo camino que la subconsulta de la query (session_id +
+    // status), sin depender de orders.funnel_id, que en producción puede ser NULL.
+    const ordenes: Array<[monto: number, status: string]> = [];
+    if (opts.revenue) ordenes.push([opts.revenue, 'approved']);
+    if (opts.revenueRechazado) ordenes.push([opts.revenueRechazado, 'refunded']);
+    for (const [monto, status] of ordenes) {
+      await q(
+        `INSERT INTO orders (funnel_id, source, external_id, status, amount, currency,
+                             session_id, purchased_at, day)
+         VALUES ($1, 'test', $2, $3, $4, 'ARS', $5::uuid, $6::timestamptz, $7::date)`,
+        [funnelId, `abtest-${randomUUID()}`, status, monto, sessionId, `${day}T12:30:00Z`, day],
+      );
+    }
   }
 
   async function seedHistogram(
@@ -418,6 +453,11 @@ describe.skipIf(!(dbAvailable && schemaReady))('getFunnelData (integración)', (
    * dice probar.
    */
   async function limpiarDiasDePrueba(): Promise<void> {
+    // Las órdenes van PRIMERO y filtradas por `source = 'test'`: son las que
+    // siembra este archivo y nada más. Un DELETE por día borraría ventas reales
+    // si el día al azar cayera sobre uno con facturación, que es exactamente el
+    // tipo de accidente que no se nota hasta el cierre del mes.
+    await q("DELETE FROM orders WHERE source = 'test' AND day IN ($1::date, $2::date)", [DAY, DAY_EMPTY]);
     await q('DELETE FROM sessions WHERE day IN ($1::date, $2::date)', [DAY, DAY_EMPTY]);
   }
 
@@ -663,6 +703,13 @@ describe.skipIf(!(dbAvailable && schemaReady))('getFunnelData (integración)', (
       campana: fc.constantFrom('campaña-a', 'campaña-b'),
       pais: fc.constantFrom('AR', 'BR', null),
       hitos: fc.integer({ min: 0, max: 3 }),
+      upsellView: fc.boolean(),
+      upsellClick: fc.boolean(),
+      downsellView: fc.boolean(),
+      // Sin decimales: `amount` es numeric(14,2) y el driver devuelve string, así
+      // que comparar enteros evita que el test hable de coma flotante en vez de
+      // hablar del desglose.
+      revenue: fc.integer({ min: 0, max: 50_000 }),
     });
     const filtroVariant = fc.constantFrom(undefined, 'ar', 'latam');
     const filtroCampana = fc.constantFrom(undefined, 'campaña-a', 'campaña-b');
@@ -684,6 +731,10 @@ describe.skipIf(!(dbAvailable && schemaReady))('getFunnelData (integración)', (
               country: s.pais ?? undefined,
               hitos: s.hitos,
               experiment: s.exp,
+              upsellView: s.upsellView,
+              upsellClick: s.upsellClick,
+              downsellView: s.downsellView,
+              revenue: s.revenue,
             });
           }
 
@@ -716,6 +767,15 @@ describe.skipIf(!(dbAvailable && schemaReady))('getFunnelData (integración)', (
             expect(r.salesViews).toBe(m.filter((s) => s.hitos >= 1).length);
             expect(r.checkoutClicks).toBe(m.filter((s) => s.hitos >= 2).length);
             expect(r.purchases).toBe(m.filter((s) => s.hitos >= 3).length);
+            // La cola del funnel: los tres hitos de upsell/downsell salen de su
+            // propia columna, no de la escalera de `hitos`.
+            expect(r.upsellViews).toBe(m.filter((s) => s.upsellView).length);
+            expect(r.upsellClicks).toBe(m.filter((s) => s.upsellClick).length);
+            expect(r.downsellViews).toBe(m.filter((s) => s.downsellView).length);
+            // La plata: la subconsulta suma las órdenes aprobadas de las sesiones
+            // de ESTA fila y de ninguna otra. Sin duplicar (el bug del join
+            // plano) y sin perder (el bug del INNER).
+            expect(r.revenue).toBe(m.reduce((a, s) => a + s.revenue, 0));
           }
         },
       ),
@@ -750,5 +810,138 @@ describe.skipIf(!(dbAvailable && schemaReady))('getFunnelData (integración)', (
       ),
       { numRuns: 100 },
     );
+  });
+
+  // ─── El experimento como dimensión de ENTRADA (filtro del embudo) ──────────
+  //
+  // Es el cambio que convierte la card en un test de verdad: hasta acá el
+  // experimento solo agrupaba a la salida, así que se podía ver que B convertía
+  // peor pero no en qué paso lo perdía.
+
+  it('el filtro por variante recorta el embudo COMPLETO, no solo el desglose', async () => {
+    // A muere en la landing, B llega hasta el final: si el filtro no recortara el
+    // histograma, los dos verían las mismas 12 sesiones en el paso 0.
+    await seedHistogram(chau.id, [[0, 8]], { experiment: 'A' });
+    await seedHistogram(chau.id, [[21, 4]], { experiment: 'B', hitos: 3 });
+
+    const soloA = await getFunnelData(baseFilters({ experiment: 'A' }));
+    expect(soloA.totalSessions).toBe(8);
+    expect(row(soloA.steps, 0).sessions).toBe(8);
+    expect(soloA.purchases).toBe(0);
+    // Las etapas también: es la vista que contesta "¿dónde se cae la entrada?".
+    expect(soloA.porEtapas.etapas[0]!.sessions).toBe(8);
+
+    const soloB = await getFunnelData(baseFilters({ experiment: 'B' }));
+    expect(soloB.totalSessions).toBe(4);
+    expect(soloB.purchases).toBe(4);
+
+    // Sin filtro, las dos juntas: el filtro recorta, no reescribe.
+    const juntas = await getFunnelData(baseFilters());
+    expect(juntas.totalSessions).toBe(12);
+  });
+
+  it('filtrar por el centinela trae las sesiones que NO participaron del test', async () => {
+    // El caso que un `experiment = $8` pelado devolvería vacío: en SQL nada es
+    // igual a NULL, así que el filtro necesita su rama IS NULL.
+    await seedHistogram(chau.id, [[5, 7]], { experiment: null });
+    await seedHistogram(chau.id, [[5, 3]], { experiment: 'B' });
+
+    const sinAsignar = await getFunnelData(baseFilters({ experiment: SIN_EXPERIMENTO }));
+    expect(sinAsignar.totalSessions).toBe(7);
+    expect(sinAsignar.experiments).toHaveLength(1);
+    expect(sinAsignar.experiments[0]!.experiment).toBe(SIN_EXPERIMENTO);
+  });
+
+  it('una variante inexistente devuelve un embudo vacío, no un error', async () => {
+    await seedHistogram(chau.id, [[5, 5]], { experiment: 'A' });
+    const nada = await getFunnelData(baseFilters({ experiment: 'Z' }));
+    expect(nada.totalSessions).toBe(0);
+    expect(nada.experiments).toEqual([]);
+  });
+
+  it('el filtro del experimento se combina con los otros filtros', async () => {
+    await seedHistogram(chau.id, [[5, 6]], { experiment: 'B', campaign: 'campaña-a' });
+    await seedHistogram(chau.id, [[5, 9]], { experiment: 'B', campaign: 'campaña-b' });
+    await seedHistogram(chau.id, [[5, 4]], { experiment: 'A', campaign: 'campaña-a' });
+
+    const data = await getFunnelData(baseFilters({ experiment: 'B', utmCampaign: 'campaña-a' }));
+    expect(data.totalSessions).toBe(6);
+  });
+
+  // ─── La plata por variante ─────────────────────────────────────────────────
+
+  it('la plata suma las órdenes aprobadas y descarta los reembolsos', async () => {
+    await seedSession(chau.id, 21, { experiment: 'A', hitos: 3, revenue: 10_000 });
+    await seedSession(chau.id, 21, { experiment: 'A', hitos: 3, revenue: 10_000, revenueRechazado: 7_000 });
+    await seedSession(chau.id, 21, { experiment: 'B', hitos: 3, revenue: 30_000 });
+
+    const data = await getFunnelData(baseFilters());
+    const a = data.experiments.find((r) => r.experiment === 'A')!;
+    const b = data.experiments.find((r) => r.experiment === 'B')!;
+    expect(a.revenue).toBe(20_000); // los 7.000 reembolsados NO entran
+    expect(b.revenue).toBe(30_000);
+    expect(a.revenuePerSession).toBe(20_000 / 2);
+    expect(b.revenuePerSession).toBe(30_000);
+  });
+
+  it('una sesión con DOS órdenes (front + upsell) suma las dos y sigue contando como UNA sesión', async () => {
+    // La trampa del join plano: duplicaría la sesión en cada count(*) y esta
+    // variante mostraría 2 sesiones y 2 compras con una sola persona.
+    const day = DAY;
+    const sessionId = randomUUID();
+    await q(
+      `INSERT INTO sessions (id, funnel_id, visitor_id, variant, day, started_at, last_seen_at,
+         max_step_index, sales_view_at, checkout_click_at, purchased_at, utm_campaign, experiment,
+         upsell_view_at, upsell_click_at)
+       VALUES ($1::uuid, $2, $3::uuid, 'ar', $4::date, $5::timestamptz, $5::timestamptz, 21,
+               $5::timestamptz, $5::timestamptz, $5::timestamptz, '(directo)', 'B',
+               $5::timestamptz, $5::timestamptz)`,
+      [sessionId, chau.id, randomUUID(), day, `${day}T12:00:00Z`],
+    );
+    for (const monto of [8_790, 16_900]) {
+      await q(
+        `INSERT INTO orders (funnel_id, source, external_id, status, amount, currency,
+                             session_id, purchased_at, day)
+         VALUES ($1, 'test', $2, 'approved', $3, 'ARS', $4::uuid, $5::timestamptz, $6::date)`,
+        [chau.id, `abtest-${randomUUID()}`, monto, sessionId, `${day}T12:30:00Z`, day],
+      );
+    }
+
+    const data = await getFunnelData(baseFilters());
+    const b = data.experiments.find((r) => r.experiment === 'B')!;
+    expect(b.sessions).toBe(1);
+    expect(b.purchases).toBe(1);
+    expect(b.upsellClicks).toBe(1);
+    expect(b.revenue).toBe(8_790 + 16_900);
+    expect(b.revenuePerSession).toBe(8_790 + 16_900);
+  });
+
+  it('la sesión sin órdenes aporta 0 y sigue en el denominador', async () => {
+    // La trampa del INNER JOIN: se comería las sesiones que no compraron y la
+    // conversión de toda variante daría 100%.
+    await seedSession(chau.id, 21, { experiment: 'A', hitos: 3, revenue: 9_000 });
+    await seedHistogram(chau.id, [[3, 9]], { experiment: 'A' }); // nueve que no compraron
+
+    const data = await getFunnelData(baseFilters());
+    const a = data.experiments.find((r) => r.experiment === 'A')!;
+    expect(a.sessions).toBe(10);
+    expect(a.revenue).toBe(9_000);
+    expect(a.revenuePerSession).toBe(900);
+    expect(a.pctSessionToPurchase).toBe(10);
+  });
+
+  it('el take rate del upsell se mide sobre las compras del front', async () => {
+    // 4 compras, 2 clics de upsell ⇒ 50%. El denominador NO son las 3 vistas.
+    await seedSession(chau.id, 21, { experiment: 'B', hitos: 3, upsellView: true, upsellClick: true });
+    await seedSession(chau.id, 21, { experiment: 'B', hitos: 3, upsellView: true, upsellClick: true });
+    await seedSession(chau.id, 21, { experiment: 'B', hitos: 3, upsellView: true });
+    await seedSession(chau.id, 21, { experiment: 'B', hitos: 3 });
+
+    const data = await getFunnelData(baseFilters());
+    const b = data.experiments.find((r) => r.experiment === 'B')!;
+    expect(b.purchases).toBe(4);
+    expect(b.upsellViews).toBe(3);
+    expect(b.upsellClicks).toBe(2);
+    expect(b.pctUpsellTake).toBe(50);
   });
 });
