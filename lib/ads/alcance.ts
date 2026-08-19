@@ -58,9 +58,9 @@ async function rangosDePantalla(tz: string): Promise<Set<string>> {
 /**
  * Asegura que existan filas de alcance frescas para `(nivel, from, to)`:
  *   - si el rango incluye hoy: frescura por TTL (`ads_insights_ttl_seconds`);
- *   - si el rango está cerrado y `synced_at > date_to + 2 días`: la fila es
- *     FINAL y no se vuelve a pedir nunca (Meta ajusta los días recién cerrados,
- *     después no).
+ *   - si el rango está cerrado y `synced_at > date_to + 2 días` EN LA ZONA DE
+ *     LA CUENTA: la fila es FINAL y no se vuelve a pedir nunca (Meta ajusta los
+ *     días recién cerrados, después no).
  * Nunca tira. Una llamada por (cuenta, nivel, período) por ventana de TTL.
  */
 export async function asegurarAlcance(
@@ -103,13 +103,23 @@ export async function asegurarAlcance(
           return { pedido: false, filas: existente.cuenta, error: null };
         }
       } else {
-        // Rango cerrado: final pasados 2 días del cierre.
+        // Rango cerrado: final pasados 2 días del cierre, contados en la
+        // Zona_Cuenta.
+        //
+        // El `AT TIME ZONE $5` es el punto entero de esta query. `date_to` es
+        // una fecha del calendario DE LA CUENTA, y `(date_to + 2)::timestamptz`
+        // la convertía a instante con la zona del SERVER: el corte caía a las
+        // 00:00 del server, no a las 00:00 de la cuenta. Con el server en CEST
+        // y la cuenta en Lisboa eso adelanta el corte una hora; con una cuenta
+        // de Buenos Aires, cinco. En esa ventana un día recién cerrado se
+        // congelaba como FINAL antes de tiempo y se perdían los ajustes tardíos
+        // de Meta, que es justo lo que los 2 días existen para esperar.
         const finalRow = await q1<{ final: boolean }>(
-          `SELECT (min(synced_at) > ($2::date + 2)::timestamptz) AS final
+          `SELECT (min(synced_at) > (($2::date + 2)::timestamp AT TIME ZONE $5)) AS final
              FROM ad_alcance
             WHERE platform = 'meta' AND account_id = $3 AND level = $4
               AND date_from = $1::date AND date_to = $2::date`,
-          [from, to, accountId, level],
+          [from, to, accountId, level, tz],
         );
         if (finalRow?.final) {
           return { pedido: false, filas: existente.cuenta, error: null };
