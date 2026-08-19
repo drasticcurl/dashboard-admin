@@ -13,11 +13,14 @@
  * acá se muta contra `/api/ads/reglas` y `/api/ads/interruptores` y se refetchea.
  */
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { DotsThreeVertical } from '@phosphor-icons/react';
 import type { Condicion, NivelAds, PeriodoAds } from '@/lib/ads/tipos';
 import type { ResultadoCorrida } from '@/lib/ads/reglas/ejecutor';
 import type { CuentaAds, EstadoInterruptores, ReglaFila } from './_tipos';
 import { nombreDeCopia } from './_nombres';
+import { importarCsvUtmify } from '@/lib/ads/reglas/utmify';
 import { Badge, Banner, Card, EmptyState, Table, fmtDateTime } from '@/components/ui';
 import type { Tone } from '@/components/ui';
 
@@ -156,6 +159,196 @@ function Switch({
         }`}
       />
     </button>
+  );
+}
+
+// ─── Menú de acciones (los tres puntos) ─────────────────────────────────────
+
+type ItemMenu = {
+  label: string;
+  onSelect: () => void;
+  /** Rojo, para lo que borra. */
+  peligro?: boolean;
+  title?: string;
+};
+
+/**
+ * El menú de acciones de una fila (y el «Más» de la barra de arriba).
+ *
+ * POR QUÉ VA EN UN PORTAL Y NO EN LA CELDA
+ * La tabla vive dentro de un `overflow-x-auto` (`Table` de components/ui). Un
+ * panel con `position: absolute` adentro de esa celda queda RECORTADO por ese
+ * overflow y, peor, ensancha el scroll horizontal de la tabla. Con
+ * `createPortal` a `document.body` + `position: fixed` calculado desde el rect
+ * del disparador, el menú se dibuja por encima de todo y la tabla no se mueve.
+ *
+ * ACCESIBILIDAD (no hay ningún menú previo en el repo del que copiarla)
+ *   - El disparador es un `<button>` real con `aria-haspopup="menu"`,
+ *     `aria-expanded` y `aria-label` obligatorio por tipo.
+ *   - El panel es `role="menu"` y cada opción `role="menuitem"`.
+ *   - Escape cierra Y devuelve el foco al disparador; un click afuera cierra
+ *     sin moverlo. Flechas arriba/abajo, Home y End recorren las opciones.
+ *   - Al abrir, el foco va a la primera opción: con teclado, abrir un menú y
+ *     que el foco se quede atrás es quedarse sin salida.
+ *
+ * Cualquier scroll o resize CIERRA el menú en lugar de recalcular la posición:
+ * recalcular en cada píxel pelea con el scroll de la tabla y con el de la
+ * página, y un menú abierto es un estado de milisegundos.
+ */
+function MenuAcciones({
+  etiqueta,
+  items,
+  disabled,
+  variante = 'icono',
+}: {
+  etiqueta: string;
+  items: ItemMenu[];
+  disabled?: boolean;
+  variante?: 'icono' | 'texto';
+}): JSX.Element {
+  const [abierto, setAbierto] = useState(false);
+  const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const itemsRef = useRef<(HTMLButtonElement | null)[]>([]);
+  const idPanel = useId();
+
+  const cerrar = useCallback((devolverFoco: boolean) => {
+    setAbierto(false);
+    if (devolverFoco) triggerRef.current?.focus();
+  }, []);
+
+  function abrir(): void {
+    const el = triggerRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    // Alto estimado: 30 px por opción más el padding. Sólo se usa para decidir
+    // si el menú se abre hacia arriba, así que una aproximación alcanza.
+    const alto = items.length * 30 + 10;
+    const cabeAbajo = window.innerHeight - r.bottom > alto + 8;
+    setPos({
+      top: cabeAbajo ? r.bottom + 4 : Math.max(8, r.top - alto - 4),
+      // Anclado a la derecha: el disparador está en el borde derecho de la
+      // tabla y un menú que crece hacia la derecha se saldría de la pantalla.
+      right: Math.max(8, window.innerWidth - r.right),
+    });
+    setAbierto(true);
+  }
+
+  useEffect(() => {
+    if (!abierto) return;
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        cerrar(true);
+      }
+    };
+    const onDown = (e: Event): void => {
+      const t = e.target as Node;
+      if (triggerRef.current?.contains(t) || panelRef.current?.contains(t)) return;
+      cerrar(false);
+    };
+    const onMover = (): void => cerrar(false);
+    document.addEventListener('keydown', onKey, true);
+    document.addEventListener('pointerdown', onDown, true);
+    // `true` en el scroll: la tabla scrollea en su propio div, y sin captura el
+    // listener de window nunca se enteraría.
+    window.addEventListener('scroll', onMover, true);
+    window.addEventListener('resize', onMover);
+    return () => {
+      document.removeEventListener('keydown', onKey, true);
+      document.removeEventListener('pointerdown', onDown, true);
+      window.removeEventListener('scroll', onMover, true);
+      window.removeEventListener('resize', onMover);
+    };
+  }, [abierto, cerrar]);
+
+  useEffect(() => {
+    if (abierto) itemsRef.current[0]?.focus();
+  }, [abierto]);
+
+  function navegar(e: React.KeyboardEvent<HTMLDivElement>): void {
+    const n = items.length;
+    if (n === 0) return;
+    const actual = itemsRef.current.findIndex((b) => b === document.activeElement);
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      itemsRef.current[(actual + 1 + n) % n]?.focus();
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      itemsRef.current[(actual - 1 + n) % n]?.focus();
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      itemsRef.current[0]?.focus();
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      itemsRef.current[n - 1]?.focus();
+    }
+  }
+
+  const claseTrigger =
+    variante === 'texto'
+      ? `${btnGhost} inline-flex items-center gap-1`
+      : 'inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border-strong text-neutral-300 transition-colors hover:bg-overlay/6 hover:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-good-500/50 disabled:opacity-40';
+
+  return (
+    <>
+      <button
+        ref={triggerRef}
+        type="button"
+        aria-label={etiqueta}
+        title={etiqueta}
+        aria-haspopup="menu"
+        aria-expanded={abierto}
+        aria-controls={abierto ? idPanel : undefined}
+        disabled={disabled}
+        onClick={() => (abierto ? cerrar(true) : abrir())}
+        className={claseTrigger}
+      >
+        {variante === 'texto' && <span>Más</span>}
+        <DotsThreeVertical size={variante === 'texto' ? 13 : 16} weight="bold" aria-hidden="true" />
+      </button>
+
+      {abierto && pos !== null && typeof document !== 'undefined'
+        ? createPortal(
+            <div
+              ref={panelRef}
+              id={idPanel}
+              role="menu"
+              aria-label={etiqueta}
+              onKeyDown={navegar}
+              style={{ position: 'fixed', top: pos.top, right: pos.right }}
+              className="z-[60] min-w-[14rem] rounded-xl border border-border-strong bg-surface-raised p-1 shadow-2xl"
+            >
+              {items.map((it, i) => (
+                <button
+                  key={it.label}
+                  ref={(el) => {
+                    itemsRef.current[i] = el;
+                  }}
+                  type="button"
+                  role="menuitem"
+                  title={it.title}
+                  onClick={() => {
+                    // Cerrar sin devolver el foco: la acción casi siempre abre
+                    // el formulario o un diálogo, y ahí va a ir el foco.
+                    setAbierto(false);
+                    it.onSelect();
+                  }}
+                  className={`block w-full rounded-lg px-3 py-1.5 text-left text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-good-500/50 ${
+                    it.peligro
+                      ? 'text-bad-300 hover:bg-bad-500/10'
+                      : 'text-neutral-200 hover:bg-overlay/8 hover:text-neutral-50'
+                  }`}
+                >
+                  {it.label}
+                </button>
+              ))}
+            </div>,
+            document.body,
+          )
+        : null}
+    </>
   );
 }
 
@@ -357,6 +550,16 @@ function payloadDeRegla(r: ReglaFila, over: { enabled?: boolean; dryRun?: boolea
 
 type Flash = { tone: 'good' | 'bad'; text: string } | null;
 
+/** Lo que contesta POST /api/ads/reglas/csv. */
+type RespuestaImport = {
+  creadas: number;
+  borradas: number;
+  cuentas: string[];
+  omitidas: { accountId: string; name: string; motivo: string }[];
+  errores: { linea: number; name: string; error: string }[];
+  avisos: string[];
+};
+
 export function ReglasView({
   initial,
 }: {
@@ -374,6 +577,14 @@ export function ReglasView({
   const [duplicando, setDuplicando] = useState<ReglaFila | null>(null);
   const [confirmar, setConfirmar] = useState<{ regla: ReglaFila; resultado: ResultadoCorrida; texto: string } | null>(null);
   const [corrida, setCorrida] = useState<{ regla: ReglaFila; resultado: ResultadoCorrida } | null>(null);
+  // Import / export de CSV
+  const [importando, setImportando] = useState(false);
+  const [resultadoImport, setResultadoImport] = useState<RespuestaImport | null>(null);
+  const [vaciando, setVaciando] = useState(false);
+  // El contenedor del formulario, para llevar la vista hasta él al abrirlo: con
+  // dos cuentas y varias reglas, la Card del formulario queda a dos pantallas
+  // de scroll y «Editar» parecía no hacer nada.
+  const formRef = useRef<HTMLDivElement>(null);
 
   const show = useCallback((tone: 'good' | 'bad', text: string) => setFlash({ tone, text }), []);
 
@@ -470,6 +681,13 @@ export function ReglasView({
     }
   }
 
+  function editar(r: ReglaFila) {
+    setNueva(false);
+    setNuevaEnCuenta(null);
+    setDuplicando(null);
+    setEditando(r);
+  }
+
   function duplicar(r: ReglaFila) {
     setNueva(false);
     setNuevaEnCuenta(null);
@@ -493,6 +711,73 @@ export function ReglasView({
     setNuevaEnCuenta(null);
     setEditando(null);
     setDuplicando(null);
+  }
+
+  // Llevar la vista al formulario cuando se abre o cuando pasa de una regla a
+  // otra. La Card del formulario se pinta DEBAJO de la lista, y con dos cuentas
+  // cargadas queda a dos pantallas de scroll: «Editar» abría el editor fuera de
+  // la vista y no había ninguna señal de que hubiera pasado algo.
+  useEffect(() => {
+    if (!nueva && !editando && !duplicando) return;
+    formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [nueva, editando, duplicando]);
+
+  /** Baja el CSV. El route manda Content-Disposition: attachment. */
+  function exportarCsv(accountId?: string) {
+    const url = accountId
+      ? `/api/ads/reglas/csv?accountId=${encodeURIComponent(accountId)}`
+      : '/api/ads/reglas/csv';
+    // Un <a> temporal y no `location.href`: con el href directo, si el server
+    // contestara un error en vez del archivo, el navegador se iría de la página
+    // y el usuario perdería lo que tuviera abierto.
+    const a = document.createElement('a');
+    a.href = url;
+    a.rel = 'noopener';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+
+  async function importarCsv(opts: { csv: string; accountIds: string[]; reemplazar: boolean }) {
+    setBusy(true);
+    try {
+      const res = await api<RespuestaImport>('/api/ads/reglas/csv', {
+        method: 'POST',
+        body: JSON.stringify(opts),
+      });
+      setImportando(false);
+      setResultadoImport(res);
+      await refrescar();
+      show('good', `${res.creadas} regla(s) importadas — apagadas y en modo simulación`);
+    } catch (e) {
+      show('bad', (e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function vaciarTodas() {
+    setBusy(true);
+    try {
+      // No hay endpoint de borrado en lote: se usa el DELETE por id, que ya está
+      // probado y conserva el historial (sus FK hacia ad_rules son SET NULL).
+      // Secuencial a propósito: veinte DELETE en paralelo se pelean por el pool
+      // de conexiones y no se gana nada en una acción que se hace una vez.
+      let n = 0;
+      for (const r of reglas) {
+        await api(`/api/ads/reglas?id=${r.id}`, { method: 'DELETE' });
+        n += 1;
+      }
+      setVaciando(false);
+      await refrescar();
+      show('good', `${n} regla(s) borradas — el historial se conserva`);
+    } catch (e) {
+      show('bad', (e as Error).message);
+      // Puede haber quedado a medias: refrescar para mostrar el estado real.
+      await refrescar();
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function guardar(payload: Record<string, unknown>, id?: number) {
@@ -598,6 +883,39 @@ export function ReglasView({
         </div>
       </Banner>
 
+      {/* ── Barra de acciones de la pantalla ── */}
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <MenuAcciones
+          etiqueta="Más opciones de reglas"
+          variante="texto"
+          disabled={busy}
+          items={[
+            { label: 'Importar reglas desde CSV…', onSelect: () => setImportando(true) },
+            {
+              label: reglas.length === 0 ? 'Exportar a CSV (no hay reglas)' : `Exportar las ${reglas.length} reglas a CSV`,
+              onSelect: () => exportarCsv(),
+            },
+            ...(reglas.length > 0
+              ? [
+                  {
+                    label: `Vaciar las ${reglas.length} reglas…`,
+                    peligro: true,
+                    onSelect: () => setVaciando(true),
+                  },
+                ]
+              : []),
+          ]}
+        />
+        <button
+          type="button"
+          className={btnPrimary}
+          disabled={busy || cuentas.length === 0}
+          onClick={() => abrirNuevaEnCuenta(cuentas[0]?.accountId ?? '')}
+        >
+          Crear regla
+        </button>
+      </div>
+
       {/* ── Lista ── */}
       <Card
         title={`Reglas · ${reglas.length}`}
@@ -685,31 +1003,28 @@ export function ReglasView({
                       },
                       {
                         key: 'acciones',
-                        header: '',
+                        header: 'Más',
                         align: 'right',
                         render: (r) => (
-                          <span className="flex justify-end gap-2">
-                            <button type="button" className={btnGhost} disabled={busy} onClick={() => { setEditando(r); setNueva(false); setNuevaEnCuenta(null); setDuplicando(null); }}>
-                              Editar
-                            </button>
-                            <button type="button" className={btnGhost} disabled={busy} onClick={() => correrAhora(r)}>
-                              Correr ahora
-                            </button>
-                            <button
-                              type="button"
-                              className={btnGhost}
+                          <span className="flex justify-end">
+                            <MenuAcciones
+                              etiqueta={`Acciones de ${r.name}`}
                               disabled={busy}
-                              title="Prender el modo sombra da permiso a la regla para tocar Meta cuando esté habilitada"
-                              onClick={() => (r.dryRun ? pedirActivarReal(r) : actualizarRegla(r, { dryRun: true }))}
-                            >
-                              {r.dryRun ? 'Activar' : 'Volver a sombra'}
-                            </button>
-                            <button type="button" className={btnGhost} disabled={busy} onClick={() => duplicar(r)}>
-                              Duplicar
-                            </button>
-                            <button type="button" className={btnDanger} disabled={busy} onClick={() => borrar(r)}>
-                              Borrar
-                            </button>
+                              items={[
+                                { label: 'Editar', onSelect: () => editar(r) },
+                                { label: 'Duplicar', onSelect: () => duplicar(r) },
+                                { label: 'Correr ahora (simulado)', onSelect: () => correrAhora(r) },
+                                {
+                                  label: r.dryRun ? 'Activar en real…' : 'Volver a modo sombra',
+                                  title:
+                                    'Sacar el modo sombra da permiso a la regla para tocar Meta cuando esté habilitada',
+                                  onSelect: () =>
+                                    r.dryRun ? pedirActivarReal(r) : actualizarRegla(r, { dryRun: true }),
+                                },
+                                { label: 'Exportar esta cuenta a CSV', onSelect: () => exportarCsv(r.accountId) },
+                                { label: 'Borrar', peligro: true, onSelect: () => borrar(r) },
+                              ]}
+                            />
                           </span>
                         ),
                       },
@@ -721,24 +1036,44 @@ export function ReglasView({
           </>
         )}
 
-        {!nueva && !editando && !duplicando && cuentas.length > 0 && (
-          <button type="button" className={`${btnPrimary} mt-4`} onClick={() => abrirNuevaEnCuenta(cuentas[0]?.accountId ?? '')}>
-            Nueva regla
-          </button>
-        )}
       </Card>
 
       {/* ── Formulario ── */}
-      {(nueva || editando || duplicando) && (
-        <FormularioRegla
-          cuentas={cuentas}
-          maxDailyBudgetEur={sw.maxDailyBudgetEur}
-          inicial={editando ? formDeRegla(editando) : duplicando ? formDeRegla(duplicando) : formVacio(nuevaEnCuenta ?? '')}
-          editId={editando?.id}
-          onCancel={cerrarFormulario}
-          onSave={guardar}
-        />
-      )}
+      <div ref={formRef}>
+        {(nueva || editando || duplicando) && (
+          <FormularioRegla
+            /*
+             * LA `key` ES EL ARREGLO DEL BOTÓN «EDITAR», no una optimización.
+             *
+             * `FormularioRegla` copia `inicial` a estado local con `useState`, y
+             * useState sólo lee su argumento en el PRIMER render. Sin `key`,
+             * React reusaba el componente ya montado al pasar de una regla a
+             * otra (o de «Crear regla» a «Editar»): los campos seguían
+             * mostrando lo anterior y el botón parecía no hacer nada. Y era
+             * peor que un no-op: `editId` SÍ es una prop y sí cambiaba, así que
+             * «Guardar cambios» escribía los valores de una regla sobre el id
+             * de la otra. Con una key distinta por destino, el componente se
+             * remonta y `useState` vuelve a leer `inicial`.
+             *
+             * El nombre entra en la key de duplicar porque duplicar dos veces
+             * la misma regla da el mismo id y distinto nombre («(copia 2)»).
+             */
+            key={
+              editando
+                ? `editar-${editando.id}`
+                : duplicando
+                  ? `duplicar-${duplicando.id}-${duplicando.name}`
+                  : `nueva-${nuevaEnCuenta ?? ''}`
+            }
+            cuentas={cuentas}
+            maxDailyBudgetEur={sw.maxDailyBudgetEur}
+            inicial={editando ? formDeRegla(editando) : duplicando ? formDeRegla(duplicando) : formVacio(nuevaEnCuenta ?? '')}
+            editId={editando?.id}
+            onCancel={cerrarFormulario}
+            onSave={guardar}
+          />
+        )}
+      </div>
 
       {/* ── Diálogo de confirmación escrita (sacar el modo sombra) ── */}
       {confirmar && (
@@ -818,7 +1153,278 @@ export function ReglasView({
           </div>
         </Modal>
       )}
+
+      {/* ── Importar CSV de UTMify ── */}
+      {importando && (
+        <DialogoImportar
+          cuentas={cuentas}
+          reglas={reglas}
+          busy={busy}
+          onCerrar={() => setImportando(false)}
+          onImportar={importarCsv}
+        />
+      )}
+
+      {/* ── Qué pasó con el import ── */}
+      {resultadoImport && (
+        <Modal title="Resultado del import" onClose={() => setResultadoImport(null)}>
+          <div className="space-y-3 text-sm text-neutral-200">
+            <Banner tone="good" title={`${resultadoImport.creadas} regla(s) importadas`}>
+              {resultadoImport.borradas > 0
+                ? `Se borraron ${resultadoImport.borradas} reglas viejas y se crearon ${resultadoImport.creadas}. `
+                : ''}
+              Todas quedaron apagadas y en modo simulación: activarlas es un paso aparte, regla por regla.
+            </Banner>
+
+            {resultadoImport.omitidas.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-neutral-500">
+                  Omitidas · {resultadoImport.omitidas.length}
+                </p>
+                <ul className="mt-1 max-h-40 list-inside list-disc overflow-y-auto text-xs text-neutral-400">
+                  {resultadoImport.omitidas.map((o, i) => (
+                    <li key={i}>
+                      «{o.name}» en {o.accountId}: {o.motivo}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {resultadoImport.errores.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-bad-300">
+                  Filas con error · {resultadoImport.errores.length}
+                </p>
+                <ul className="mt-1 max-h-40 list-inside list-disc overflow-y-auto text-xs text-bad-200">
+                  {resultadoImport.errores.map((e, i) => (
+                    <li key={i}>
+                      línea {e.linea} «{e.name}»: {e.error}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {resultadoImport.avisos.length > 0 && (
+              <ul className="max-h-48 list-inside list-disc space-y-1 overflow-y-auto text-xs text-neutral-400">
+                {resultadoImport.avisos.map((a, i) => (
+                  <li key={i}>{a}</li>
+                ))}
+              </ul>
+            )}
+
+            <button type="button" className={btnPrimary} onClick={() => setResultadoImport(null)}>
+              Cerrar
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {/* ── Vaciar todas las reglas ── */}
+      {vaciando && (
+        <Modal title="Vaciar todas las reglas" onClose={() => setVaciando(false)}>
+          <div className="space-y-3 text-sm text-neutral-200">
+            <p>
+              Se van a borrar las <strong className="text-neutral-100">{reglas.length}</strong> reglas de todas las
+              cuentas.
+            </p>
+            <p className="text-xs text-neutral-400">
+              El historial de corridas y de acciones NO se borra: queda con el nombre de la regla congelado. Si tenés el
+              CSV, se puede volver a importar.
+            </p>
+            <div className="flex gap-2">
+              <button type="button" className={btnDanger} disabled={busy} onClick={vaciarTodas}>
+                {busy ? 'Borrando…' : `Sí, borrar las ${reglas.length}`}
+              </button>
+              <button type="button" className={btnGhost} disabled={busy} onClick={() => setVaciando(false)}>
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
+  );
+}
+
+// ─── Diálogo de importar CSV ─────────────────────────────────────────────────
+
+/**
+ * El import, con vista previa.
+ *
+ * La previa usa `importarCsvUtmify`, EL MISMO traductor que corre en el server:
+ * el archivo se traduce en el navegador para mostrar qué va a entrar, cuántas
+ * filas fallaron y por qué, y sólo entonces se manda. Así el usuario no
+ * descubre un error de mapeo después de escribir en la base, y lo que ve en la
+ * previa es exactamente lo que el server va a insertar (misma función, mismos
+ * datos), no una aproximación.
+ */
+function DialogoImportar({
+  cuentas,
+  reglas,
+  busy,
+  onCerrar,
+  onImportar,
+}: {
+  cuentas: CuentaAds[];
+  reglas: ReglaFila[];
+  busy: boolean;
+  onCerrar: () => void;
+  onImportar: (opts: { csv: string; accountIds: string[]; reemplazar: boolean }) => Promise<void>;
+}): JSX.Element {
+  const [csv, setCsv] = useState('');
+  const [nombreArchivo, setNombreArchivo] = useState<string | null>(null);
+  const [seleccion, setSeleccion] = useState<string[]>(cuentas.map((c) => c.accountId));
+  const [reemplazar, setReemplazar] = useState(false);
+
+  const previa = useMemo(() => (csv.trim() === '' ? null : importarCsvUtmify(csv)), [csv]);
+  const aBorrar = reglas.filter((r) => seleccion.includes(r.accountId)).length;
+  const total = (previa?.reglas.length ?? 0) * seleccion.length;
+  const puedeImportar = !busy && total > 0 && seleccion.length > 0;
+
+  async function elegirArchivo(e: React.ChangeEvent<HTMLInputElement>): Promise<void> {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    setNombreArchivo(f.name);
+    setCsv(await f.text());
+  }
+
+  function toggleCuenta(accountId: string): void {
+    setSeleccion((prev) =>
+      prev.includes(accountId) ? prev.filter((a) => a !== accountId) : [...prev, accountId],
+    );
+  }
+
+  return (
+    <Modal title="Importar reglas desde un CSV de UTMify" onClose={onCerrar}>
+      <div className="space-y-4 text-sm text-neutral-200">
+        <div className="space-y-2">
+          <label className="flex flex-col gap-1 text-xs text-neutral-500">
+            Archivo .csv
+            <input
+              type="file"
+              accept=".csv,text/csv"
+              onChange={elegirArchivo}
+              className="text-xs text-neutral-300 file:mr-2 file:rounded-lg file:border file:border-border-strong file:bg-overlay/6 file:px-2 file:py-1 file:text-xs file:text-neutral-200"
+            />
+          </label>
+          <p className="text-[11px] text-neutral-600">
+            O pegá el contenido acá abajo. {nombreArchivo && <>Cargado: {nombreArchivo}.</>}
+          </p>
+          <textarea
+            className={`${inputCls} h-24 w-full font-mono text-[11px]`}
+            value={csv}
+            onChange={(e) => {
+              setCsv(e.target.value);
+              setNombreArchivo(null);
+            }}
+            placeholder="adPlatform,name,nameContains,applyTo,actionType,…"
+            spellCheck={false}
+          />
+        </div>
+
+        {/* ── A qué cuentas ── */}
+        <div>
+          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-neutral-500">Cuentas de destino</p>
+          <p className="mb-2 text-[11px] leading-tight text-neutral-600">
+            El CSV de UTMify no dice a qué cuenta publicitaria va cada regla. Con más de una cuenta marcada se crea una
+            copia de cada regla en cada cuenta, y la ventana horaria de cada copia se evalúa en la zona de SU cuenta.
+          </p>
+          <div className="space-y-1">
+            {cuentas.map((c) => (
+              <label key={c.accountId} className="flex items-center gap-2 text-xs text-neutral-300">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 accent-good-500"
+                  checked={seleccion.includes(c.accountId)}
+                  onChange={() => toggleCuenta(c.accountId)}
+                />
+                {c.name ?? c.accountId} · {c.timezone}
+              </label>
+            ))}
+          </div>
+        </div>
+
+        {/* ── Reemplazar o agregar ── */}
+        <label className="flex items-start gap-2 text-xs text-neutral-300">
+          <input
+            type="checkbox"
+            className="mt-0.5 h-4 w-4 accent-bad-500"
+            checked={reemplazar}
+            onChange={(e) => setReemplazar(e.target.checked)}
+          />
+          <span>
+            Borrar las reglas que ya están en esas cuentas antes de importar
+            {reemplazar && aBorrar > 0 && (
+              <strong className="text-bad-300"> — se van a borrar {aBorrar} regla(s)</strong>
+            )}
+            <span className="block text-[11px] text-neutral-600">
+              Sin esto, una regla cuyo nombre ya existe en la cuenta se omite (el nombre es único por cuenta).
+            </span>
+          </span>
+        </label>
+
+        {/* ── Vista previa ── */}
+        {previa && (
+          <div className="space-y-2 rounded-xl border border-border-subtle bg-overlay/2 p-3">
+            <p className="text-xs text-neutral-300">
+              <strong className="text-neutral-100">{previa.reglas.length}</strong> regla(s) listas
+              {seleccion.length > 1 && <> × {seleccion.length} cuentas = {total} filas</>}
+              {previa.errores.length > 0 && (
+                <span className="text-bad-300"> · {previa.errores.length} fila(s) con error</span>
+              )}
+            </p>
+
+            {previa.reglas.length > 0 && (
+              <ul className="max-h-32 space-y-0.5 overflow-y-auto text-[11px] text-neutral-400">
+                {previa.reglas.map((r) => (
+                  <li key={r.name}>
+                    {r.name} — {ACCION_LABEL[r.action].toLowerCase()}
+                    {r.actionUnit === 'percent' && ` al ${r.actionValue}%`}
+                    {r.actionUnit === 'fixed' && ` ${eur(r.actionValue ?? 0)}`}
+                    {r.budgetMax != null && ` (techo ${eur(r.budgetMax)})`}
+                    {r.budgetMin != null && ` (piso ${eur(r.budgetMin)})`} · {frecuenciaLabel(r.everyMinutes)}
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {previa.errores.length > 0 && (
+              <ul className="max-h-32 list-inside list-disc space-y-0.5 overflow-y-auto text-[11px] text-bad-200">
+                {previa.errores.map((e, i) => (
+                  <li key={i}>
+                    línea {e.linea} «{e.name}»: {e.error}
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {previa.avisos.length > 0 && (
+              <ul className="max-h-32 list-inside list-disc space-y-0.5 overflow-y-auto text-[11px] text-neutral-500">
+                {previa.avisos.map((a, i) => (
+                  <li key={i}>{a}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+
+        <div className="flex gap-2">
+          <button
+            type="button"
+            className={btnPrimary}
+            disabled={!puedeImportar}
+            onClick={() => onImportar({ csv, accountIds: seleccion, reemplazar })}
+          >
+            {busy ? 'Importando…' : total > 0 ? `Importar ${total} regla(s)` : 'Importar'}
+          </button>
+          <button type="button" className={btnGhost} disabled={busy} onClick={onCerrar}>
+            Cancelar
+          </button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 
