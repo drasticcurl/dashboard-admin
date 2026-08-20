@@ -443,6 +443,96 @@ describe.skipIf(!dbAvailable)('/api/ads/reglas', () => {
       await q(`DELETE FROM ad_rules WHERE id = $1`, [id]);
     }
   });
+
+  // ── Coherencia: configuraciones que se pueden escribir y no pueden funcionar.
+  //    La lógica está probada en lib/ads/reglas/coherencia.test.ts; acá se
+  //    verifica el cableado en el API y la excepción de las acciones que reducen
+  //    el riesgo, que es lo que no se puede romper sin dejar a alguien sin forma
+  //    de frenar una regla.
+  it('rechaza con 400 una regla que no podría actuar nunca', async (ctx) => {
+    if (!(await requiereEsquema021(ctx))) return;
+    const antes = await fotoDeReglas();
+
+    const casos: { nombre: string; parche: Partial<PayloadRegla>; enMensaje: string }[] = [
+      {
+        nombre: 'pausar mirando sólo pausados',
+        parche: { action: 'pause', statusFilter: 'paused' },
+        enMensaje: 'no puede hacer nada',
+      },
+      {
+        nombre: 'activar mirando sólo activos',
+        parche: { action: 'activate', statusFilter: 'active' },
+        enMensaje: 'no puede hacer nada',
+      },
+      {
+        nombre: 'ventana de un minuto',
+        parche: { windowStart: '09:00', windowEnd: '09:00' },
+        enMensaje: 'ese minuto exacto',
+      },
+      {
+        nombre: 'condiciones que se contradicen',
+        parche: {
+          conditions: [
+            { metric: 'spend', op: '>', value: 10 },
+            { metric: 'spend', op: '<', value: 2 },
+          ],
+        },
+        enMensaje: 'nunca',
+      },
+    ];
+
+    for (const c of casos) {
+      const resp = await post({ ...payloadMinimo(), name: `${PREFIJO}incoherente`, ...c.parche });
+      expect(resp.status, c.nombre).toBe(400);
+      const cuerpo = (await resp.json()) as { error?: string; detail?: string };
+      expect(cuerpo.error, c.nombre).toBe('invalid_payload');
+      expect(cuerpo.detail ?? '', c.nombre).toContain(c.enMensaje);
+    }
+
+    // Ninguno dejó rastro.
+    expect(await fotoDeReglas()).toEqual(antes);
+  });
+
+  it('una regla incoherente ya guardada se puede APAGAR y mandar a sombra', async (ctx) => {
+    if (!(await requiereEsquema021(ctx))) return;
+    const nombre = `${PREFIJO}incoherente-guardada-${Date.now()}`;
+    // Se siembra por SQL, salteando el API: es el estado en el que quedaron las
+    // reglas creadas antes de que existiera esta validación.
+    const fila = await q1<{ id: number }>(
+      `INSERT INTO ad_rules (name, enabled, dry_run, account_id, level, status_filter, action,
+                             window_start, window_end)
+       VALUES ($1, true, false, $2, 'adset', 'paused', 'pause', '09:00'::time, '09:00'::time)
+       RETURNING id`,
+      [nombre, CUENTA_A],
+    );
+    const id = fila!.id;
+    try {
+      const base = { ...payloadMinimo(), id, name: nombre, statusFilter: 'paused' as const, action: 'pause' as const };
+
+      // Apagarla: permitido aunque siga siendo incoherente.
+      const apagar = await post({ ...base, enabled: false });
+      expect(apagar.status).toBe(200);
+
+      // Volverla a sombra: también permitido.
+      const sombra = await post({ ...base, dryRun: true });
+      expect(sombra.status).toBe(200);
+
+      // Prenderla en real: eso NO.
+      const prender = await post({ ...base, enabled: true, dryRun: false });
+      expect(prender.status).toBe(400);
+      const cuerpo = (await prender.json()) as { detail?: string };
+      expect(cuerpo.detail ?? '').toContain('no puede hacer nada');
+
+      const estado = await q1<{ enabled: boolean; dry_run: boolean }>(
+        `SELECT enabled, dry_run FROM ad_rules WHERE id = $1`,
+        [id],
+      );
+      expect(estado?.enabled).toBe(false);
+      expect(estado?.dry_run).toBe(true);
+    } finally {
+      await q(`DELETE FROM ad_rules WHERE id = $1`, [id]);
+    }
+  });
 });
 
 /** UNA mutación de la cuenta entre las seis del criterio de la Property 7. */

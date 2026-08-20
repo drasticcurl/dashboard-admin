@@ -11,6 +11,7 @@
 import fc from 'fast-check';
 import type { ClaveOrden, Condicion, MetricasObjeto, NivelAds, PeriodoAds, Regla } from '../ads/tipos';
 import { CATALOGO_METRICAS, type ColumnaVisible } from '../ads/catalogo';
+import { motivoCondicionesImposibles } from '../ads/reglas/coherencia';
 import type { Vista } from '../ads/vistas';
 import type { EventoSeleccion } from '../ads/seleccion';
 
@@ -379,7 +380,10 @@ const idCuenta = (): fc.Arbitrary<string> =>
 /** Una `Regla` completa y coherente con los CHECK de la `016`: si la acción es
  *  de presupuesto hay valor, unidad y el límite del lado correcto (techo para
  *  subir, piso para bajar, el factor en la dirección que la acción promete), la
- *  ventana va completa o vacía en 'HH:MM', y `accountId` nunca es vacío.
+ *  ventana va completa o vacía en 'HH:MM' y con las dos horas DISTINTAS, el
+ *  estado del alcance es uno que la acción pueda tocar, y `accountId` nunca es
+ *  vacío. Las tres últimas condiciones son las que verifica
+ *  `lib/ads/reglas/coherencia`, el mismo módulo que usa el API.
  *
  *  RANGOS: `every_minutes`, `max_runs_per_day`, `cooldown_minutes` y
  *  `max_actions_per_object_per_day` son `smallint` en la 016 (tope 32767), y los
@@ -432,12 +436,27 @@ export function genRegla(): fc.Arbitrary<Regla> {
           dryRun: fc.boolean(),
           accountId: idCuenta(),
           level: nivel,
-          statusFilter: fc.constantFrom<'active' | 'paused' | 'any'>('active', 'paused', 'any'),
+          // El estado se elige SEGÚN la acción: pausar mirando sólo pausados
+          // (y activar mirando sólo activos) es un no-op garantizado y el API
+          // lo rechaza desde `motivoAlcanceInutil`. Es la misma clase de
+          // acoplamiento que ya tienen los campos de presupuesto acá arriba.
+          statusFilter:
+            action === 'pause'
+              ? fc.constantFrom<'active' | 'paused' | 'any'>('active', 'any')
+              : action === 'activate'
+                ? fc.constantFrom<'active' | 'paused' | 'any'>('paused', 'any')
+                : fc.constantFrom<'active' | 'paused' | 'any'>('active', 'paused', 'any'),
           nameFilter: fc.option(fc.string({ minLength: 2, maxLength: 12 }), { nil: null }),
           nameFilterMode: fc.constantFrom<'contains' | 'not_contains'>('contains', 'not_contains'),
           period: fc.constantFrom<PeriodoAds>('today', 'yesterday', '7d', '7d_excl_today'),
           everyMinutes: fc.integer({ min: 1, max: 1440 }),
-          ventana: fc.option(fc.tuple(horaMinuto(), horaMinuto()), { nil: null }),
+          // Las dos horas distintas: con inicio == fin la ventana dura un minuto
+          // y el API la rechaza (`motivoVentanaInvalida`). Cruzar la medianoche
+          // (inicio > fin) sí se genera: es válido y el evaluador lo soporta.
+          ventana: fc.option(
+            fc.tuple(horaMinuto(), horaMinuto()).filter(([a, b]) => a !== b),
+            { nil: null },
+          ),
           maxRunsPerDay: fc.option(fc.integer({ min: 1, max: 24 }), { nil: null }),
           cooldownMinutes: fc.integer({ min: 0, max: 240 }),
           maxActionsPerObjectPerDay: fc.integer({ min: 1, max: 25 }),
@@ -495,16 +514,23 @@ export function genReglaPayload(): fc.Arbitrary<PayloadRegla> {
     //   2. `fc.float` es de 32 bits y produce denormales como 1.4e-45, que
     //      `numeric(16,4)` redondea a 0.0000. Ninguno de los dos es un umbral
     //      que una persona escriba en el formulario.
-    const condiciones = fc.array(
-      fc
-        .tuple(
-          fc.constantFrom(...METRICAS_CONDICION),
-          fc.constantFrom(...OPS_CONDICION),
-          fc.integer({ min: -100_000, max: 100_000 }).map((centimos) => centimos / 100),
-        )
-        .map(([metric, op, value]) => ({ metric, op, value })),
-      { minLength: 0, maxLength: 10 },
-    );
+    const condiciones = fc
+      .array(
+        fc
+          .tuple(
+            fc.constantFrom(...METRICAS_CONDICION),
+            fc.constantFrom(...OPS_CONDICION),
+            fc.integer({ min: -100_000, max: 100_000 }).map((centimos) => centimos / 100),
+          )
+          .map(([metric, op, value]) => ({ metric, op, value })),
+        { minLength: 0, maxLength: 10 },
+      )
+      // Con hasta diez condiciones sobre trece métricas, dos sobre la misma
+      // métrica que se contradicen («gasto > 10» y «gasto < 5») salen solas, y
+      // el API las rechaza porque describen un conjunto vacío. Se filtra con LA
+      // MISMA función que valida el API, así el generador no puede quedar
+      // describiendo un contrato que ya no existe.
+      .filter((cs) => motivoCondicionesImposibles(cs) === null);
     return fc
       .tuple(condiciones, fc.boolean(), fc.boolean())
       .map(([conditions, enabled, dryRun]) => ({

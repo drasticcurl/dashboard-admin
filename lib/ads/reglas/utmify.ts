@@ -47,6 +47,7 @@
  */
 
 import type { Condicion, Regla } from '../tipos';
+import { motivoIncoherente } from './coherencia';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // El formato: las 18 columnas del export de UTMify, en su orden exacto
@@ -621,12 +622,23 @@ export function importarCsvUtmify(texto: string): ResultadoImport {
         maxRunsPerDay = maxRunsPerDay ?? 1;
       }
 
-      if ((windowStart == null) !== (windowEnd == null)) {
-        throw new Error('la ventana horaria va completa o vacía: las dos horas o ninguna');
-      }
       if (maxRunsPerDay != null && (!Number.isInteger(maxRunsPerDay) || maxRunsPerDay <= 0)) {
         throw new Error('executionLimit tiene que ser un entero positivo');
       }
+      // La media ventana y el resto de las incoherencias se validan con el mismo
+      // módulo que el API y el formulario. El import es la tercera puerta de
+      // entrada y era la única que no las chequeaba todas: una regla importada
+      // que no puede actuar nunca es peor que una que no se importó, porque
+      // queda en la lista como si fuera a funcionar. El error corta esta línea
+      // y el resto del CSV sigue entrando.
+      const incoherencia = motivoIncoherente({
+        action,
+        statusFilter: alcance.statusFilter,
+        windowStart,
+        windowEnd,
+        conditions,
+      });
+      if (incoherencia !== null) throw new Error(incoherencia);
 
       // ── lo que el formato no puede expresar ─────────────────────────────
       const zona = (col('timeZoneIana') ?? '').trim();

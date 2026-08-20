@@ -27,6 +27,11 @@ import type { Condicion, NivelAds, PeriodoAds } from '@/lib/ads/tipos';
 import type { ResultadoCorrida } from '@/lib/ads/reglas/ejecutor';
 import type { CuentaAds, EstadoInterruptores, ReglaFila } from './_tipos';
 import { nombreDeCopia } from './_nombres';
+import {
+  motivoAlcanceInutil,
+  motivoCondicionesImposibles,
+  motivoVentanaInvalida,
+} from '@/lib/ads/reglas/coherencia';
 import { importarCsvUtmify } from '@/lib/ads/reglas/utmify';
 import { Badge, Banner, Card, EmptyState, Table, fmtDateTime } from '@/components/ui';
 import type { Tone } from '@/components/ui';
@@ -96,6 +101,9 @@ const OP_LABEL: Record<Condicion['op'], string> = {
 };
 
 const OPS: readonly Condicion['op'][] = ['>', '>=', '<', '<=', '=', '!='];
+
+/** Las que apagan o sacan plata: las que conviene no dejar sin condiciones. */
+const accionDestructiva = (a: Accion): boolean => a === 'pause' || a === 'budget_decrease';
 
 /**
  * Las opciones de la ventana horaria: las 24 horas en punto más «23:59».
@@ -546,18 +554,55 @@ function previewFactor(f: FormEstado): string {
 // que falta, y el usuario se quedaba con el botón deshabilitado y sin pistas.
 // `problema` sigue siendo la composición de las tres, y es la que decide si se
 // puede guardar. Exportada para los tests (9.6).
-export function problema(f: FormEstado): string | null {
+export function problema(
+  f: FormEstado,
+  otras: readonly { accountId: string; name: string }[] = [],
+): string | null {
+  return problemaAlcance(f, otras) ?? problemaAccion(f) ?? problemaCondiciones(f) ?? problemaProgramacion(f);
+}
+
+/**
+ * Un número escrito a mano. Acepta la coma decimal.
+ *
+ * `Number('1,3')` es NaN y `Number('')` es CERO, y las dos cosas hacían daño
+ * calladas: con coma el guardado moría con un mensaje de zod en inglés, y con el
+ * campo vacío la condición se guardaba como «> 0», que para una regla de pausar
+ * significa «pausá todo». Devuelve NaN para el vacío justamente para que no se
+ * pueda confundir con un 0 escrito a propósito («ventas <= 0» es una condición
+ * real y tiene que seguir siendo posible).
+ */
+function numeroDeTexto(s: string): number {
+  const t = s.trim().replace(',', '.');
+  return t === '' ? Number.NaN : Number(t);
+}
+
+/** Lo que puede estar mal en la pestaña Alcance (y el nombre, que va arriba). */
+export function problemaAlcance(
+  f: FormEstado,
+  otras: readonly { accountId: string; name: string }[] = [],
+): string | null {
   // R8 c4: la cuenta es obligatoria; el botón de guardar queda deshabilitado
   // hasta que el selector tenga un valor.
   if (!f.accountId) return 'Falta la cuenta de anuncios.';
-  return problemaAccion(f) ?? problemaProgramacion(f);
+  const nombre = f.name.trim();
+  if (nombre === '') return 'Falta el nombre de la regla.';
+  // El único es (account_id, name) desde la 021. El API contesta 409 con un
+  // mensaje claro, pero llegar hasta ahí obliga a rellenar todo de nuevo; y el
+  // caso que lo dispara es duplicar una regla y olvidarse de renombrarla.
+  if (otras.some((o) => o.accountId === f.accountId && o.name.trim() === nombre)) {
+    return `Ya existe una regla llamada «${nombre}» en esta cuenta: el nombre es único por cuenta.`;
+  }
+  return motivoAlcanceInutil(f.action, f.statusFilter);
 }
 
 /** Lo que puede estar mal en la pestaña Acción (todo es de presupuesto). */
 export function problemaAccion(f: FormEstado): string | null {
   if (!esPresupuesto(f.action)) return null;
-  const v = f.actionValue === '' ? null : Number(f.actionValue);
-  if (v == null || v <= 0) return 'Falta el valor de la acción.';
+  const v = numeroDeTexto(f.actionValue);
+  if (f.actionValue.trim() !== '' && !Number.isFinite(v)) {
+    return `El valor de la acción no es un número: «${f.actionValue.trim()}».`;
+  }
+  if (!Number.isFinite(v) || v <= 0) return 'Falta el valor de la acción.';
   if (f.action === 'budget_increase' && f.budgetMax === '') return 'Falta el límite máximo (techo).';
   if (f.action === 'budget_decrease' && f.budgetMin === '') return 'Falta el límite mínimo (piso).';
   if (f.actionUnit === 'percent') {
@@ -566,39 +611,70 @@ export function problemaAccion(f: FormEstado): string | null {
     if (f.action === 'budget_decrease' && v >= 100)
       return 'Para bajar a la mitad va 50%; 250% multiplica por 2,5.';
   }
-  const max = f.budgetMax === '' ? null : Number(f.budgetMax);
-  const min = f.budgetMin === '' ? null : Number(f.budgetMin);
-  if (max != null && min != null && max < min)
+  const max = numeroDeTexto(f.budgetMax);
+  const min = numeroDeTexto(f.budgetMin);
+  if (f.budgetMax.trim() !== '' && !Number.isFinite(max)) {
+    return `El límite máximo no es un número: «${f.budgetMax.trim()}».`;
+  }
+  if (f.budgetMin.trim() !== '' && !Number.isFinite(min)) {
+    return `El límite mínimo no es un número: «${f.budgetMin.trim()}».`;
+  }
+  if (Number.isFinite(max) && max <= 0) return 'El límite máximo tiene que ser mayor a 0.';
+  if (Number.isFinite(min) && min <= 0) return 'El límite mínimo tiene que ser mayor a 0.';
+  if (Number.isFinite(max) && Number.isFinite(min) && max < min)
     return `Con techo ${max} y piso ${min} no hay ningún valor que satisfaga los dos.`;
   return null;
 }
 
 /**
- * Lo que puede estar mal en la pestaña Programación: la ventana horaria.
+ * Lo que puede estar mal en la pestaña Condiciones.
  *
- * Las dos comprobaciones existen porque las dos se podían guardar y las dos
- * rompen la regla sin decir nada:
+ * El valor vacío es la trampa peor de todo el formulario: `Number('')` es 0, así
+ * que «gasto mayor que ␣» se guardaba como «gasto > 0», que en una regla de
+ * pausar significa pausar absolutamente todo lo que pase el filtro de alcance.
+ * Nada avisaba: ni el formulario, ni el API (0 es un valor legítimo), ni la
+ * base. La contradicción entre condiciones vive en `lib/ads/reglas/coherencia`
+ * porque el API valida con la misma función.
+ */
+export function problemaCondiciones(f: FormEstado): string | null {
+  for (let i = 0; i < f.conditions.length; i++) {
+    const c = f.conditions[i]!;
+    const bruto = c.value.trim();
+    const nombre = `${METRICA_LABEL[c.metric]} (condición ${i + 1})`;
+    if (bruto === '') {
+      return `${nombre} no tiene valor. Un valor vacío se guardaría como 0, no como «sin límite».`;
+    }
+    if (!Number.isFinite(numeroDeTexto(bruto))) {
+      return `El valor de ${nombre} no es un número: «${bruto}».`;
+    }
+  }
+  return motivoCondicionesImposibles(
+    f.conditions.map((c) => ({ metric: c.metric, op: c.op, value: numeroDeTexto(c.value) })),
+    (m) => METRICA_LABEL[m as Condicion['metric']] ?? m,
+  );
+}
+
+/**
+ * Lo que puede estar mal en la pestaña Programación.
  *
- *  - MEDIA VENTANA. La base tiene el CHECK (`ad_rules_ventana_completa`) y el
- *    API el refine, así que esto terminaba en un 400 «No se pudo» después de
- *    llenar el formulario entero. Con el selector Cualquiera/Personalizado ya
- *    no es representable, y esta comprobación queda como red por si llega una
- *    regla vieja con media ventana cargada.
- *  - LAS DOS HORAS IGUALES. Esta NO la ataja nadie, ni la base ni el API, y es
- *    peor que un error: `dentroDeVentana` con inicio == fin sólo matchea ese
- *    minuto exacto, así que la regla queda viva, prendida, y con una sola
- *    ventana de 60 segundos por día para correr. Con cadencia de 15 minutos no
- *    corre nunca. Una regla que nunca corre y no avisa es lo más caro que
- *    puede pasar en este panel.
+ * La ventana horaria se valida con `lib/ads/reglas/coherencia`, el mismo módulo
+ * que usa el API: media ventana (que la base rechaza con
+ * `ad_rules_ventana_completa`) y las dos horas iguales, que no rechazaba nadie y
+ * deja a la regla con 60 segundos por día para correr.
  */
 export function problemaProgramacion(f: FormEstado): string | null {
-  const desde = f.windowStart.trim();
-  const hasta = f.windowEnd.trim();
-  if ((desde === '') !== (hasta === '')) {
-    return 'La ventana horaria va completa o vacía: elegí «Cualquiera» o las dos horas.';
+  const mv = motivoVentanaInvalida(f.windowStart, f.windowEnd);
+  if (mv !== null) return mv;
+
+  const tope = f.maxRunsPerDay.trim();
+  if (tope !== '') {
+    const n = Number(tope);
+    if (!Number.isInteger(n) || n <= 0) {
+      return 'El límite de ejecuciones diarias tiene que ser un entero mayor a 0, o vacío para no tener límite.';
+    }
   }
-  if (desde !== '' && desde === hasta) {
-    return `Con inicio y fin en ${desde} la regla sólo podría correr en ese minuto exacto: elegí horas distintas, o «Cualquiera» para que corra a toda hora.`;
+  if (!Number.isInteger(f.cooldownMinutes) || f.cooldownMinutes < 0) {
+    return 'El cooldown por objeto tiene que ser 0 o más minutos.';
   }
   return null;
 }
@@ -621,6 +697,8 @@ export function aplicadoA(
 
 function payloadDeForm(f: FormEstado, id?: number): Record<string, unknown> {
   const ep = esPresupuesto(f.action);
+  // Todos los números pasan por `numeroDeTexto`, el mismo que usa la validación:
+  // si el formulario acepta «1,3», el payload tiene que mandar 1.3 y no NaN.
   return {
     id,
     name: f.name.trim(),
@@ -630,20 +708,23 @@ function payloadDeForm(f: FormEstado, id?: number): Record<string, unknown> {
     nameFilter: f.nameFilter.trim() || null,
     nameFilterMode: f.nameFilterMode,
     action: f.action,
-    actionValue: ep ? (f.actionValue === '' ? null : Number(f.actionValue)) : null,
+    actionValue: ep ? nuloSiNaN(numeroDeTexto(f.actionValue)) : null,
     actionUnit: ep ? f.actionUnit : null,
-    budgetMax: ep ? (f.budgetMax === '' ? null : Number(f.budgetMax)) : null,
-    budgetMin: ep ? (f.budgetMin === '' ? null : Number(f.budgetMin)) : null,
+    budgetMax: ep ? nuloSiNaN(numeroDeTexto(f.budgetMax)) : null,
+    budgetMin: ep ? nuloSiNaN(numeroDeTexto(f.budgetMin)) : null,
     period: f.period,
     everyMinutes: f.everyMinutes,
     windowStart: f.windowStart || null,
     windowEnd: f.windowEnd || null,
-    maxRunsPerDay: f.maxRunsPerDay === '' ? null : Number(f.maxRunsPerDay),
+    maxRunsPerDay: f.maxRunsPerDay.trim() === '' ? null : Number(f.maxRunsPerDay.trim()),
     cooldownMinutes: f.cooldownMinutes,
     maxActionsPerObjectPerDay: f.maxActionsPerObjectPerDay,
-    conditions: f.conditions.map((c) => ({ metric: c.metric, op: c.op, value: Number(c.value) })),
+    conditions: f.conditions.map((c) => ({ metric: c.metric, op: c.op, value: numeroDeTexto(c.value) })),
   };
 }
+
+/** NaN (campo vacío o basura) viaja como null, nunca como 0. */
+const nuloSiNaN = (n: number): number | null => (Number.isFinite(n) ? n : null);
 
 function payloadDeRegla(r: ReglaFila, over: { enabled?: boolean; dryRun?: boolean } = {}): Record<string, unknown> {
   return {
@@ -1208,6 +1289,7 @@ export function ReglasView({
           inicial={editando ? formDeRegla(editando) : duplicando ? formDeRegla(duplicando) : formVacio(nuevaEnCuenta ?? '')}
           editId={editando?.id}
           guardando={busy}
+          otras={reglas}
           onCancel={cerrarFormulario}
           onSave={guardar}
         />
@@ -1709,6 +1791,7 @@ function FormularioRegla({
   inicial,
   editId,
   guardando,
+  otras,
   onCancel,
   onSave,
 }: {
@@ -1717,6 +1800,8 @@ function FormularioRegla({
   inicial: FormEstado;
   editId?: number;
   guardando?: boolean;
+  /** Todas las reglas, para avisar del nombre repetido antes del 409. */
+  otras: readonly { id: number; accountId: string; name: string }[];
   onCancel: () => void;
   onSave: (payload: Record<string, unknown>, id?: number) => Promise<void>;
 }): JSX.Element {
@@ -1724,8 +1809,10 @@ function FormularioRegla({
   const set = (p: Partial<FormEstado>) => setF((prev) => ({ ...prev, ...p }));
 
   const ep = esPresupuesto(f.action);
-  const prob = problema(f);
   const preview = previewFactor(f);
+  // La regla que se está editando no compite consigo misma por el nombre.
+  const otrasReglas = useMemo(() => otras.filter((o) => o.id !== editId), [otras, editId]);
+  const prob = problema(f, otrasReglas);
 
   function setCondicion(i: number, p: Partial<CondicionDraft>) {
     setF((prev) => ({
@@ -1755,18 +1842,22 @@ function FormularioRegla({
   const ventanaPersonalizada = f.windowStart !== '' || f.windowEnd !== '';
   const zonaCuenta = cuentas.find((c) => c.accountId === f.accountId)?.timezone ?? null;
 
-  const puedeGuardar = Boolean(f.name.trim()) && Boolean(f.accountId) && prob === null && !guardando;
+  // El nombre y la cuenta ya los cubre `problemaAlcance`: sin esto la condición
+  // estaba escrita dos veces y una de las dos se iba a quedar atrás.
+  const puedeGuardar = prob === null && !guardando;
 
   // En qué pestaña está el campo que falta. El botón Guardar se deshabilita con
   // `prob`, y sin esto el usuario se quedaba con un botón muerto y el problema
   // escondido en una pestaña que no estaba mirando.
-  const tabConProblema: TabForm | null = !f.accountId
+  const tabConProblema: TabForm | null = problemaAlcance(f, otrasReglas)
     ? 'alcance'
     : problemaAccion(f)
       ? 'accion'
-      : problemaProgramacion(f)
-        ? 'programacion'
-        : null;
+      : problemaCondiciones(f)
+        ? 'condiciones'
+        : problemaProgramacion(f)
+          ? 'programacion'
+          : null;
 
   const panelProps = (id: TabForm) => ({
     role: 'tabpanel' as const,
@@ -2078,10 +2169,28 @@ function FormularioRegla({
             </div>
 
             {f.conditions.length === 0 ? (
-              <p className="text-xs text-neutral-500">
-                Sin condiciones, la regla se aplica a <strong className="text-bad-300">todos</strong> los objetos que pasan el
-                filtro de alcance.
-              </p>
+              // Sin condiciones la regla es legítima («pausar todo lo que se
+              // llame X»), así que no se bloquea. Pero con una acción
+              // destructiva conviene decirlo con el alcance puesto en la frase:
+              // «pausar TODOS los conjuntos activos» se entiende distinto que
+              // «sin condiciones».
+              accionDestructiva(f.action) ? (
+                <Banner tone="bad" title="Esta regla no tiene condiciones">
+                  Va a {ACCION_LABEL[f.action].toLowerCase()}{' '}
+                  <strong className="text-neutral-100">
+                    todos los {NIVEL_LABEL[f.level].toLowerCase()} {STATUS_LABEL[f.statusFilter]}
+                  </strong>{' '}
+                  {f.nameFilter.trim()
+                    ? `que ${f.nameFilterMode === 'contains' ? 'contengan' : 'no contengan'} «${f.nameFilter.trim()}»`
+                    : 'de la cuenta, sin mirar ninguna métrica'}
+                  . Si era eso, seguí; si no, agregá una condición.
+                </Banner>
+              ) : (
+                <p className="text-xs text-neutral-500">
+                  Sin condiciones, la regla se aplica a <strong className="text-bad-300">todos</strong> los objetos que pasan el
+                  filtro de alcance.
+                </p>
+              )
             ) : (
               <div className="space-y-2">
                 {f.conditions.map((c, i) => (
@@ -2249,7 +2358,12 @@ function FormularioRegla({
               className={`${inputCls} tabular-nums`}
               inputMode="numeric"
               value={f.cooldownMinutes}
-              onChange={(e) => set({ cooldownMinutes: Number(e.target.value) || 0 })}
+              onChange={(e) => {
+                // Se clampea en 0 acá: un negativo pasa el `|| 0` (es truthy) y
+                // muere en el CHECK ad_rules_cooldown_valido con un 400.
+                const n = Number(e.target.value);
+                set({ cooldownMinutes: Number.isFinite(n) && n > 0 ? Math.floor(n) : 0 });
+              }}
             />
             <span className="text-[11px] text-neutral-600">
               Cuánto esperar antes de volver a tocar el MISMO objeto. 0 = sin espera.

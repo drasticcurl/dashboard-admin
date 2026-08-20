@@ -22,6 +22,7 @@ import { z } from 'zod';
 import { q, q1, tx } from '@/lib/db';
 import { guard, json } from '@/app/api/config/_lib';
 import { correrRegla } from '@/lib/ads/reglas/ejecutor';
+import { motivoIncoherente } from '@/lib/ads/reglas/coherencia';
 import { interruptores, reglaPorId } from '@/lib/ads/reglas/repo';
 import { listarReglas } from '@/app/(panel)/anuncios/reglas/_server';
 
@@ -171,13 +172,32 @@ const reglaSchema = z
       });
     }
 
-    // ventana completa o vacía.
-    if ((d.windowStart == null) !== (d.windowEnd == null)) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'La ventana horaria va completa o vacía: las dos horas o ninguna',
-        path: ['windowStart'],
+    // ── Coherencia: lo que se puede guardar pero no puede funcionar ─────────
+    //
+    // Ventana de un minuto, alcance que la acción no puede tocar y condiciones
+    // que se contradicen. Las tres se ven igual desde afuera: una regla
+    // prendida, sin errores, que no ejecuta nunca nada. `lib/ads/reglas/
+    // coherencia` es el mismo módulo que usa el formulario, para que el mensaje
+    // que ve el usuario sea el que aplica el server.
+    //
+    // LA EXCEPCIÓN, QUE NO ES UN DESCUIDO: si el payload apaga la regla o la
+    // manda a sombra, no se valida nada de esto. Una regla incoherente ya
+    // cargada tiene que poder apagarse y tiene que poder volver a simulación
+    // SIEMPRE — son las dos acciones que reducen el riesgo, y bloquearlas por
+    // un problema de coherencia dejaría a alguien sin forma de frenar una regla
+    // desde la UI. Lo que no se puede es dejarla prendida y en real.
+    const reduceRiesgo = d.enabled === false || d.dryRun === true;
+    if (!reduceRiesgo) {
+      const motivo = motivoIncoherente({
+        action: d.action,
+        statusFilter: d.statusFilter,
+        windowStart: d.windowStart,
+        windowEnd: d.windowEnd,
+        conditions: d.conditions,
       });
+      if (motivo !== null) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: motivo, path: ['conditions'] });
+      }
     }
   });
 
