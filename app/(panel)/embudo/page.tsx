@@ -65,9 +65,10 @@ export default async function EmbudoPage({ searchParams }: { searchParams: Searc
     utmCampaign: single(searchParams.campaign),
     utmSource: single(searchParams.source),
     country: single(searchParams.country),
-    // La variante del A/B viaja en la URL como los otros filtros: así un link a
-    // "el embudo de la entrada B" se comparte y sobrevive al refresh.
-    experiment: single(searchParams.exp),
+    // Sin `experiment`: el embudo es UNO SOLO, sin desglose por test A/B. El
+    // filtro existió mientras corrió el test de portada (`?exp=`) y se retiró al
+    // cerrarse. `FunnelFilters.experiment` sigue soportado en la capa de queries
+    // para el próximo experimento; esta pantalla simplemente no lo manda.
   });
 
   return <EmbudoView funnel={funnel} initialData={data} />;

@@ -12,18 +12,22 @@
  * por etapas (EmbudoChart), que sale de `funnel_stages` (D-R07). El toggle
  * de base ahora vive en `?base=` (D-R14) y sobrevive al refresh.
  *
- * El control que está arriba del embudo por etapas es UNO de dos, según el
- * rango tenga test A/B o no:
+ * UN SOLO EMBUDO, sin desglose por test A/B. Esta vista tuvo durante el test de
+ * portada dos superficies A/B que ya no están: la card "Test A/B de la portada"
+ * y un toggle de portada (A y B / Landing A / Landing B) que reemplazaba al de
+ * base y recortaba el embudo entero con `?exp=`. El test se cerró con la
+ * variante B ganando, la portada quedó fija y el funnel dejó de emitir la
+ * dimensión, así que todo el tráfico nuevo llega sin experimento y el embudo es
+ * uno solo, agregado.
  *
- *  - con test  → toggle de portada (A y B / Landing A / Landing B). Recorta el
- *                embudo entero, así que muestra en qué etapa pierde gente cada
- *                entrada, que es lo que un test de portada necesita responder.
- *  - sin test  → toggle de base (paso 0 vs paso 1), el que estaba solo hasta
- *                ahora. No se borró: sin variantes en el rango el otro no tendría
- *                nada que ofrecer.
+ * Con esto el control de arriba del embudo por etapas volvió a ser SIEMPRE el
+ * toggle de base (paso 0 vs paso 1), sin ternario de por medio.
  *
- * `?base=` sigue funcionando por URL en los dos casos, así que la base se puede
- * cambiar incluso cuando su toggle no está a la vista.
+ * Lo que NO se borró, y por qué: `sessions.experiment` sigue en la base con los
+ * datos del test, la ingesta sigue aceptando la dimensión y `FunnelData.experiments`
+ * se sigue calculando en `lib/queries/funnel.ts`. Esta vista simplemente no lo
+ * lee. Es el slot listo para el próximo experimento: lo que hay que rearmar es
+ * la superficie, no la cañería.
  *
  * El "peor paso" se calcula acá, sobre las filas ya armadas: es la de mayor
  * dropFromPrevious entre filas consecutivas, excluyendo la base — la misma
@@ -35,10 +39,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import type { Funnel } from '@/lib/funnels';
-import type { BaseMode, ExperimentoRow, FunnelData } from '@/lib/queries/funnel';
-// El centinela viene de `lib/experimento.ts` y NO de `lib/queries/funnel`: ese
-// módulo importa `pg` y esto es un componente de cliente.
-import { SIN_EXPERIMENTO } from '@/lib/experimento';
+import type { BaseMode, FunnelData } from '@/lib/queries/funnel';
 import { EmbudoChart } from '@/components/EmbudoChart';
 import {
   Badge,
@@ -62,68 +63,22 @@ type CampaignRow = { campaign: string; sessions: number; purchases: number };
 type CampaignSortKey = 'campaign' | 'sessions' | 'purchases' | 'conversion';
 
 /**
- * Etiqueta de la fila del desglose del experimento (R9.14). Cualquier otro
- * valor —incluido el centinela '(sin asignar)'— se devuelve tal cual.
+ * ¿Se muestra el desglose por VARIANTE? Predicado PURO, extraído del componente
+ * para poder testearlo sin jsdom (este proyecto no lo tiene).
  *
- * El texto ESPEJA `HERO_VARIANT_LABEL` del funnel (lib/quiz-v2/heroVariant.ts),
- * que es la fuente de verdad de qué renderiza cada variante. No se puede
- * importar (son dos repos), así que está duplicado a mano: si allá se cambia la
- * portada B, acá hay que seguirlo.
+ * Gatea dos cosas a la vez: el `select` de variante en Filtros y la card
+ * `Variantes` de la grilla de abajo.
  *
- * OJO con la trampa de este campo: `sessions.experiment` es UN SOLO SLOT y el
- * payload manda el valor ('A'/'B') sin decir de qué experimento es. Estas
- * etiquetas describen el test de PORTADA, que es el único que reporta hoy. Las
- * sesiones del test del pop-up de descuento —retirado, el control ganó— tienen
- * 'A' y 'B' en la misma columna, así que un rango de fechas que cruce los dos
- * los muestra mezclados y rotulados como portada. El rango es la única defensa:
- * mirá desde el día que arrancó el test de portada.
- */
-export function etiquetaExperimento(v: string): string {
-  if (v === 'A') return 'A · control (portada actual)';
-  if (v === 'B') return 'B · portada con pregunta';
-  return v;
-}
-
-/**
- * Predicados PUROS de visibilidad de las dos cards, extraídos del componente
- * para poder testearlos sin jsdom (este proyecto no lo tiene). Los dos gates
- * son independientes (R9.11, R9.12): la card `Test A/B` cuenta filas del
- * desglose y la card `Variantes` mira el arreglo de variantes del funnel, y
- * ninguno lee al otro.
- */
-export function debeMostrarCardTestAB(experiments: ExperimentoRow[]): boolean {
-  return experiments.length > 1;
-}
-
-/**
- * ¿Se muestra el selector de variante? Cuenta las opciones ESTABLES (las de la
- * última respuesta sin filtrar), no las filas del desglose visible.
+ * OJO CON EL NOMBRE, que es la confusión más fácil de esta pantalla: acá
+ * "variante" es el MERCADO (`sessions.variant`: `ar` / `latam`, la versión del
+ * quiz), NO la variante de un test A/B. Son dos columnas distintas de `sessions`
+ * y esta es la que sobrevive. El desglose por experimento (`sessions.experiment`)
+ * se retiró de esta vista al cerrarse el test de portada.
  *
- * Es un gate aparte y no `debeMostrarCardTestAB` aplicado a otra lista, porque
- * responde otra pregunta. La card pregunta "¿hay algo que comparar acá?" y con
- * el filtro puesto la respuesta es no. El selector pregunta "¿existe más de una
- * variante en este funnel y rango?", y eso tiene que seguir siendo cierto
- * MIENTRAS el filtro está puesto: si no, el control desaparece justo cuando hace
- * falta para volver atrás.
+ * Que `funnel.variants` sea `['ar','latam']` —largo 2— es la razón de que este
+ * gate NUNCA haya que reusarlo para otra dimensión: daría `true` por coincidencia
+ * y parecería funcionar.
  */
-export function debeMostrarSelectorExperimento(opciones: string[]): boolean {
-  return opciones.length > 1;
-}
-
-/**
- * Etiqueta CORTA de una variante, para el toggle que está arriba del embudo por
- * etapas. Es otra función que `etiquetaExperimento` a propósito: ahí las
- * etiquetas describen qué cambia cada variante ('A · control (portada actual)')
- * porque la tabla tiene ancho para eso, y acá tienen que caber en un botón al
- * lado del otro.
- */
-export function etiquetaCortaExperimento(v: string): string {
-  if (v === 'A') return 'Landing A';
-  if (v === 'B') return 'Landing B';
-  if (v === SIN_EXPERIMENTO) return 'Sin asignar';
-  return v;
-}
-
 export function debeMostrarCardVariantes(variants: string[]): boolean {
   return variants.length > 1;
 }
@@ -146,23 +101,6 @@ export function EmbudoView({
   const [variant, setVariant] = useState('');
   const [campaign, setCampaign] = useState('');
   const [country, setCountry] = useState('');
-  // La variante del A/B arranca de la URL: la página del server ya filtró con
-  // `?exp=`, así que si el select arrancara vacío mostraría "A y B juntas" arriba
-  // de un embudo que es solo de B.
-  const [experiment, setExperiment] = useState(searchParams.get('exp') ?? '');
-
-  /**
-   * Opciones del selector del experimento. Van en estado propio y NO se derivan
-   * de `data.experiments` en cada pintura: al filtrar por B el desglose devuelve
-   * UNA fila, y un select alimentado por esa lista se quedaría con una sola
-   * opción —sin forma de volver a "A y B juntas"— y encima se auto-ocultaría por
-   * su propio gate. Se refrescan solo con las respuestas SIN filtrar, que son las
-   * únicas que ven el universo completo.
-   */
-  const [expOptions, setExpOptions] = useState<string[]>(() =>
-    initialData.experiments.map((r) => r.experiment),
-  );
-
   const [data, setData] = useState<FunnelData>(initialData);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -185,8 +123,6 @@ export function EmbudoView({
     setVariant('');
     setCampaign('');
     setCountry('');
-    // El experimento también: la 'B' de un funnel no es la 'B' de otro.
-    setExperiment('');
   }, [funnel.slug]);
 
   useEffect(() => {
@@ -211,7 +147,6 @@ export function EmbudoView({
     if (variant) params.set('variant', variant);
     if (campaign) params.set('campaign', campaign);
     if (country) params.set('country', country);
-    if (experiment) params.set('exp', experiment);
 
     fetch(`/api/data/funnel?${params.toString()}`, {
       signal: ctrl.signal,
@@ -223,9 +158,6 @@ export function EmbudoView({
       })
       .then((fresh) => {
         setData(fresh);
-        // Solo la respuesta SIN filtrar por experimento ve todas las variantes:
-        // es la única que puede refrescar las opciones del select sin amputarlo.
-        if (!experiment) setExpOptions(fresh.experiments.map((r) => r.experiment));
       })
       .catch((err: unknown) => {
         if (err instanceof DOMException && err.name === 'AbortError') return;
@@ -234,7 +166,7 @@ export function EmbudoView({
       .finally(() => setLoading(false));
 
     return () => ctrl.abort();
-  }, [base, variant, campaign, country, experiment, funnel.slug, searchParams, retryTick]);
+  }, [base, variant, campaign, country, funnel.slug, searchParams, retryTick]);
 
   // El peor paso: la fila de mayor caída contra la anterior. La primera fila
   // (el paso base) no participa: no tiene caída contra nada (T06 §3).
@@ -300,36 +232,20 @@ export function EmbudoView({
       </div>
 
       {/*
-        El toggle de este bloque cambia según haya test o no.
-
-        Con test corriendo manda la comparación de portadas: es la pregunta que se
-        está haciendo en ese momento, y recorta el embudo por etapas completo, así
-        que se ve en qué etapa pierde gente cada entrada.
-
-        Sin test cae al toggle de base (paso 0 vs paso 1), que es el que estaba
-        acá antes. No se borró: en un rango donde el experimento no corrió, o en un
-        funnel que no testea, el de variantes no tendría nada que ofrecer y el de
-        base sigue siendo útil. `?base=` sigue andando por URL en los dos casos.
+        El control de este bloque es SIEMPRE el toggle de base (paso 0 vs paso 1).
+        Antes era uno de dos: durante el test de portada, un rango con variantes lo
+        reemplazaba por un toggle de portada que recortaba el embudo entero. El
+        test se cerró, el embudo es uno solo y el ternario se fue con él.
       */}
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/[0.06] bg-[#13131a] p-4">
         <div>
-          {debeMostrarSelectorExperimento(expOptions) ? (
-            <p className="text-sm text-neutral-300">
-              Comparando{' '}
-              <span className="font-semibold text-neutral-100">
-                {experiment === '' ? 'las dos portadas juntas' : etiquetaCortaExperimento(experiment)}
-              </span>
-              . El recorte aplica a todo el embudo de abajo.
-            </p>
-          ) : (
-            <p className="text-sm text-neutral-300">
-              % de personas que llegan a cada paso, medido desde{' '}
-              <span className="font-semibold text-neutral-100">
-                {base === 'landing' ? 'la landing (entrada)' : 'el inicio del quiz (1ª pregunta)'}
-              </span>
-              .
-            </p>
-          )}
+          <p className="text-sm text-neutral-300">
+            % de personas que llegan a cada paso, medido desde{' '}
+            <span className="font-semibold text-neutral-100">
+              {base === 'landing' ? 'la landing (entrada)' : 'el inicio del quiz (1ª pregunta)'}
+            </span>
+            .
+          </p>
           <p className="mt-1 text-xs text-neutral-500">
             Landing → inicio del quiz:{' '}
             <span className="font-semibold tabular-nums text-neutral-300">
@@ -339,83 +255,36 @@ export function EmbudoView({
           </p>
         </div>
 
-        {debeMostrarSelectorExperimento(expOptions) ? (
-          <div
-            role="group"
-            aria-label="Portada del test A/B"
-            className="flex items-center gap-1 rounded-lg border border-white/[0.06] bg-white/[0.02] p-1"
+        <div
+          role="group"
+          aria-label="Base de medición del porcentaje"
+          className="flex items-center gap-1 rounded-lg border border-white/[0.06] bg-white/[0.02] p-1"
+        >
+          <button
+            type="button"
+            onClick={() => setBase('landing')}
+            aria-pressed={base === 'landing'}
+            className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500/50 ${
+              base === 'landing'
+                ? 'bg-white/[0.08] text-neutral-50'
+                : 'text-neutral-400 hover:bg-white/[0.05] hover:text-neutral-200'
+            }`}
           >
-            {/*
-              La opción de "juntas" va primero y con value '' (el mismo que
-              significa "sin filtro" en el resto de la vista). Sin ella el toggle
-              te encerraría en una variante, y el embudo total —el que se mira
-              cuando no estás pensando en el test— quedaría inaccesible.
-            */}
-            <button
-              type="button"
-              onClick={() => setExperiment('')}
-              aria-pressed={experiment === ''}
-              className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500/50 ${
-                experiment === ''
-                  ? 'bg-white/[0.08] text-neutral-50'
-                  : 'text-neutral-400 hover:bg-white/[0.05] hover:text-neutral-200'
-              }`}
-            >
-              A y B
-            </button>
-            {/*
-              Un botón por variante REALMENTE presente en el rango, no por valor
-              declarado en el funnel: en un rango donde solo corrió una, ofrecer la
-              otra daría un embudo vacío.
-            */}
-            {expOptions.map((v) => (
-              <button
-                key={v}
-                type="button"
-                onClick={() => setExperiment(v)}
-                aria-pressed={experiment === v}
-                className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500/50 ${
-                  experiment === v
-                    ? 'bg-white/[0.08] text-neutral-50'
-                    : 'text-neutral-400 hover:bg-white/[0.05] hover:text-neutral-200'
-                }`}
-              >
-                {etiquetaCortaExperimento(v)}
-              </button>
-            ))}
-          </div>
-        ) : (
-          <div
-            role="group"
-            aria-label="Base de medición del porcentaje"
-            className="flex items-center gap-1 rounded-lg border border-white/[0.06] bg-white/[0.02] p-1"
+            Desde la landing
+          </button>
+          <button
+            type="button"
+            onClick={() => setBase('start')}
+            aria-pressed={base === 'start'}
+            className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500/50 ${
+              base === 'start'
+                ? 'bg-white/[0.08] text-neutral-50'
+                : 'text-neutral-400 hover:bg-white/[0.05] hover:text-neutral-200'
+            }`}
           >
-            <button
-              type="button"
-              onClick={() => setBase('landing')}
-              aria-pressed={base === 'landing'}
-              className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500/50 ${
-                base === 'landing'
-                  ? 'bg-white/[0.08] text-neutral-50'
-                  : 'text-neutral-400 hover:bg-white/[0.05] hover:text-neutral-200'
-              }`}
-            >
-              Desde la landing
-            </button>
-            <button
-              type="button"
-              onClick={() => setBase('start')}
-              aria-pressed={base === 'start'}
-              className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500/50 ${
-                base === 'start'
-                  ? 'bg-white/[0.08] text-neutral-50'
-                  : 'text-neutral-400 hover:bg-white/[0.05] hover:text-neutral-200'
-              }`}
-            >
-              Desde la 1ª pregunta
-            </button>
-          </div>
-        )}
+            Desde la 1ª pregunta
+          </button>
+        </div>
       </div>
 
       <Card
@@ -497,72 +366,15 @@ export function EmbudoView({
         )}
       </Card>
 
-      {/*
-        Con el filtro puesto el desglose trae una sola fila y el gate diría que no
-        hay nada que mostrar. Pero ahí la card es justamente lo que se quiere ver:
-        el recorrido completo de ESA variante, plata incluida. Por eso el `||`.
-      */}
-      {(debeMostrarCardTestAB(data.experiments) || experiment !== '') && (
-        <Card
-          title="Test A/B de la portada"
-          hint="El funnel completo por variante de entrada, de la sesión hasta la plata. Respeta los mismos filtros que el resto del embudo. Las dos últimas columnas son las que deciden el test."
-        >
-          <Table
-            rows={data.experiments}
-            empty="Sin datos"
-            columns={[
-              {
-                key: 'experiment',
-                header: 'Variante',
-                render: (r) => <span className="text-neutral-200">{etiquetaExperimento(r.experiment)}</span>,
-              },
-              { key: 'sessions', header: 'Sesiones', align: 'right', render: (r) => fmtInt(r.sessions) },
-              { key: 'salesViews', header: 'Vio venta', align: 'right', render: (r) => fmtInt(r.salesViews) },
-              { key: 'pctSalesView', header: '% venta', align: 'right', render: (r) => fmtPct(r.pctSalesView, 1) },
-              { key: 'checkoutClicks', header: 'Click', align: 'right', render: (r) => fmtInt(r.checkoutClicks) },
-              { key: 'pctCheckoutClick', header: '% click', align: 'right', render: (r) => fmtPct(r.pctCheckoutClick, 1) },
-              { key: 'purchases', header: 'Compras', align: 'right', render: (r) => fmtInt(r.purchases) },
-              { key: 'pctPurchase', header: '% compra', align: 'right', render: (r) => fmtPct(r.pctPurchase, 1) },
-              // El tramo que la card vieja no miraba: sin esto una entrada que
-              // vende más front y menos upsell parece ganadora sin serlo.
-              { key: 'upsellViews', header: 'Vio upsell', align: 'right', render: (r) => fmtInt(r.upsellViews) },
-              { key: 'upsellClicks', header: 'Upsell', align: 'right', render: (r) => fmtInt(r.upsellClicks) },
-              { key: 'pctUpsellTake', header: '% upsell', align: 'right', render: (r) => fmtPct(r.pctUpsellTake, 1) },
-              { key: 'downsellViews', header: 'Vio downsell', align: 'right', render: (r) => fmtInt(r.downsellViews) },
-              {
-                key: 'pctSessionToPurchase',
-                header: 'Conv. total',
-                align: 'right',
-                render: (r) => fmtPct(r.pctSessionToPurchase, 2),
-              },
-              {
-                key: 'revenue',
-                header: 'Facturado',
-                align: 'right',
-                render: (r) => fmtMoney(r.revenue, funnel.sellCurrency),
-              },
-              // El veredicto. Va última y resaltada porque es la única columna
-              // que ya tiene adentro el tráfico, los upsells y los reembolsos: si
-              // discrepa con "Conv. total", esta gana.
-              {
-                key: 'revenuePerSession',
-                header: '$ / sesión',
-                align: 'right',
-                className: 'text-neutral-50',
-                render: (r) => fmtMoney(r.revenuePerSession, funnel.sellCurrency),
-              },
-            ]}
-          />
-        </Card>
-      )}
-
       <Card title="Filtros" hint="Cada filtro recorta el embudo completo">
         <div className="flex flex-wrap items-center gap-2">
           {/*
-            Acá NO va un selector de la variante del A/B: eso lo maneja el toggle
-            que está arriba del embudo por etapas. Dos controles para el mismo
-            estado es la forma más rápida de que la vista muestre una cosa y el
-            control diga otra.
+            "Variante" acá es el MERCADO (ar / latam), no la variante de un test
+            A/B. El desglose por experimento se retiró de esta vista al cerrarse
+            el test de portada; si algún día vuelve un test, su control va arriba
+            del embudo por etapas y NO como un select más en esta fila: dos
+            controles para el mismo estado es la forma más rápida de que la vista
+            muestre una cosa y el control diga otra.
           */}
           {debeMostrarCardVariantes(funnel.variants) && (
             <select

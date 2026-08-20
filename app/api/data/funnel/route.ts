@@ -55,11 +55,11 @@ export async function GET(req: NextRequest) {
     utmCampaign: sp.get('campaign') ?? undefined,
     utmSource: sp.get('source') ?? undefined,
     country: sp.get('country') ?? undefined,
-    // `exp` es la variante del A/B: recorta el embudo COMPLETO, no solo la card
-    // del desglose. Sin validar contra funnels.experiments a propósito: un valor
-    // que nadie sembró devuelve cero filas, que es la respuesta correcta y no un
-    // 400. El valor va como parámetro de la query, nunca concatenado.
-    experiment: sp.get('exp') ?? undefined,
+    // Sin `experiment`: el embudo es UNO SOLO. El parámetro `?exp=` existió
+    // mientras corrió el test de portada y recortaba el embudo completo; se
+    // retiró al cerrarse el test. Un `?exp=` viejo en un link guardado ahora se
+    // IGNORA, que es lo correcto: devuelve el embudo entero en lugar de un
+    // recorte silencioso que nada en la pantalla explicaría.
   });
 
   return NextResponse.json({ ok: true, ...data }, {
