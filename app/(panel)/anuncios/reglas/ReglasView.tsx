@@ -22,7 +22,7 @@
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { DotsThreeVertical, X } from '@phosphor-icons/react';
+import { Clock, Crosshair, DotsThreeVertical, Lightning, ListChecks, X } from '@phosphor-icons/react';
 import type { Condicion, NivelAds, PeriodoAds } from '@/lib/ads/tipos';
 import type { ResultadoCorrida } from '@/lib/ads/reglas/ejecutor';
 import type { CuentaAds, EstadoInterruptores, ReglaFila } from './_tipos';
@@ -77,6 +77,49 @@ const METRICA_LABEL: Record<Condicion['metric'], string> = {
   ctr: 'CTR',
   cpc: 'CPC',
 };
+
+/**
+ * Los operadores en castellano, para el selector del formulario.
+ *
+ * En la tabla se siguen mostrando los símbolos: ahí el texto es un resumen de
+ * una línea en una celda angosta («Pausar · si ROI <= 1,2 y gasto > 9») y las
+ * palabras lo desbordan. Elegir es otra cosa: «<=» y «>=» al lado en un select
+ * se confunden, y equivocarse ahí apaga campañas que había que dejar prendidas.
+ */
+const OP_LABEL: Record<Condicion['op'], string> = {
+  '>': 'mayor que',
+  '>=': 'mayor o igual que',
+  '<': 'menor que',
+  '<=': 'menor o igual que',
+  '=': 'igual a',
+  '!=': 'distinto de',
+};
+
+const OPS: readonly Condicion['op'][] = ['>', '>=', '<', '<=', '=', '!='];
+
+/**
+ * Las opciones de la ventana horaria: las 24 horas en punto más «23:59».
+ *
+ * En punto porque una ventana es un turno («de 8 a 23»), no un instante, y el
+ * campo libre de minutos era una fuente de errores: dos `<input type="time">`
+ * sueltos dejan guardar media ventana o las dos horas iguales, y las dos cosas
+ * rompen la regla en silencio. 23:59 está para poder decir «hasta el final del
+ * día» sin perder los últimos 59 minutos, que es lo que pasaría con 23:00.
+ */
+const HORAS_VENTANA: readonly string[] = [
+  ...Array.from({ length: 24 }, (_, h) => `${String(h).padStart(2, '0')}:00`),
+  '23:59',
+];
+
+/**
+ * Las horas del selector, incluyendo la guardada si no es una hora en punto.
+ * El import de CSV de UTMify trae horarios arbitrarios (08:30): sin esto, abrir
+ * esa regla para cambiarle otra cosa le movería la ventana sin avisar.
+ */
+function opcionesHora(actual: string): readonly string[] {
+  if (actual === '' || HORAS_VENTANA.includes(actual)) return HORAS_VENTANA;
+  return [...HORAS_VENTANA, actual].sort();
+}
 
 // Unidad para mostrar el valor de cada métrica: €, múltiplo o cantidad.
 const METRICA_UNIDAD: Record<Condicion['metric'], 'euro' | 'numero' | 'entero'> = {
@@ -496,11 +539,22 @@ function previewFactor(f: FormEstado): string {
 }
 
 // Validación client-side de lo mismo que valida la base (task §4.5): el usuario
-// no tiene que descubrir los CHECK por un 400. Exportada para los tests (9.6).
+// no tiene que descubrir los CHECK por un 400.
+//
+// Está partida en una función por pestaña porque el formulario ahora tiene
+// pestañas: con un único mensaje no había forma de saber en cuál está el campo
+// que falta, y el usuario se quedaba con el botón deshabilitado y sin pistas.
+// `problema` sigue siendo la composición de las tres, y es la que decide si se
+// puede guardar. Exportada para los tests (9.6).
 export function problema(f: FormEstado): string | null {
   // R8 c4: la cuenta es obligatoria; el botón de guardar queda deshabilitado
   // hasta que el selector tenga un valor.
   if (!f.accountId) return 'Falta la cuenta de anuncios.';
+  return problemaAccion(f) ?? problemaProgramacion(f);
+}
+
+/** Lo que puede estar mal en la pestaña Acción (todo es de presupuesto). */
+export function problemaAccion(f: FormEstado): string | null {
   if (!esPresupuesto(f.action)) return null;
   const v = f.actionValue === '' ? null : Number(f.actionValue);
   if (v == null || v <= 0) return 'Falta el valor de la acción.';
@@ -516,6 +570,36 @@ export function problema(f: FormEstado): string | null {
   const min = f.budgetMin === '' ? null : Number(f.budgetMin);
   if (max != null && min != null && max < min)
     return `Con techo ${max} y piso ${min} no hay ningún valor que satisfaga los dos.`;
+  return null;
+}
+
+/**
+ * Lo que puede estar mal en la pestaña Programación: la ventana horaria.
+ *
+ * Las dos comprobaciones existen porque las dos se podían guardar y las dos
+ * rompen la regla sin decir nada:
+ *
+ *  - MEDIA VENTANA. La base tiene el CHECK (`ad_rules_ventana_completa`) y el
+ *    API el refine, así que esto terminaba en un 400 «No se pudo» después de
+ *    llenar el formulario entero. Con el selector Cualquiera/Personalizado ya
+ *    no es representable, y esta comprobación queda como red por si llega una
+ *    regla vieja con media ventana cargada.
+ *  - LAS DOS HORAS IGUALES. Esta NO la ataja nadie, ni la base ni el API, y es
+ *    peor que un error: `dentroDeVentana` con inicio == fin sólo matchea ese
+ *    minuto exacto, así que la regla queda viva, prendida, y con una sola
+ *    ventana de 60 segundos por día para correr. Con cadencia de 15 minutos no
+ *    corre nunca. Una regla que nunca corre y no avisa es lo más caro que
+ *    puede pasar en este panel.
+ */
+export function problemaProgramacion(f: FormEstado): string | null {
+  const desde = f.windowStart.trim();
+  const hasta = f.windowEnd.trim();
+  if ((desde === '') !== (hasta === '')) {
+    return 'La ventana horaria va completa o vacía: elegí «Cualquiera» o las dos horas.';
+  }
+  if (desde !== '' && desde === hasta) {
+    return `Con inicio y fin en ${desde} la regla sólo podría correr en ese minuto exacto: elegí horas distintas, o «Cualquiera» para que corra a toda hora.`;
+  }
   return null;
 }
 
@@ -1577,6 +1661,48 @@ function Modal({
 
 // ─── Formulario de crear / editar ────────────────────────────────────────────
 
+type TabForm = 'alcance' | 'accion' | 'condiciones' | 'programacion';
+
+/**
+ * Las cuatro secciones del formulario, en el orden en que se lee la regla:
+ * a qué le aplica → qué hace → cuándo se cumple → cada cuánto mira.
+ *
+ * Antes eran quince campos en una grilla de dos columnas donde «Estado» (el
+ * filtro de alcance) quedaba al lado de «Modo» (el del filtro por nombre) y
+ * los tres frenos se mezclaban con las condiciones. El orden es el mismo que
+ * usa UTMify (acción antes que condiciones), que además es el que ya tenía el
+ * formulario: agrupar no reordenó nada, sólo puso títulos donde no había.
+ */
+const TABS_FORM: readonly { id: TabForm; rotulo: string; Icono: typeof Crosshair }[] = [
+  { id: 'alcance', rotulo: 'Alcance', Icono: Crosshair },
+  { id: 'accion', rotulo: 'Acción', Icono: Lightning },
+  { id: 'condiciones', rotulo: 'Condiciones', Icono: ListChecks },
+  { id: 'programacion', rotulo: 'Programación', Icono: Clock },
+];
+
+/**
+ * La regla entera en una frase, para el pie del popup.
+ *
+ * Con las pestañas, ninguna pantalla muestra todos los campos a la vez: sin
+ * esta línea, «Guardar» se aprieta sin poder releer lo que se está por guardar.
+ * Usa las mismas etiquetas en castellano que los selectores (`OP_LABEL`), así
+ * que se lee igual que lo que se eligió.
+ */
+function resumenForm(f: FormEstado): string {
+  const filtro = f.nameFilter.trim()
+    ? ` que ${f.nameFilterMode === 'contains' ? 'contienen' : 'no contienen'} «${f.nameFilter.trim()}»`
+    : '';
+  const cond =
+    f.conditions.length === 0
+      ? 'sin condiciones (aplica a todos)'
+      : f.conditions
+          .map((c) => `${METRICA_LABEL[c.metric]} ${OP_LABEL[c.op]} ${c.value === '' ? '—' : c.value}`)
+          .join(' y ');
+  const ventana =
+    f.windowStart !== '' && f.windowEnd !== '' ? `${f.windowStart}–${f.windowEnd}` : 'a toda hora';
+  return `${ACCION_LABEL[f.action]} ${NIVEL_LABEL[f.level].toLowerCase()} ${STATUS_LABEL[f.statusFilter]}${filtro} si ${cond} · ${PERIODO_LABEL[f.period]} · ${frecuenciaLabel(f.everyMinutes)} · ${ventana}`;
+}
+
 function FormularioRegla({
   cuentas,
   maxDailyBudgetEur,
@@ -1619,7 +1745,34 @@ function FormularioRegla({
     setF((prev) => ({ ...prev, conditions: prev.conditions.filter((_, idx) => idx !== i) }));
   }
 
+  const [tab, setTab] = useState<TabForm>('alcance');
+  const idTabs = useId();
+  const tabsRef = useRef<(HTMLButtonElement | null)[]>([]);
+
+  // «Personalizado» se DEDUCE del estado, no es una bandera aparte: con una
+  // bandera propia se puede desincronizar de las horas (personalizado con las
+  // dos vacías, o cualquiera con horas cargadas) y eso es justo lo que rompía.
+  const ventanaPersonalizada = f.windowStart !== '' || f.windowEnd !== '';
+  const zonaCuenta = cuentas.find((c) => c.accountId === f.accountId)?.timezone ?? null;
+
   const puedeGuardar = Boolean(f.name.trim()) && Boolean(f.accountId) && prob === null && !guardando;
+
+  // En qué pestaña está el campo que falta. El botón Guardar se deshabilita con
+  // `prob`, y sin esto el usuario se quedaba con un botón muerto y el problema
+  // escondido en una pestaña que no estaba mirando.
+  const tabConProblema: TabForm | null = !f.accountId
+    ? 'alcance'
+    : problemaAccion(f)
+      ? 'accion'
+      : problemaProgramacion(f)
+        ? 'programacion'
+        : null;
+
+  const panelProps = (id: TabForm) => ({
+    role: 'tabpanel' as const,
+    id: `${idTabs}-panel-${id}`,
+    'aria-labelledby': `${idTabs}-tab-${id}`,
+  });
 
   return (
     <Modal
@@ -1634,43 +1787,135 @@ function FormularioRegla({
       cerrarAlClickAfuera={false}
       onClose={onCancel}
       footer={
-        <div className="flex items-center justify-end gap-2">
-          <button type="button" className={btnGhost} onClick={onCancel}>
-            Cancelar
-          </button>
-          <button
-            type="button"
-            className={btnPrimary}
-            disabled={!puedeGuardar}
-            onClick={() => onSave(payloadDeForm(f, editId), editId)}
-          >
-            {guardando ? 'Guardando…' : editId ? 'Guardar cambios' : 'Crear regla'}
-          </button>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          {/* El pie dice siempre una de dos cosas: qué falta y dónde, o la regla
+              entera leída en una frase. Con las pestañas, un formulario válido
+              no se puede revisar de un vistazo, y esta línea lo devuelve. */}
+          <div className="min-w-0 flex-1 basis-64 text-[11px] leading-snug">
+            {prob ? (
+              <button
+                type="button"
+                onClick={() => tabConProblema && setTab(tabConProblema)}
+                className="rounded text-left text-warn-300 underline-offset-2 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-warn-500/50"
+              >
+                {prob}
+                {tabConProblema && (
+                  <span className="text-neutral-500">
+                    {' '}
+                    — ir a {TABS_FORM.find((t) => t.id === tabConProblema)?.rotulo}
+                  </span>
+                )}
+              </button>
+            ) : (
+              <span className="text-neutral-500">{resumenForm(f)}</span>
+            )}
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <button type="button" className={btnGhost} onClick={onCancel}>
+              Cancelar
+            </button>
+            <button
+              type="button"
+              className={btnPrimary}
+              disabled={!puedeGuardar}
+              onClick={() => onSave(payloadDeForm(f, editId), editId)}
+            >
+              {guardando ? 'Guardando…' : editId ? 'Guardar cambios' : 'Crear regla'}
+            </button>
+          </div>
         </div>
       }
     >
-      {/* Dos columnas como máximo: en el popup (max-w-3xl) tres columnas dejan
-          los selects tan angostos que no se lee el valor elegido. */}
-      <div className="grid gap-3 sm:grid-cols-2">
-        <label className="flex flex-col gap-1 text-xs text-neutral-500">
-          Nombre de la regla
-          <input className={inputCls} value={f.name} onChange={(e) => set({ name: e.target.value })} placeholder="Apagar - Gasto +$10" />
-        </label>
+      {/* El nombre queda AFUERA de las pestañas: es la identidad de la regla, no
+          una de sus opciones, y tiene que estar visible desde cualquier pestaña. */}
+      <label className="flex flex-col gap-1 text-xs text-neutral-500">
+        Nombre de la regla
+        <input
+          className={inputCls}
+          value={f.name}
+          onChange={(e) => set({ name: e.target.value })}
+          placeholder="Apagar - Gasto +$10 sin ventas"
+        />
+      </label>
 
-        <label className="flex flex-col gap-1 text-xs text-neutral-500">
-          Cuenta de anuncios
-          <select className={inputCls} value={f.accountId} onChange={(e) => set({ accountId: e.target.value })}>
-            <option value="">— elegí una cuenta —</option>
-            {cuentas.map((c) => (
-              <option key={c.accountId} value={c.accountId}>
-                {c.name ?? c.accountId} — {c.timezone}
-              </option>
-            ))}
-          </select>
-          <span className="text-[11px] text-neutral-600">La ventana horaria se evalúa en la zona de esta cuenta.</span>
-        </label>
+      {/* ── Pestañas ──────────────────────────────────────────────────────────
+          El orden cuenta la regla como una oración: a qué le aplica, qué hace,
+          cuándo se cumple y cada cuánto mira. Mismo patrón visual que
+          TabsNivel del gestor (subrayado del acento, ícono Phosphor,
+          aria-selected), no un tercer estilo de pestaña para el mismo panel. */}
+      <div
+        role="tablist"
+        aria-label="Secciones de la regla"
+        className="mt-4 flex items-end gap-1 overflow-x-auto border-b border-border-subtle"
+        onKeyDown={(e) => {
+          if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+          e.preventDefault();
+          const i = TABS_FORM.findIndex((t) => t.id === tab);
+          const n = TABS_FORM.length;
+          const siguiente = e.key === 'ArrowRight' ? (i + 1) % n : (i - 1 + n) % n;
+          setTab(TABS_FORM[siguiente].id);
+          // Mover el foco además de la selección: con roving tabindex, la
+          // pestaña que queda seleccionada es la única con tabIndex 0, y dejar
+          // el foco en la anterior deja al teclado sin salida.
+          tabsRef.current[siguiente]?.focus();
+        }}
+      >
+        {TABS_FORM.map(({ id, rotulo, Icono }) => {
+          const activa = id === tab;
+          const marcada = id === tabConProblema;
+          return (
+            <button
+              key={id}
+              ref={(el) => {
+                tabsRef.current[TABS_FORM.findIndex((t) => t.id === id)] = el;
+              }}
+              type="button"
+              role="tab"
+              id={`${idTabs}-tab-${id}`}
+              aria-selected={activa}
+              aria-controls={`${idTabs}-panel-${id}`}
+              tabIndex={activa ? 0 : -1}
+              onClick={() => setTab(id)}
+              className={`-mb-px flex shrink-0 items-center gap-1.5 border-b-2 px-3 py-2 text-xs font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-good-500/60 ${
+                activa
+                  ? 'border-good-500 text-good-300'
+                  : 'border-transparent text-neutral-500 hover:text-neutral-300'
+              }`}
+            >
+              <Icono size={14} weight={activa ? 'fill' : 'regular'} aria-hidden="true" />
+              {rotulo}
+              {marcada && (
+                // El punto ámbar no es el único portador: el pie dice el mensaje
+                // completo y el título del botón lo repite.
+                <span
+                  title="Falta algo en esta sección"
+                  aria-label="Falta algo en esta sección"
+                  className="h-1.5 w-1.5 rounded-full bg-warn-400"
+                />
+              )}
+            </button>
+          );
+        })}
+      </div>
 
-        <div className="grid grid-cols-2 gap-2">
+      {/* ── Alcance: a qué objetos les aplica ── */}
+      {tab === 'alcance' && (
+        <div {...panelProps('alcance')} className="mt-4 grid gap-3 sm:grid-cols-2">
+          <label className="flex flex-col gap-1 text-xs text-neutral-500 sm:col-span-2">
+            Cuenta de anuncios
+            <select className={inputCls} value={f.accountId} onChange={(e) => set({ accountId: e.target.value })}>
+              <option value="">— elegí una cuenta —</option>
+              {cuentas.map((c) => (
+                <option key={c.accountId} value={c.accountId}>
+                  {c.name ?? c.accountId} — {c.timezone}
+                </option>
+              ))}
+            </select>
+            <span className="text-[11px] text-neutral-600">
+              La ventana horaria y el período de cálculo se evalúan en la zona de esta cuenta.
+            </span>
+          </label>
+
           <label className="flex flex-col gap-1 text-xs text-neutral-500">
             Aplicar regla a
             <select className={inputCls} value={f.level} onChange={(e) => set({ level: e.target.value as NivelAds })}>
@@ -1687,237 +1932,361 @@ function FormularioRegla({
               <option value="any">Cualquier estado</option>
             </select>
           </label>
-        </div>
 
-        <div className="grid grid-cols-2 gap-2">
           <label className="flex flex-col gap-1 text-xs text-neutral-500">
             Filtrar por nombre
             <input className={inputCls} value={f.nameFilter} onChange={(e) => set({ nameFilter: e.target.value })} placeholder="PXN" />
+            <span className="text-[11px] text-neutral-600">Vacío = sin filtrar por nombre.</span>
           </label>
           <label className="flex flex-col gap-1 text-xs text-neutral-500">
-            Modo
+            Modo del filtro
             <select className={inputCls} value={f.nameFilterMode} onChange={(e) => set({ nameFilterMode: e.target.value as 'contains' | 'not_contains' })}>
               <option value="contains">contiene</option>
               <option value="not_contains">no contiene</option>
             </select>
           </label>
         </div>
+      )}
 
-        <label className="flex flex-col gap-1 text-xs text-neutral-500">
-          Acción
-          <select
-            className={inputCls}
-            value={f.action}
-            onChange={(e) => {
-              const a = e.target.value as Accion;
-              // Al cambiar de acción se limpian valor/techo/piso para no arrastrar
-              // un número de otra acción (los campos no se esconden, se vacían).
-              set({ action: a, actionValue: '', budgetMax: '', budgetMin: '' });
-            }}
-          >
-            <option value="pause">Pausar</option>
-            <option value="activate">Activar</option>
-            {f.level !== 'ad' && <option value="budget_increase">Subir presupuesto</option>}
-            {f.level !== 'ad' && <option value="budget_decrease">Bajar presupuesto</option>}
-          </select>
-        </label>
-
-        {ep && (
-          <div className="grid grid-cols-2 gap-2">
-            <label className="flex flex-col gap-1 text-xs text-neutral-500">
-              {f.actionUnit === 'percent' ? 'Escalar al % del presupuesto actual' : f.action === 'budget_increase' ? 'Sumar € al presupuesto actual' : 'Restar € al presupuesto actual'}
-              <input
-                className={inputCls}
-                inputMode="decimal"
-                value={f.actionValue}
-                onChange={(e) => set({ actionValue: e.target.value })}
-                placeholder={f.actionUnit === 'percent' ? '250' : '10'}
-              />
-            </label>
-            <label className="flex flex-col gap-1 text-xs text-neutral-500">
-              Unidad
-              <select className={inputCls} value={f.actionUnit} onChange={(e) => set({ actionUnit: e.target.value as 'percent' | 'fixed' })}>
-                <option value="percent">escalar al %</option>
-                <option value="fixed">sumar/restar €</option>
-              </select>
-            </label>
-            {f.actionUnit === 'percent' && (
-              <span className="col-span-2 text-[11px] text-neutral-400">
-                El % es un factor, no un incremento: 250% = ×2,5. {preview || ''} Con 100% marcado como «sin cambio».
+      {/* ── Acción: qué hace cuando se cumple ── */}
+      {tab === 'accion' && (
+        <div {...panelProps('accion')} className="mt-4 grid gap-3 sm:grid-cols-2">
+          <label className="flex flex-col gap-1 text-xs text-neutral-500 sm:col-span-2">
+            Acción
+            <select
+              className={inputCls}
+              value={f.action}
+              onChange={(e) => {
+                const a = e.target.value as Accion;
+                // Al cambiar de acción se limpian valor/techo/piso para no arrastrar
+                // un número de otra acción (los campos no se esconden, se vacían).
+                set({ action: a, actionValue: '', budgetMax: '', budgetMin: '' });
+              }}
+            >
+              <option value="pause">Pausar</option>
+              <option value="activate">Activar</option>
+              {f.level !== 'ad' && <option value="budget_increase">Subir presupuesto</option>}
+              {f.level !== 'ad' && <option value="budget_decrease">Bajar presupuesto</option>}
+            </select>
+            {f.level === 'ad' && (
+              <span className="text-[11px] text-neutral-600">
+                En Meta los anuncios no tienen presupuesto: a nivel anuncio sólo se puede pausar o activar.
               </span>
             )}
+          </label>
+
+          {!ep && (
+            <p className="text-[11px] leading-snug text-neutral-600 sm:col-span-2">
+              {f.action === 'pause'
+                ? 'Pausar no necesita más configuración. Es idempotente: un objeto ya pausado se descarta solo.'
+                : 'Activar no necesita más configuración.'}
+            </p>
+          )}
+
+          {ep && (
+            <>
+              <label className="flex flex-col gap-1 text-xs text-neutral-500">
+                {f.actionUnit === 'percent' ? 'Escalar al % del presupuesto actual' : f.action === 'budget_increase' ? 'Sumar € al presupuesto actual' : 'Restar € al presupuesto actual'}
+                <input
+                  className={`${inputCls} tabular-nums`}
+                  inputMode="decimal"
+                  value={f.actionValue}
+                  onChange={(e) => set({ actionValue: e.target.value })}
+                  placeholder={f.actionUnit === 'percent' ? '250' : '10'}
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-xs text-neutral-500">
+                Unidad
+                <select className={inputCls} value={f.actionUnit} onChange={(e) => set({ actionUnit: e.target.value as 'percent' | 'fixed' })}>
+                  <option value="percent">escalar al %</option>
+                  <option value="fixed">sumar/restar €</option>
+                </select>
+              </label>
+              {f.actionUnit === 'percent' && (
+                <span className="text-[11px] text-neutral-400 sm:col-span-2">
+                  El % es un factor, no un incremento: 250% = ×2,5. {preview || ''} Con 100% marcado como «sin cambio».
+                </span>
+              )}
+
+              <label className="flex flex-col gap-1 text-xs text-neutral-500">
+                Límite máximo de presupuesto{f.action === 'budget_increase' ? ' (obligatorio al subir)' : ''}
+                <input
+                  className={`${inputCls} tabular-nums`}
+                  inputMode="decimal"
+                  value={f.budgetMax}
+                  disabled={f.action !== 'budget_increase' && f.action !== 'budget_decrease'}
+                  onChange={(e) => set({ budgetMax: e.target.value })}
+                  placeholder="25"
+                />
+                <span className="text-[11px] text-neutral-600">El máximo absoluto por objeto es {eur(maxDailyBudgetEur)}.</span>
+              </label>
+              <label className="flex flex-col gap-1 text-xs text-neutral-500">
+                Límite mínimo de presupuesto{f.action === 'budget_decrease' ? ' (obligatorio al bajar)' : ''}
+                <input
+                  className={`${inputCls} tabular-nums`}
+                  inputMode="decimal"
+                  value={f.budgetMin}
+                  onChange={(e) => set({ budgetMin: e.target.value })}
+                  placeholder="5"
+                />
+              </label>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* ── Condiciones: cuándo se considera que la regla se cumple ── */}
+      {tab === 'condiciones' && (
+        <div {...panelProps('condiciones')} className="mt-4 space-y-3">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="flex flex-col gap-1 text-xs text-neutral-500">
+              Período de cálculo
+              <select className={inputCls} value={f.period} onChange={(e) => set({ period: e.target.value as PeriodoAds })}>
+                <option value="today">hoy</option>
+                <option value="yesterday">ayer</option>
+                <option value="7d">7 días</option>
+                <option value="7d_excl_today">7 días sin hoy</option>
+              </select>
+              <span className="text-[11px] text-neutral-600">Sobre qué ventana de datos se miden las métricas.</span>
+            </label>
+
+            <label className="flex flex-col gap-1 text-xs text-neutral-500">
+              Nivel de las condiciones
+              <select className={inputCls} value="object" disabled title="Las métricas del padre llegan en una versión próxima">
+                <option value="object">del objeto</option>
+              </select>
+              <span className="text-[11px] text-neutral-600" title="'del padre' no está implementado: no se ofrece ni deshabilitado con la opción visible">
+                Fijo en «del objeto»: las métricas del padre llegan en una versión próxima.
+              </span>
+            </label>
           </div>
-        )}
 
-        {ep && (
-          <>
-            <label className="flex flex-col gap-1 text-xs text-neutral-500">
-              Límite máximo de presupuesto{f.action === 'budget_increase' ? ' (obligatorio al subir)' : ''}
-              <input
-                className={inputCls}
-                inputMode="decimal"
-                value={f.budgetMax}
-                disabled={f.action !== 'budget_increase' && f.action !== 'budget_decrease'}
-                onChange={(e) => set({ budgetMax: e.target.value })}
-                placeholder="25"
-              />
-              <span className="text-[11px] text-neutral-600">El máximo absoluto por objeto es {eur(maxDailyBudgetEur)}.</span>
-            </label>
-            <label className="flex flex-col gap-1 text-xs text-neutral-500">
-              Límite mínimo de presupuesto{f.action === 'budget_decrease' ? ' (obligatorio al bajar)' : ''}
-              <input
-                className={inputCls}
-                inputMode="decimal"
-                value={f.budgetMin}
-                onChange={(e) => set({ budgetMin: e.target.value })}
-                placeholder="5"
-              />
-            </label>
-          </>
-        )}
+          <div className="rounded-xl border border-border-subtle bg-overlay/2 p-3">
+            <div className="mb-2 flex flex-wrap items-center gap-2">
+              <span className="text-xs font-semibold uppercase tracking-wide text-neutral-400">
+                Se cumple cuando
+              </span>
+              <button
+                type="button"
+                className={btnGhost}
+                onClick={agregarCondicion}
+                title="No hay OR: dos reglas separadas expresan lo mismo y se pueden prender y apagar por separado."
+              >
+                + agregar condición
+              </button>
+              <span className="text-[11px] text-neutral-600">Se combinan con Y (no hay OR).</span>
+            </div>
 
-        <label className="flex flex-col gap-1 text-xs text-neutral-500">
-          Nivel de las condiciones
-          <select className={inputCls} value="object" disabled title="Las métricas del padre llegan en una versión próxima">
-            <option value="object">del objeto</option>
-          </select>
-          <span className="text-[11px] text-neutral-600" title="'del padre' no está implementado: no se ofrece ni deshabilitado con la opción visible">
-            Fijo en «del objeto»: las métricas del padre llegan en una versión próxima.
-          </span>
-        </label>
-
-        <label className="flex flex-col gap-1 text-xs text-neutral-500">
-          Período de cálculo
-          <select className={inputCls} value={f.period} onChange={(e) => set({ period: e.target.value as PeriodoAds })}>
-            <option value="today">hoy</option>
-            <option value="yesterday">ayer</option>
-            <option value="7d">7 días</option>
-            <option value="7d_excl_today">7 días sin hoy</option>
-          </select>
-        </label>
-
-        <label className="flex flex-col gap-1 text-xs text-neutral-500">
-          Frecuencia
-          <select className={inputCls} value={f.everyMinutes} onChange={(e) => set({ everyMinutes: Number(e.target.value) })}>
-            {[1, 5, 15, 30, 60, 1440].map((m) => (
-              <option key={m} value={m}>
-                {frecuenciaLabel(m)}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <div className="grid grid-cols-2 gap-2">
-          <label className="flex flex-col gap-1 text-xs text-neutral-500">
-            Intervalo desde
-            <input type="time" className={inputCls} value={f.windowStart} onChange={(e) => set({ windowStart: e.target.value })} />
-          </label>
-          <label className="flex flex-col gap-1 text-xs text-neutral-500">
-            Intervalo hasta
-            <input type="time" className={inputCls} value={f.windowEnd} onChange={(e) => set({ windowEnd: e.target.value })} />
-          </label>
-          <span className="col-span-2 text-[11px] text-neutral-600">Vacío = a cualquier hora.</span>
-        </div>
-
-        <label className="flex flex-col gap-1 text-xs text-neutral-500">
-          Límite de ejecuciones diarias
-          <input className={inputCls} inputMode="numeric" value={f.maxRunsPerDay} onChange={(e) => set({ maxRunsPerDay: e.target.value })} placeholder="vacío = sin límite" />
-        </label>
-
-        <label className="flex flex-col gap-1 text-xs text-neutral-500">
-          Cooldown por objeto (min)
-          <input className={inputCls} inputMode="numeric" value={f.cooldownMinutes} onChange={(e) => set({ cooldownMinutes: Number(e.target.value) || 0 })} />
-        </label>
-
-        <label className="flex flex-col gap-1 text-xs text-neutral-500">
-          Máx. acciones por objeto por día
-          <input
-            className={inputCls}
-            inputMode="numeric"
-            value={f.maxActionsPerObjectPerDay}
-            onChange={(e) => {
-              // Sin `|| 1`: ese fallback hacía imposible escribir el 0, que es
-              // justo el valor que significa «sin tope».
-              const n = Number(e.target.value);
-              set({ maxActionsPerObjectPerDay: Number.isFinite(n) && n > 0 ? Math.floor(n) : 0 });
-            }}
-          />
-          <span className="text-[11px] text-neutral-600">
-            {f.maxActionsPerObjectPerDay === 0
-              ? 'Sin tope: la regla puede actuar todas las veces que haga falta. Es lo que corresponde para una regla de pausar.'
-              : 'El cupo se cuenta por objeto, no por regla: las acciones de otras reglas sobre el mismo objeto también lo gastan. 0 = sin tope.'}
-          </span>
-        </label>
-      </div>
-
-      {/* ── Condiciones: chips combinados con AND ── */}
-      <div className="mt-4">
-        <div className="mb-2 flex items-center gap-2">
-          <span className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Condiciones</span>
-          <button
-            type="button"
-            className={btnGhost}
-            onClick={agregarCondicion}
-            title="No hay OR: dos reglas separadas expresan lo mismo y se pueden prender y apagar por separado."
-          >
-            + agregar
-          </button>
-          <span className="text-[11px] text-neutral-600">Se combinan con Y (no hay OR).</span>
-        </div>
-
-        <p className="mb-2 text-[11px] leading-tight text-neutral-500">
-          <strong className="text-neutral-400">ROI</strong> = neto ÷ gasto de ads. El neto ya tiene restadas las comisiones y el
-          costo de producto. ROI 1,30 significa que el neto es 1,3 veces lo gastado en ads. <strong className="text-neutral-400">ROAS</strong> =
-          ingresos brutos ÷ gasto, sin restar nada. El ROI de la sección Ventas se calcula distinto: no los compares.
-        </p>
-
-        {f.conditions.length === 0 ? (
-          <p className="text-xs text-neutral-500">
-            Sin condiciones, la regla se aplica a <strong className="text-bad-300">todos</strong> los objetos que pasan el filtro de alcance.
-          </p>
-        ) : (
-          <div className="space-y-2">
-            {f.conditions.map((c, i) => (
-              <div key={i} className="flex flex-wrap items-center gap-2">
-                <select className={inputCls} value={c.metric} onChange={(e) => setCondicion(i, { metric: e.target.value as Condicion['metric'] })}>
-                  {METRICAS.map((m) => (
-                    <option key={m.value} value={m.value}>
-                      {m.label}
-                      {METRICA_UNIDAD[m.value] === 'euro' ? ' (€)' : METRICA_UNIDAD[m.value] === 'numero' ? ' (múltiplo)' : ' (cantidad)'}
-                    </option>
-                  ))}
-                </select>
-                <select className={inputCls} value={c.op} onChange={(e) => setCondicion(i, { op: e.target.value as Condicion['op'] })}>
-                  {['>', '>=', '<', '<=', '=', '!='].map((o) => (
-                    <option key={o} value={o}>
-                      {o}
-                    </option>
-                  ))}
-                </select>
-                <input className={inputCls} inputMode="decimal" value={c.value} onChange={(e) => setCondicion(i, { value: e.target.value })} placeholder="1.3" />
-                <button type="button" className={btnGhost} onClick={() => quitarCondicion(i)}>
-                  quitar
-                </button>
+            {f.conditions.length === 0 ? (
+              <p className="text-xs text-neutral-500">
+                Sin condiciones, la regla se aplica a <strong className="text-bad-300">todos</strong> los objetos que pasan el
+                filtro de alcance.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {f.conditions.map((c, i) => (
+                  <div
+                    key={i}
+                    className="grid grid-cols-2 items-center gap-2 sm:grid-cols-[minmax(0,1.1fr)_minmax(0,1.1fr)_minmax(0,6rem)_auto]"
+                  >
+                    <select
+                      className={inputCls}
+                      aria-label={`Métrica de la condición ${i + 1}`}
+                      value={c.metric}
+                      onChange={(e) => setCondicion(i, { metric: e.target.value as Condicion['metric'] })}
+                    >
+                      {METRICAS.map((m) => (
+                        <option key={m.value} value={m.value}>
+                          {m.label}
+                          {METRICA_UNIDAD[m.value] === 'euro' ? ' (€)' : METRICA_UNIDAD[m.value] === 'numero' ? ' (múltiplo)' : ' (cantidad)'}
+                        </option>
+                      ))}
+                    </select>
+                    {/* Palabras y no símbolos: «<=» y «>=» al lado en un select se
+                        confunden, y elegir mal acá apaga lo que había que dejar. */}
+                    <select
+                      className={inputCls}
+                      aria-label={`Comparación de la condición ${i + 1}`}
+                      value={c.op}
+                      onChange={(e) => setCondicion(i, { op: e.target.value as Condicion['op'] })}
+                    >
+                      {OPS.map((o) => (
+                        <option key={o} value={o}>
+                          {OP_LABEL[o]}
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      className={`${inputCls} tabular-nums`}
+                      aria-label={`Valor de la condición ${i + 1}`}
+                      inputMode="decimal"
+                      value={c.value}
+                      onChange={(e) => setCondicion(i, { value: e.target.value })}
+                      placeholder="1.3"
+                    />
+                    <button
+                      type="button"
+                      className={btnGhost}
+                      aria-label={`Quitar la condición ${i + 1}`}
+                      onClick={() => quitarCondicion(i)}
+                    >
+                      quitar
+                    </button>
+                  </div>
+                ))}
               </div>
-            ))}
+            )}
           </div>
-        )}
-      </div>
 
-      {/* ── Validación (los botones viven en el pie del popup) ── */}
-      <div className="mt-4 space-y-3">
-        {prob && (
-          <Banner tone="warn" title="Revisá antes de guardar">
-            {prob}
-          </Banner>
-        )}
-        {f.action === 'budget_increase' && f.budgetMax !== '' && Number(f.budgetMax) > maxDailyBudgetEur && (
+          <p className="text-[11px] leading-tight text-neutral-500">
+            <strong className="text-neutral-400">ROI</strong> = neto ÷ gasto de ads. El neto ya tiene restadas las comisiones y el
+            costo de producto. ROI 1,30 significa que el neto es 1,3 veces lo gastado en ads. <strong className="text-neutral-400">ROAS</strong> =
+            ingresos brutos ÷ gasto, sin restar nada. El ROI de la sección Ventas se calcula distinto: no los compares.
+          </p>
+        </div>
+      )}
+
+      {/* ── Programación: cada cuánto mira y con qué frenos ── */}
+      {tab === 'programacion' && (
+        <div {...panelProps('programacion')} className="mt-4 grid gap-3 sm:grid-cols-2">
+          <label className="flex flex-col gap-1 text-xs text-neutral-500">
+            Frecuencia
+            <select className={inputCls} value={f.everyMinutes} onChange={(e) => set({ everyMinutes: Number(e.target.value) })}>
+              {[1, 5, 15, 30, 60, 1440].map((m) => (
+                <option key={m} value={m}>
+                  {frecuenciaLabel(m)}
+                </option>
+              ))}
+            </select>
+            <span className="text-[11px] text-neutral-600">Cada cuánto se evalúa la regla.</span>
+          </label>
+
+          <label className="flex flex-col gap-1 text-xs text-neutral-500">
+            Límite de ejecuciones diarias
+            <input
+              className={`${inputCls} tabular-nums`}
+              inputMode="numeric"
+              value={f.maxRunsPerDay}
+              onChange={(e) => set({ maxRunsPerDay: e.target.value })}
+              placeholder="vacío = sin límite"
+            />
+            <span className="text-[11px] text-neutral-600">Cuántas veces por día puede correr, como máximo.</span>
+          </label>
+
+          {/*
+            INTERVALO DE EJECUCIÓN — «Cualquiera» o «Personalizado».
+            Antes eran dos `<input type="time">` sueltos, y eso permitía dos
+            estados que rompen la regla sin avisar: media ventana (400 del API
+            después de llenar el formulario) y las dos horas iguales (la regla
+            queda viva pero con 60 segundos por día para correr, así que con
+            cadencia de 15 minutos no corre nunca). Con un selector explícito el
+            24/7 se elige, no se deduce de dos campos vacíos, y las horas salen
+            de una lista en punto en lugar de un campo libre de minutos.
+          */}
+          <label className="flex flex-col gap-1 text-xs text-neutral-500 sm:col-span-2">
+            Intervalo de ejecución
+            <select
+              className={inputCls}
+              value={ventanaPersonalizada ? 'personalizado' : 'cualquiera'}
+              onChange={(e) =>
+                e.target.value === 'cualquiera'
+                  ? set({ windowStart: '', windowEnd: '' })
+                  : set({ windowStart: '08:00', windowEnd: '23:00' })
+              }
+            >
+              <option value="cualquiera">Cualquiera — a toda hora, 24/7</option>
+              <option value="personalizado">Personalizado — sólo en una franja</option>
+            </select>
+            {!ventanaPersonalizada && (
+              <span className="text-[11px] text-neutral-600">
+                La regla puede correr a cualquier hora del día.
+              </span>
+            )}
+          </label>
+
+          {ventanaPersonalizada && (
+            <>
+              <label className="flex flex-col gap-1 text-xs text-neutral-500">
+                Horario inicial
+                <select
+                  className={`${inputCls} tabular-nums`}
+                  value={f.windowStart}
+                  onChange={(e) => set({ windowStart: e.target.value })}
+                >
+                  {opcionesHora(f.windowStart).map((h) => (
+                    <option key={h} value={h}>
+                      {h}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex flex-col gap-1 text-xs text-neutral-500">
+                Horario final
+                <select
+                  className={`${inputCls} tabular-nums`}
+                  value={f.windowEnd}
+                  onChange={(e) => set({ windowEnd: e.target.value })}
+                >
+                  {opcionesHora(f.windowEnd).map((h) => (
+                    <option key={h} value={h}>
+                      {h}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <span className="text-[11px] leading-snug text-neutral-600 sm:col-span-2">
+                En la zona de la cuenta ({zonaCuenta ?? 'sin cuenta elegida'}).
+                {f.windowStart > f.windowEnd && f.windowEnd !== ''
+                  ? ' El inicio es posterior al fin, así que la ventana cruza la medianoche.'
+                  : ''}
+              </span>
+            </>
+          )}
+
+          <label className="flex flex-col gap-1 text-xs text-neutral-500">
+            Cooldown por objeto (min)
+            <input
+              className={`${inputCls} tabular-nums`}
+              inputMode="numeric"
+              value={f.cooldownMinutes}
+              onChange={(e) => set({ cooldownMinutes: Number(e.target.value) || 0 })}
+            />
+            <span className="text-[11px] text-neutral-600">
+              Cuánto esperar antes de volver a tocar el MISMO objeto. 0 = sin espera.
+            </span>
+          </label>
+
+          <label className="flex flex-col gap-1 text-xs text-neutral-500">
+            Máx. acciones por objeto por día
+            <input
+              className={`${inputCls} tabular-nums`}
+              inputMode="numeric"
+              value={f.maxActionsPerObjectPerDay}
+              onChange={(e) => {
+                // Sin `|| 1`: ese fallback hacía imposible escribir el 0, que es
+                // justo el valor que significa «sin tope».
+                const n = Number(e.target.value);
+                set({ maxActionsPerObjectPerDay: Number.isFinite(n) && n > 0 ? Math.floor(n) : 0 });
+              }}
+            />
+            <span className="text-[11px] text-neutral-600">
+              {f.maxActionsPerObjectPerDay === 0
+                ? 'Sin tope: la regla puede actuar todas las veces que haga falta. Es lo que corresponde para una regla de pausar.'
+                : 'El cupo se cuenta por objeto, no por regla: las acciones de otras reglas sobre el mismo objeto también lo gastan. 0 = sin tope.'}
+            </span>
+          </label>
+        </div>
+      )}
+
+      {/* ── Avisos que no bloquean (los que bloquean van en el pie) ── */}
+      {f.action === 'budget_increase' && f.budgetMax !== '' && Number(f.budgetMax) > maxDailyBudgetEur && (
+        <div className="mt-4">
           <Banner tone="warn" title="El techo supera el máximo absoluto">
             El techo de {eur(Number(f.budgetMax))} está por encima del máximo absoluto por objeto ({eur(maxDailyBudgetEur)}): las
             subidas se van a cortar siempre en ese tope.
           </Banner>
-        )}
-      </div>
+        </div>
+      )}
     </Modal>
   );
 }

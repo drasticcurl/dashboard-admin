@@ -91,6 +91,20 @@ describe('problema y aplicadoA (task 9.6)', () => {
     expect(problema(formBase({ accountId: 'act_123' }))).toBeNull();
   });
 
+  // La ventana horaria tenía dos formas de guardarse mal, y las dos terminaban
+  // en una regla que no corre: media ventana (400 del API, después de llenar
+  // todo el formulario) y las dos horas iguales, que nadie atajaba y deja a la
+  // regla con 60 segundos por día para correr.
+  it('problema ataja la media ventana horaria y las dos horas iguales', () => {
+    expect(problema(formBase({ windowStart: '08:00', windowEnd: '' }))).toContain('completa o vacía');
+    expect(problema(formBase({ windowStart: '', windowEnd: '23:00' }))).toContain('completa o vacía');
+    expect(problema(formBase({ windowStart: '12:30', windowEnd: '12:30' }))).toContain('ese minuto exacto');
+    // Una ventana normal y una que cruza la medianoche (dentroDeVentana la
+    // soporta con start > end) son válidas.
+    expect(problema(formBase({ windowStart: '08:00', windowEnd: '23:00' }))).toBeNull();
+    expect(problema(formBase({ windowStart: '22:00', windowEnd: '06:00' }))).toBeNull();
+  });
+
   it('aplicadoA nombra la cuenta concreta y su zona, nunca "N cuentas" ni "todas las cuentas" (R8 c6)', () => {
     const cuentas = [
       { accountId: 'act_a', name: 'HIlvanapp', timezone: 'Europe/Lisbon' },
