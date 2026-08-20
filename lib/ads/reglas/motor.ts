@@ -169,7 +169,13 @@ export function evaluar(
   }
 
   // ── Paso 5: ¿le quedan acciones hoy? ─────────────────────────────────────
-  if (accionesRealesHoy >= regla.maxActionsPerObjectPerDay) {
+  // 0 = sin tope (migración 024). Es lo que corresponde para una regla de
+  // pausar: es idempotente (el paso 2 ya descartó el objeto que está en el
+  // estado destino), así que no hay bucle que frenar y el único efecto posible
+  // del tope sería que el apagador se rinda por el resto del día. Ojo que el
+  // cupo se cuenta POR OBJETO y no por (regla, objeto): con el tope en un número
+  // las acciones de otra regla sobre el mismo objeto también lo consumen.
+  if (regla.maxActionsPerObjectPerDay > 0 && accionesRealesHoy >= regla.maxActionsPerObjectPerDay) {
     return decidir(fila, true, false, 'max_por_objeto', null, null, metrics);
   }
 

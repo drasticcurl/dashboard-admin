@@ -1831,7 +1831,22 @@ function FormularioRegla({
 
         <label className="flex flex-col gap-1 text-xs text-neutral-500">
           Máx. acciones por objeto por día
-          <input className={inputCls} inputMode="numeric" value={f.maxActionsPerObjectPerDay} onChange={(e) => set({ maxActionsPerObjectPerDay: Number(e.target.value) || 1 })} />
+          <input
+            className={inputCls}
+            inputMode="numeric"
+            value={f.maxActionsPerObjectPerDay}
+            onChange={(e) => {
+              // Sin `|| 1`: ese fallback hacía imposible escribir el 0, que es
+              // justo el valor que significa «sin tope».
+              const n = Number(e.target.value);
+              set({ maxActionsPerObjectPerDay: Number.isFinite(n) && n > 0 ? Math.floor(n) : 0 });
+            }}
+          />
+          <span className="text-[11px] text-neutral-600">
+            {f.maxActionsPerObjectPerDay === 0
+              ? 'Sin tope: la regla puede actuar todas las veces que haga falta. Es lo que corresponde para una regla de pausar.'
+              : 'El cupo se cuenta por objeto, no por regla: las acciones de otras reglas sobre el mismo objeto también lo gastan. 0 = sin tope.'}
+          </span>
         </label>
       </div>
 

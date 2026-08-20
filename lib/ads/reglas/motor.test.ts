@@ -168,6 +168,16 @@ describe('evaluar — frenos', () => {
     expect(ok.aplicar).toBe(true);
   });
 
+  // Migración 024. El caso que motivó el 0: un apagador que ya gastó el cupo
+  // del día (propio o de otra regla sobre el mismo objeto, porque el cupo se
+  // cuenta por objeto) se rendía justo cuando hacía falta.
+  it('maxActionsPerObjectPerDay: 0 es SIN TOPE y actúa aunque ya haya acciones hoy', () => {
+    const r = regla({ action: 'pause', maxActionsPerObjectPerDay: 0 });
+    const d = evaluar(r, [], fila(), ctx({ accionesRealesHoy: 40 }));
+    expect(d.motivo).toBe(null);
+    expect(d.aplicar).toBe(true);
+  });
+
   it('pause sobre un objeto ya PAUSED → ya_esta_en_ese_estado', () => {
     const d = evaluar(regla({ action: 'pause' }), [], fila({ status: 'PAUSED' }), ctx());
     expect(d.motivo).toBe('ya_esta_en_ese_estado');

@@ -384,7 +384,10 @@ const idCuenta = (): fc.Arbitrary<string> =>
  *  RANGOS: `every_minutes`, `max_runs_per_day`, `cooldown_minutes` y
  *  `max_actions_per_object_per_day` son `smallint` en la 016 (tope 32767), y los
  *  cuatro tienen además un CHECK propio (cadencia 1..1440, cooldown >= 0, máximo
- *  por objeto >= 1). Los límites de acá son los de esos CHECK, siempre por
+ *  por objeto >= 0 desde la 024, donde el 0 significa «sin tope»). Este
+ *  generador arranca igual en 1 y no en 0: con 0 el freno no existe y las
+ *  properties que necesitan verlo actuar no tendrían cómo. El 0 está cubierto
+ *  por un ejemplo en motor.test.ts. Los límites de acá son los de esos CHECK, siempre por
  *  debajo del tope del tipo: un valor que la base rechaza con
  *  «out of range for type smallint» aborta la property antes de probar nada. */
 export function genRegla(): fc.Arbitrary<Regla> {

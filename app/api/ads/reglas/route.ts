@@ -80,7 +80,9 @@ const reglaSchema = z
     windowEnd: z.string().regex(HORA, 'La hora de fin tiene que ser HH:MM').nullable().optional(),
     maxRunsPerDay: z.number().int().positive().nullable().optional(),
     cooldownMinutes: z.number().int().min(0).optional().default(60),
-    maxActionsPerObjectPerDay: z.number().int().min(1).optional().default(4),
+    // 0 = sin tope (migración 024). El default sigue en 4: sólo se abre la
+    // opción, no se cambia lo que trae una regla nueva.
+    maxActionsPerObjectPerDay: z.number().int().min(0).optional().default(4),
     conditions: z.array(condicionSchema).max(50).optional().default([]),
     enabled: z.boolean().optional(),
     dryRun: z.boolean().optional(),
