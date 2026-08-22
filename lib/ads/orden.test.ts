@@ -50,6 +50,8 @@ function fila(objectId: string, sobre: Partial<MetricasObjeto> = {}): MetricasOb
     alcance: null,
     frecuencia: null,
     inicioProgramado: null,
+    syncedAt: '2026-08-12T10:00:00.000Z',
+    desaparecidoAt: null,
     ...sobre,
   };
 }

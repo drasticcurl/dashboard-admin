@@ -59,7 +59,7 @@ import {
 } from '@/lib/ads/catalogo';
 import { AsaRedimension, ANCHO_MAX, ANCHO_MIN } from './AsaRedimension';
 import { EncabezadoOrdenable, ariaSortDe } from './EncabezadoOrdenable';
-import { PresupuestoCelda, ToggleEstado, etiquetaEffective } from './celdas';
+import { MarcaFrescura, PresupuestoCelda, ToggleEstado, etiquetaEffective } from './celdas';
 import { Badge } from '@/components/ui';
 
 /** El token del borde de celda. Origen: el borde entre filas del Table
@@ -105,6 +105,23 @@ export type PropsTablaAds = {
    * hora se expresan en la zona de la cuenta, no en la del navegador.
    */
   zona?: string;
+  /**
+   * Segundos a partir de los cuales el dato de una fila se marca como viejo
+   * (`ads_frescura_umbral_segundos` de `settings`, task 8 / R3.1).
+   *
+   * Obligatorio y sin default: el default vive en un solo lugar
+   * (`GestorAnuncios`, que lo recibe del server component y de la respuesta del
+   * endpoint), y una tabla con un umbral inventado marcaría filas contra un
+   * número que nadie configuró.
+   */
+  umbralFrescura: number;
+  /**
+   * El instante contra el que se mide la antigüedad de TODAS las filas de esta
+   * pintura. Lo pasa el llamador y no se lee de `Date.now()` por fila: con un
+   * reloj por celda, dos filas confirmadas por la misma corrida del sync pueden
+   * mostrar antigüedades distintas.
+   */
+  ahora: number;
 };
 
 const NIVEL_LABEL: Record<NivelAds, string> = {
@@ -237,6 +254,9 @@ export function TablaAds(props: PropsTablaAds): JSX.Element {
           {fila.effectiveStatus && fila.effectiveStatus !== fila.status && (
             <Badge tone="warn">{etiquetaEffective(fila.effectiveStatus)}</Badge>
           )}
+          {/* R3.1: el dato viejo se ve viejo, y el objeto que Meta dejó de
+              devolver se ve distinto del que sólo está atrasado. */}
+          <MarcaFrescura fila={fila} umbralSegundos={props.umbralFrescura} ahora={props.ahora} />
         </span>
       );
     }
@@ -284,7 +304,7 @@ export function TablaAds(props: PropsTablaAds): JSX.Element {
     const valor = formatear(e, valorDeMetrica(fila, c.clave as ClaveOrden));
     if (c.clave === 'ganancia') {
       return (
-        <span className={fila.profitEur < 0 ? 'text-rose-400' : 'text-good-400'} title={valor}>
+        <span className={fila.profitEur < 0 ? 'text-bad-400' : 'text-good-400'} title={valor}>
           {valor}
         </span>
       );

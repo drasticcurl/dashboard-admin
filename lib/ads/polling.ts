@@ -40,7 +40,6 @@
  */
 
 import { useEffect, useRef } from 'react';
-import type { FrescuraAds } from './live';
 
 /** El intervalo por defecto, en segundos. */
 export const SEGUNDOS_POLLING_DEFAULT = 60;
@@ -125,14 +124,53 @@ export function usePollingGasto(
 }
 
 /**
- * La antigüedad del gasto en palabras, del valor que calculó el server.
+ * Lo que hace falta para contar una antigüedad: los dos campos que `FrescuraAds`
+ * (lib/ads/live.ts) y `FrescuraJerarquia` (lib/ads/liveJerarquia.ts) tienen
+ * iguales.
  *
- * Es el texto de la Marca_Frescura (R1 c6) y del sub del widget de gasto: una
- * sola función para que las tres pantallas digan lo mismo. No tiene reloj
- * propio: se queda quieta hasta el próximo pedido, que con el polling es como
- * máximo un intervalo después.
+ * Es la forma común y no una unión de los dos tipos. `textoEdad` lee `ageSeconds`
+ * y `error`, los dos los declaran idénticos, y una unión obligaría a tocar esta
+ * firma cada vez que aparezca una tercera sincronización. La compatibilidad la
+ * verifica TypeScript en el llamador, que es donde está el tipo concreto.
+ *
+ * Además desacopla: este módulo es `'use client'` y así no nombra dos módulos de
+ * server que hablan con la base.
  */
-export function textoEdadGasto(f: FrescuraAds | null | undefined): string | null {
+export type FrescuraLeible = {
+  /** Antigüedad en segundos que calculó el server, null si nunca se sincronizó. */
+  ageSeconds: number | null;
+  /** Error de la última corrida, si hay. */
+  error: string | null;
+};
+
+/**
+ * La antigüedad de una sincronización en palabras, del valor que calculó el
+ * server.
+ *
+ * Se llamaba `textoEdadGasto` y dejó de ser sólo del gasto (task 11 de
+ * frescura-y-acciones-anuncios): la usan la Marca_Frescura del gasto (R1 c6), el
+ * sub del widget de gasto de Ventas, el Resumen, y ahora también la edad de la
+ * Jerarquía en la barra del gestor (R4.5). Una sola función para que las tres
+ * pantallas —y las dos sincronizaciones— digan lo mismo con las mismas palabras:
+ * dos edades que hay que comparar de un vistazo no pueden estar escritas en dos
+ * vocabularios.
+ *
+ * `error` gana sobre la edad, y no es un descuido. Las dos frescuras avanzan su
+ * reloj TAMBIÉN cuando la corrida falla (`syncAdSpend` escribe `last_sync_at`,
+ * `anotarCorrida` escribe `last_hierarchy_sync_at`), para que el TTL siga
+ * frenando mientras Meta rechaza llamadas. O sea que con un error la edad dice
+ * cuándo se INTENTÓ, no de cuándo es el dato: mostrar "al día" ahí sería
+ * exactamente la mentira que este spec vino a sacar de la pantalla. Quien dibuja
+ * pone el mensaje del error al lado.
+ *
+ * `null` significa "no hay dato que mostrar" y lo resuelve el llamador (la barra
+ * y el Resumen ponen un guion). Nunca se confunde con "sincronizó recién": una
+ * frescura que existe pero nunca sincronizó devuelve `'nunca sincronizado'`.
+ *
+ * No tiene reloj propio: se queda quieta hasta el próximo pedido, que con el
+ * polling es como máximo un intervalo después.
+ */
+export function textoEdad(f: FrescuraLeible | null | undefined): string | null {
   if (!f) return null;
   if (f.error) return 'sync con error';
   const s = f.ageSeconds;
@@ -142,3 +180,18 @@ export function textoEdadGasto(f: FrescuraAds | null | undefined): string | null
   if (s < 86_400) return `hace ${Math.round(s / 3600)} h`;
   return `hace ${Math.round(s / 86_400)} d`;
 }
+
+/**
+ * @deprecated Alias de compatibilidad para el commit del spec
+ * frescura-y-acciones-anuncios. `textoEdad` es el nombre nuevo (task 11).
+ *
+ * Existe sólo porque `app/(panel)/resumen/ResumenView.tsx` y
+ * `lib/widgets/catalogo-ventas.tsx` quedaron fuera de ese commit: los dos ya
+ * están actualizados en el árbol de trabajo, pero mezclados con el rediseño
+ * visual, y arrastrar el rediseño para renombrar un import dejaría la mitad de
+ * los tokens de sombra sin definir en producción.
+ *
+ * BORRAR cuando el rediseño se commitee: en ese momento los dos consumidores
+ * pasan a importar `textoEdad` y este alias queda sin uso.
+ */
+export const textoEdadGasto = textoEdad;

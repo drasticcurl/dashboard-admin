@@ -23,7 +23,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import type { FrescuraAds } from '@/lib/ads/live';
-import { textoEdadGasto, usePollingGasto } from '@/lib/ads/polling';
+import type { FrescuraJerarquia } from '@/lib/ads/liveJerarquia';
+import { textoEdad, usePollingGasto } from '@/lib/ads/polling';
 import type {
   AccionAds,
   ClaveOrden,
@@ -39,6 +40,7 @@ import { BarraFiltros } from './BarraFiltros';
 import { ChipCascada } from './ChipCascada';
 import { ControlVistas } from './ControlVistas';
 import { TablaAds, type FilaEnProceso } from './TablaAds';
+import { frasesFrescura, resumenFrescura } from './celdas';
 import { Paginacion } from './Paginacion';
 import { BarraSeleccion } from './BarraSeleccion';
 import { DialogoConfirmacion } from './DialogoConfirmacion';
@@ -63,6 +65,13 @@ import {
   type ParametrosAccion,
   type Previsualizacion as Previa,
 } from '@/lib/ads/previsualizacion';
+import { parsearPresupuesto, textoDeMotivo } from '@/lib/ads/presupuesto';
+import {
+  avisoDeLote,
+  mensajeDeResultado,
+  type Aviso,
+  type CuerpoAcciones,
+} from '@/lib/ads/mensajes';
 import {
   columnasParaRender,
   CATALOGO_METRICAS,
@@ -79,11 +88,28 @@ import { siguienteOrden, ORDEN_DEFAULT, type EstadoOrden } from '@/lib/ads/orden
 
 type Respuesta = ResultadoMetricas & {
   adsFreshness?: FrescuraAds;
+  /**
+   * La frescura de la Jerarquía, y `null` cuando el pedido no llevó `forzar`:
+   * sin `forzar` el endpoint no la consulta (R4.8), así que `null` es "este
+   * pedido no preguntó" y NO "está vieja". Ver `aplicarRespuesta`.
+   */
+  jerarquiaFreshness?: FrescuraJerarquia | null;
   maxDailyBudgetEur?: number;
   maxDeltaPorTickEur?: number;
+  /** Segundos a partir de los cuales una Frescura_Objeto se considera vieja (025). */
+  frescuraUmbralSegundos?: number;
   alcanceError?: string | null;
   sinCuentas?: boolean;
 };
+
+/**
+ * El default del umbral de frescura, igual al que seedea la migración 025.
+ *
+ * Sólo se usa si la respuesta no lo trae: el primer render lo recibe como prop
+ * del server component, así que el valor real de `settings` ya está antes de
+ * que corra el primer fetch del cliente.
+ */
+const UMBRAL_FRESCURA_DEFAULT = 900;
 
 const NIVEL_LABEL: Record<NivelAds, string> = {
   campaign: 'Campañas',
@@ -95,20 +121,491 @@ function money(n: number): string {
   return fmtMoney(n, 'EUR');
 }
 
+/**
+ * Los sustantivos de cada nivel, con la concordancia del adjetivo de estado.
+ * «campañas activas» y «conjuntos activos»: el select de Barra_Filtros dice
+ * «Activos» para los tres niveles porque ahí es una opción suelta, pero acá el
+ * alcance se lee como prosa dentro del rótulo del KPI.
+ */
+const OBJETOS_NIVEL: Record<NivelAds, { plural: string; activo: string; pausado: string }> = {
+  campaign: { plural: 'campañas', activo: 'activas', pausado: 'pausadas' },
+  adset: { plural: 'conjuntos', activo: 'activos', pausado: 'pausados' },
+  ad: { plural: 'anuncios', activo: 'activos', pausado: 'pausados' },
+};
+
+/**
+ * El alcance de los totales en dos palabras, para el rótulo de cada StatCard
+ * (R7.2, R7.4 — task 17.2).
+ *
+ * Sólo nivel y estado, que son los dos filtros que hacen entrar y salir filas de
+ * un total sin que la plata cambie: pausar un conjunto con el filtro en
+ * «Activos» lo saca del agregado, y con el rótulo «Gasto» a secas eso se lee
+ * como una caída de gasto. Con «Gasto de conjuntos activos» se lee por lo que
+ * es. Los demás filtros vigentes van en `detalleDeTotales`: meterlos todos en
+ * cuatro rótulos truncados los haría ilegibles sin agregar información.
+ */
+export function alcanceDeTotales(nivel: NivelAds, status: 'active' | 'paused' | 'any'): string {
+  const o = OBJETOS_NIVEL[nivel];
+  if (status === 'active') return `${o.plural} ${o.activo}`;
+  if (status === 'paused') return `${o.plural} ${o.pausado}`;
+  return o.plural;
+}
+
+/**
+ * La línea de contexto de abajo de la barra de KPIs: sobre cuántas filas están
+ * calculados los cuatro números y qué más los está recortando (R7.2).
+ *
+ * Va una sola vez y no en el `sub` de cada tarjeta porque es la misma frase para
+ * los cuatro, y el `sub` del gasto ya lleva su Marca_Frescura.
+ *
+ * La cláusula «no las N en pantalla» aparece SÓLO cuando los dos números
+ * difieren: con el filtro entero en una página no hay ambigüedad que aclarar, y
+ * la aclaración permanente sería ruido en el caso normal.
+ */
+export function detalleDeTotales(a: {
+  filasFiltro: number;
+  filasPantalla: number;
+  nombre: string;
+  cascada: { nivel: 'campaign' | 'adset'; ids: readonly string[] } | null;
+  ocultarSinDatos: boolean;
+  ocultarPadreApagado: boolean;
+}): string {
+  const cuenta = `${fmtInt(a.filasFiltro)} ${a.filasFiltro === 1 ? 'fila' : 'filas'}`;
+  const partes = [
+    a.filasPantalla < a.filasFiltro
+      ? `Sobre ${cuenta} del filtro, no las ${fmtInt(a.filasPantalla)} en pantalla`
+      : `Sobre ${cuenta} del filtro`,
+  ];
+  if (a.nombre !== '') partes.push(`nombre contiene «${a.nombre}»`);
+  if (a.cascada && a.cascada.ids.length > 0) {
+    const n = a.cascada.ids.length;
+    const padre =
+      a.cascada.nivel === 'campaign' ? (n === 1 ? 'campaña' : 'campañas') : n === 1 ? 'conjunto' : 'conjuntos';
+    partes.push(`dentro de ${fmtInt(n)} ${padre}`);
+  }
+  if (a.ocultarSinDatos) partes.push('sin las filas sin datos');
+  if (a.ocultarPadreApagado) partes.push('sin las que tienen el padre apagado');
+  return partes.join(' · ');
+}
+
 const TOPES_ABORTO = 10_000; // R16 c7: 10 s para el refetch posterior a un lote
+
+/**
+ * Las tres caras del importe que el usuario tiene escrito en el diálogo de
+ * presupuesto (task 3.2 de frescura-y-acciones-anuncios).
+ *
+ * Existen juntas porque el bug que este spec vino a arreglar fue exactamente que
+ * estaban separadas: la Previsualizacion se recalculaba con `Number(texto)`, el
+ * botón Ejecutar no miraba el texto para nada y el payload se armaba desde
+ * `confirmacion.params.budgetEur`, que en el camino de la barra de lote nunca
+ * existió. `JSON.stringify` borra las claves con `undefined`, así que el pedido
+ * salía sin `budgetEur` y el zod del route respondía `Required` (R1 c1).
+ *
+ * `cuerpo` es el fragmento del payload y su `budgetEur` es **obligatorio y
+ * number**: no hay forma de mandarlo vacío. Es lo que hace imposible el
+ * `Required` por construcción y no por cuidado del llamador.
+ */
+export type PresupuestoDelDialogo =
+  | {
+      ok: true;
+      /** Lo que se mezcla en el payload del Endpoint_Acciones. */
+      cuerpo: { budgetEur: number };
+      /** Lo que recalcula la Previsualizacion: el MISMO importe que se manda. */
+      params: ParametrosAccion;
+      bloqueo: null;
+    }
+  | {
+      ok: false;
+      cuerpo: null;
+      /** Sin importe: la previa muestra "después: —" en lugar de un valor que no se va a mandar. */
+      params: ParametrosAccion;
+      /** El motivo, en castellano, por el que Ejecutar queda deshabilitado (R1 c4). */
+      bloqueo: string;
+    };
+
+/**
+ * Interpreta el texto del campo de presupuesto una sola vez para los tres
+ * consumidores. PURA y exportada para el test de la Property 4: mientras el
+ * armado del payload viva del mismo resultado que el bloqueo del botón, no puede
+ * existir un texto que habilite Ejecutar y produzca un pedido sin importe o con
+ * otro importe (R1 c1, c3, c5).
+ */
+export function presupuestoDelDialogo(texto: string, techoEur: number): PresupuestoDelDialogo {
+  const importe = parsearPresupuesto(texto, techoEur);
+  if (!importe.ok) {
+    return { ok: false, cuerpo: null, params: {}, bloqueo: textoDeMotivo(importe.motivo) };
+  }
+  return {
+    ok: true,
+    cuerpo: { budgetEur: importe.valor },
+    params: { budgetEur: importe.valor },
+    bloqueo: null,
+  };
+}
+
+/**
+ * El texto con el que se siembra el campo cuando la acción llega con un importe
+ * ya resuelto (la edición de la celda de una fila). Con dos decimales fijos para
+ * que vuelva a entrar por `parsearPresupuesto` como el mismo número: es la ida y
+ * vuelta que R1 c2 pide para que la previa muestre el "después" en lugar de un
+ * guion.
+ */
+export function textoDeImporte(eur: number | undefined): string {
+  return typeof eur === 'number' && Number.isFinite(eur) ? eur.toFixed(2) : '';
+}
+
+/**
+ * La acción que le corresponde al interruptor de una fila (task 4.1 de
+ * frescura-y-acciones-anuncios, R2 c1 y c2).
+ *
+ * `status === 'ACTIVE'` es LA MISMA comparación con la que `ToggleEstado` de
+ * `celdas.tsx` decide si dibuja el interruptor encendido. Que las dos salgan de
+ * la misma expresión es todo el punto: antes acá estaba `status === 'PAUSED' ?
+ * 'activate' : 'pause'`, que manda `pause` para cualquier valor que no sea
+ * literalmente `PAUSED`. Una fila con `status` nulo —o con un valor que este
+ * cliente no conoce— se dibujaba apagada y al tocarla pedía pausar: quedaba
+ * imposible de encender desde el panel, que es el bug reportado como "el de
+ * habilitar conjunto parece que lo habilita pero realmente no lo hace".
+ *
+ * Pura y exportada para el test de la Property 1: la coherencia entre lo que se
+ * dibuja y lo que se pide tiene que poder verificarse para TODO valor de
+ * `status`, y este repo corre vitest en node, sin render.
+ */
+export function accionDeToggle(status: string | null): 'pause' | 'activate' {
+  return status === 'ACTIVE' ? 'pause' : 'activate';
+}
+
+/**
+ * El `status` que el Pintado_Optimista deja en la fila para cada acción. Sale de
+ * acá y no de un ternario suelto porque la reversión lo necesita para saber si
+ * la fila todavía muestra lo que pintamos.
+ */
+export function statusOptimista(accion: 'pause' | 'activate'): 'PAUSED' | 'ACTIVE' {
+  return accion === 'pause' ? 'PAUSED' : 'ACTIVE';
+}
+
+/**
+ * La lista de filas con el `status` de UNA cambiado. Escritura condicional: con
+ * `siMuestra` la fila se toca sólo si todavía muestra ese valor; sin él, siempre.
+ *
+ * Las dos escrituras del toggle salen de acá porque su diferencia es de una
+ * comparación y es la que decide si la reversión puede pisar un dato más nuevo
+ * que el nuestro. Dos `.map` inline casi iguales, con esa comparación en uno solo,
+ * es la clase de detalle que se pierde al leer y que ningún test podía nombrar.
+ *
+ *   pintar   → filasConEstado(filas, id, pintado)
+ *   revertir → filasConEstado(filas, id, statusPrevio, pintado)
+ *
+ * Genérica sobre lo único que mira: un objeto con `objectId` y `status`. Así el
+ * test la usa con filas mínimas y no queda atada a los cuarenta campos de
+ * `MetricasObjeto`.
+ */
+export function filasConEstado<F extends { objectId: string; status: string | null }>(
+  filas: readonly F[],
+  objectId: string,
+  status: string | null,
+  siMuestra?: string | null,
+): F[] {
+  return filas.map((f) =>
+    f.objectId === objectId && (siMuestra === undefined || f.status === siMuestra)
+      ? { ...f, status }
+      : f,
+  );
+}
+
+/**
+ * El contador monótono de pedidos de filas (task 12, R5 c4).
+ *
+ * Tres fuentes piden filas sin coordinarse entre sí: el efecto de filtros, el
+ * Boton_Actualizar (que con `forzar` espera dos sincronizaciones y puede tardar
+ * hasta 60 s) y el refetch posterior a un lote. Nada garantiza que respondan en
+ * el orden en que salieron, así que hoy la última respuesta en llegar gana
+ * aunque sea la más vieja: es uno de los mecanismos detrás del "el gasto baja de
+ * la nada", porque una lectura anterior pisa números más frescos.
+ *
+ * El `AbortController` que cada pedido ya tiene no alcanza: aborta por timeout,
+ * no cancela el pedido anterior cuando sale uno nuevo.
+ *
+ * Dos contadores y no uno:
+ *
+ *   - `emitida` numera los pedidos AL SALIR. Es lo que hace distinguibles dos
+ *     pedidos emitidos en orden aunque respondan al revés; un número tomado al
+ *     volver sería el orden de llegada, que es justo lo que no sirve.
+ *   - `aplicada` es el número de la última respuesta que llegó a pantalla, y es
+ *     contra ese —y no contra `emitida`— que se compara. Comparar contra
+ *     `emitida` descartaría toda respuesta que no fuera la del último pedido, así
+ *     que si el último falla la pantalla se quedaría con datos viejos teniendo
+ *     una respuesta buena en la mano.
+ */
+export type Secuencia = {
+  /** Toma el número del pedido que sale. */
+  emitir: () => number;
+  /**
+   * ¿La respuesta del pedido `seq` sigue siendo la más nueva que llegó? Sin
+   * efecto: lo usa el camino del fallo, que no pinta nada pero tampoco tiene que
+   * avisar de un pedido que ya quedó atrás (R5 c4, "se descarta sin tocar la
+   * pantalla ni avisar").
+   */
+  vigente: (seq: number) => boolean;
+  /**
+   * `true` si la respuesta del pedido `seq` se puede pintar, y en ese caso queda
+   * registrada como la última aplicada. `false` es un descarte: no es un error y
+   * no produce ningún aviso.
+   */
+  aplicar: (seq: number) => boolean;
+};
+
+export function crearSecuencia(): Secuencia {
+  let emitida = 0;
+  let aplicada = 0;
+  // Estrictamente mayor. Cada número se usa una sola vez, así que para una
+  // respuesta real "no menor que la última aplicada" y "mayor que la última
+  // aplicada" son lo mismo; con el estricto, además, aplicar dos veces la misma
+  // respuesta es imposible.
+  const vigente = (seq: number): boolean => seq > aplicada;
+  return {
+    emitir: () => (emitida += 1),
+    vigente,
+    aplicar: (seq: number): boolean => {
+      if (!vigente(seq)) return false;
+      aplicada = seq;
+      return true;
+    },
+  };
+}
+
+/**
+ * Las filas que llegaron, con el `status` que ya está en pantalla para las que
+ * tienen un cambio de estado en vuelo (task 12).
+ *
+ * El Pintado_Optimista del toggle es la cuarta escritura sobre `data.filas`, y la
+ * única que no viene del endpoint: el contador de secuencia no puede ordenarla
+ * porque no es una respuesta. Lo que sí se sabe es que, mientras el id está en
+ * `enVuelo`, ninguna respuesta puede traer el resultado de esa escritura —no
+ * terminó— así que el valor de la fila que hay en pantalla es más informado que
+ * el que trae cualquier lectura.
+ *
+ * Esto es lo que le faltaba a la reversión de la task 4.1: su guarda sólo puede
+ * comparar valores, y una respuesta que llegara trayendo justo el valor pintado
+ * la dejaba sin forma de saber si la fila mostraba el pintado o una confirmación
+ * del servidor. Congelando el `status` de esas filas mientras el pedido está en
+ * vuelo, la pregunta pasa a tener una sola respuesta posible.
+ *
+ * Sólo el `status`, que es lo único que el Pintado_Optimista escribe: el gasto,
+ * el nombre y el presupuesto de esa fila se actualizan como los de todas.
+ *
+ * Pura y exportada para el test: sin jsdom en este repo, la única forma de
+ * ejercitar esta decisión es afuera del componente.
+ */
+export function conservarPintadoEnVuelo<F extends { objectId: string; status: string | null }>(
+  enPantalla: readonly F[],
+  llegadas: F[],
+  enVuelo: ReadonlySet<string>,
+): F[] {
+  if (enVuelo.size === 0) return llegadas;
+  const pintado = new Map<string, string | null>();
+  for (const f of enPantalla) if (enVuelo.has(f.objectId)) pintado.set(f.objectId, f.status);
+  if (pintado.size === 0) return llegadas;
+  return llegadas.map((f) =>
+    pintado.has(f.objectId) ? { ...f, status: pintado.get(f.objectId) ?? null } : f,
+  );
+}
+
+/**
+ * Lo que el toggle de una fila necesita del componente, inyectado en lugar de
+ * capturado por closure (task 4.3).
+ *
+ * `ejecutarToggle` vive afuera del componente por una razón que este repo hace
+ * cara: `vitest.config.ts` corre en node, sin jsdom y sin testing-library. Un
+ * `toggleEstado` adentro del componente sólo se puede ejercitar renderizando,
+ * así que la guarda de doble disparo (R2 c8) y la reversión (R2 c3) —las dos
+ * cosas que este spec vino a arreglar— quedaban sin test. Con el entorno
+ * explícito se ejercitan con el código real: el test le pasa `filasConEstado`
+ * como `pintar` y cuenta los pedidos que salen por `pedir`.
+ */
+export type EntornoToggle = {
+  /** Los ids con un pedido en vuelo. Se comparte entre invocaciones (R2 c8). */
+  enVuelo: Set<string>;
+  /** Escribe el `status` de una fila de la tabla, con la misma firma que `filasConEstado`. */
+  pintar: (objectId: string, status: string | null, siMuestra?: string | null) => void;
+  /** El aviso que va a pantalla. Nunca se llama con texto vacío (Property 2). */
+  avisar: (aviso: Aviso) => void;
+  /** Vuelve a pedir las filas. Sólo en el desenlace confirmado. */
+  refrescar: () => void;
+  /** El `fetch` del Endpoint_Acciones, inyectado para poder contar los pedidos. */
+  pedir: (url: string, init: RequestInit) => Promise<Response>;
+};
+
+/**
+ * El cambio de estado de UNA fila: Pintado_Optimista, pedido, y reversión en
+ * todo desenlace que no sea `confirmado` (R2 c1 a c8).
+ *
+ * Toma de la fila sólo los cuatro campos que manda en el pedido, y no la fila
+ * entera: es lo que hace que el test pueda armar una fila mínima.
+ */
+export async function ejecutarToggle(
+  fila: Pick<MetricasObjeto, 'objectId' | 'level' | 'accountId' | 'status'>,
+  entorno: EntornoToggle,
+): Promise<void> {
+  if (entorno.enVuelo.has(fila.objectId)) return; // R2 c8
+  entorno.enVuelo.add(fila.objectId);
+
+  const statusPrevio = fila.status;
+  const destino = accionDeToggle(statusPrevio); // R2 c1, c2
+  const pintado = statusOptimista(destino);
+
+  // Pintado_Optimista, sin Dialogo_Confirmacion (R14 c11): el toggle de una
+  // fila se deshace con otro click.
+  entorno.pintar(fila.objectId, pintado);
+
+  /**
+   * Deshace el Pintado_Optimista (R2 c3). `celdas.tsx` ya documentaba esta
+   * reversión desde antes, pero no existía: la única corrección era el refetch
+   * del `retryTick`, que lee de una base que puede estar igual de vieja que la
+   * copia con la que se decidió.
+   *
+   * Restaura `statusPrevio` y no PAUSED/ACTIVE: la fila pudo haber llegado con
+   * `status` nulo o con un valor que este cliente no conoce, y ese es el valor
+   * al que tiene que volver.
+   *
+   * Toca la fila SÓLO si todavía muestra lo que pintamos. Si entretanto llegó
+   * una respuesta del endpoint de datos con otro valor, ese valor es más nuevo
+   * que nuestro previo y pisarlo sería devolver la fila a un pasado.
+   *
+   * El caso que esta guarda no podía distinguir por sí sola —una respuesta que
+   * llega trayendo justo el valor que pintamos— ya no llega: mientras el id
+   * está en `enVuelo`, `conservarPintadoEnVuelo` conserva el `status` que hay
+   * en pantalla y ninguna respuesta lo toca (task 12). Así que si la fila
+   * muestra lo que pintamos, es lo que pintamos y no una confirmación del
+   * servidor con el mismo valor.
+   */
+  const revertir = (): void => {
+    entorno.pintar(fila.objectId, statusPrevio, pintado);
+  };
+
+  try {
+    const res = await entorno.pedir('/api/ads/acciones', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ level: fila.level, accountId: fila.accountId, action: destino, objectIds: [fila.objectId] }),
+    });
+    const av = mensajeDeResultado(res.status, await cuerpoDeAcciones(res));
+    // Lo que decide la reversión es `aplicado`, NO la nulidad del aviso.
+    //
+    // Hasta la task 15 las dos cosas eran la misma: el traductor devolvía
+    // `null` en un solo caso —`confirmado`— así que "hay aviso" equivalía a "el
+    // cambio no quedó" y una sola condición servía para revertir y para avisar.
+    // Desde R6.4 no: un `confirmado` que trae `advertencia` (el conjunto se
+    // activó y su campaña está pausada, así que no va a entregar) devuelve
+    // aviso, y lo marca con `aplicado: true` justamente para que acá no se lea
+    // como un fallo. Revertir ahí dejaría la fila en PAUSED mientras el texto
+    // dice que el cambio se aplicó: el error simétrico al `HTTP 200` que este
+    // spec vino a arreglar, y el desenlace mayoritario en estas cuentas.
+    //
+    // Que `aplicado: true` sólo pueda venir de un `confirmado` es invariante de
+    // `lib/ads/mensajes.ts`, verificada allá ("sólo el confirmado se marca como
+    // aplicado" y su Property 2). Acá se confía en eso y no se vuelve a mirar el
+    // estado del resultado: sería el segundo lugar que clasifica desenlaces, que
+    // es de donde salió el bug original.
+    //
+    // El `throw new Error(mensaje ?? HTTP ${status})` que estaba en este lugar
+    // mostraba el literal "HTTP 200" ante una Omisión: un código de éxito
+    // presentado como error (R2 c6, Property 3).
+    if (av !== null && av.aplicado !== true) {
+      revertir();
+      entorno.avisar(av);
+      return;
+    }
+    // El cambio quedó. Si además hay algo que decir —hoy, que el objeto no
+    // entrega— se dice sin tocar la fila: el Pintado_Optimista ya muestra el
+    // valor que Meta confirmó.
+    if (av !== null) entorno.avisar(av);
+    // Y se relee, también en ese caso: el route hace `refrescarJerarquia` —una
+    // lectura del objeto contra Meta y un UPDATE de status, effective_status,
+    // synced_at y desaparecido_at— ANTES de responder, así que este refetch
+    // trae lo que Meta confirmó y no el dato del cron (R16 c6/c10, R4 c7). Vale
+    // igual con advertencia: la advertencia habla del padre, no de que la
+    // escritura no haya ocurrido, y el `effective_status` que la lectura trae
+    // (CAMPAIGN_PAUSED) es precisamente lo que el aviso está anunciando.
+    //
+    // En los desenlaces sin aplicar no se pide: la base no cambió, la fila ya
+    // volvió a su valor y un refetch sólo podría deshacer la reversión con el
+    // mismo dato viejo que causó la Omisión.
+    entorno.refrescar();
+  } catch (e) {
+    // Red, abort o cuerpo ilegible: no se sabe si Meta lo aplicó, así que la
+    // fila vuelve a lo que era (R2 c3) en lugar de quedar afirmando un cambio
+    // que nadie confirmó.
+    revertir();
+    entorno.avisar({
+      tono: 'error',
+      texto:
+        `El cambio de estado no se pudo completar: ${e instanceof Error ? e.message : String(e)}. ` +
+        'La fila quedó como estaba; si el pedido llegó a Meta, el resultado se define cuando corra la reconciliación.',
+    });
+  } finally {
+    entorno.enVuelo.delete(fila.objectId);
+  }
+}
+
+/**
+ * El cuerpo de una respuesta del Endpoint_Acciones, o `null` si no vino JSON.
+ * Un 502 del proxy con HTML hacía tirar a `res.json()` y el catch mostraba
+ * `Unexpected token <` en lugar de decir algo del pedido. Con `null`,
+ * `mensajeDeResultado` conserva el status y explica lo que pasó.
+ */
+async function cuerpoDeAcciones(res: Response): Promise<CuerpoAcciones | null> {
+  try {
+    return (await res.json()) as CuerpoAcciones;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * El GET al endpoint de datos, con su presupuesto de espera propio. Afuera del
+ * componente para que `pedirFilas` quede siendo lo único que hace: tomar el
+ * número de secuencia y disparar esto.
+ */
+async function leerFilas(url: string, timeoutMs: number): Promise<Respuesta> {
+  const ctrl = new AbortController();
+  const alarma = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { signal: ctrl.signal, cache: 'no-store' });
+    const body = (await res.json()) as Respuesta & { ok: boolean; error?: string };
+    if (!res.ok || body.ok === false) throw new Error(body.error ?? `HTTP ${res.status}`);
+    return body;
+  } finally {
+    clearTimeout(alarma);
+  }
+}
 
 export function GestorAnuncios({
   cuentas,
   initialData,
   adsFreshness,
+  jerarquiaFreshness,
   nivelInicial,
   filtrosIniciales,
   vistaPorDefecto,
   nombresCascada,
+  frescuraUmbralSegundos,
 }: {
   cuentas: CuentaAds[];
   initialData: ResultadoMetricas;
   adsFreshness: FrescuraAds;
+  /**
+   * La antigüedad de la Jerarquía en el PRIMER render (R4.5), leída en el server
+   * component sin sincronizar nada.
+   *
+   * Hace falta como prop por la misma razón que el umbral de abajo, y por una
+   * más grave: el cliente recibe `jerarquiaFreshness` sólo en las respuestas con
+   * `forzar`, o sea únicamente cuando el usuario aprieta Actualizar. Sin este
+   * valor la barra no tendría edad de Jerarquía que mostrar hasta el primer
+   * click, y el número que R4.5 pide exhibir aparte del gasto sería invisible
+   * justo mientras nadie lo fuerza, que es cuando importa verlo.
+   */
+  jerarquiaFreshness: FrescuraJerarquia;
   nivelInicial: NivelAds;
   filtrosIniciales: {
     period: PeriodoAds;
@@ -123,6 +620,14 @@ export function GestorAnuncios({
   vistaPorDefecto: Vista | null;
   /** id → nombre de los ids de la cascada de la URL, para el ChipCascada (R8 c4). */
   nombresCascada: Record<string, string>;
+  /**
+   * El umbral de Frescura_Objeto de `settings`, ya resuelto en el server para
+   * que la PRIMERA pintura lo tenga (task 7.3). Sin esto, el efecto de filtros
+   * —que no corre en el primer render— dejaría la primera pantalla marcando
+   * filas contra un default distinto del configurado, y las marcas cambiarían
+   * solas al primer cambio de filtro.
+   */
+  frescuraUmbralSegundos?: number;
 }): JSX.Element {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -179,8 +684,19 @@ export function GestorAnuncios({
 
   const [data, setData] = useState<Respuesta>(initialData);
   const [frescura, setFrescura] = useState<FrescuraAds>(adsFreshness);
+  // La de la Jerarquía va en su propio estado y no dentro de `frescura`: son dos
+  // sincronizaciones que llegan por caminos distintos —el gasto en cada
+  // respuesta, la Jerarquía sólo en las forzadas— y meterlas en un objeto haría
+  // que actualizar una obligara a decir algo de la otra.
+  const [frescuraJerarquia, setFrescuraJerarquia] =
+    useState<FrescuraJerarquia>(jerarquiaFreshness);
   const [maxPresupuesto, setMaxPresupuesto] = useState(200);
   const [maxDelta, setMaxDelta] = useState(300);
+  // El umbral con el que se decide si una fila está vieja. Lo consume la marca
+  // de la celda de nombre y el conteo de filas desactualizadas (task 8).
+  const [umbralFrescura, setUmbralFrescura] = useState(
+    frescuraUmbralSegundos ?? UMBRAL_FRESCURA_DEFAULT,
+  );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [retryTick, setRetryTick] = useState(0);
@@ -220,12 +736,39 @@ export function GestorAnuncios({
   const [ejecutando, setEjecutando] = useState(false);
   const [resultados, setResultados] = useState<RespuestaLote | null>(null);
   const [avisoTablaVieja, setAvisoTablaVieja] = useState(false);
-  const [aviso, setAviso] = useState<string | null>(null);
+  // El aviso lleva tono desde la task 4.1: una Omisión del toggle es una
+  // advertencia (el cambio no se aplicó, pero nada falló) y pintarla de rojo
+  // sería su propia mentira chica.
+  const [aviso, setAvisoTonal] = useState<Aviso | null>(null);
+  /**
+   * El aviso de siempre, con tono de error. Lo siguen usando los productores
+   * cuyo único desenlace ES un error: guardar una Vista, el refresco de gasto,
+   * el `onNotificar` de ControlVistas, y los tres cortes de `ejecutarLote` que
+   * no llegan a leer una respuesta del Endpoint_Acciones (selección de otro
+   * nivel, importe inválido, timeout del lote).
+   *
+   * Los dos que sí traducen una respuesta —el toggle y la respuesta del lote—
+   * pasan por `setAvisoTonal`, porque ahí hay desenlaces que no son errores: una
+   * Omisión no aplicó el cambio pero no rompió nada.
+   */
+  const setAviso = (texto: string | null): void =>
+    setAvisoTonal(texto === null ? null : { tono: 'error', texto });
   // Filas fantasma de las copias en creación (R18 c4, c9): estado SEPARADO de
   // data.filas, se vacían completas cuando el Endpoint_Acciones responde.
   const [enProceso, setEnProceso] = useState<FilaEnProceso[]>([]);
 
   const firstRun = useRef(true);
+
+  /**
+   * El contador de pedidos de filas de esta pantalla (task 12, R5 c4). En un ref
+   * y no en estado: descartar una respuesta no dibuja nada, y un `setState` por
+   * pedido volvería a renderizar la tabla para no cambiar nada.
+   *
+   * Los dos contadores viven adentro del objeto, así que la comparación y el
+   * registro de la última aplicada no pueden separarse: no hay forma de preguntar
+   * si una respuesta se aplica y olvidarse de anotarla.
+   */
+  const secuencia = useRef(crearSecuencia()).current;
 
   // ── La cuenta y el aviso de R1 c12 ──
   // ── Pedido de filas ──────────────────────────────────────────────────────
@@ -252,21 +795,59 @@ export function GestorAnuncios({
     [nivel, period, status, account, nombre, cascada, ordenEstado, columnas, ocultarSinDatos, ocultarPadreApagado],
   );
 
+  /**
+   * Emite un pedido de filas. Devuelve el número de secuencia junto con la
+   * promesa del cuerpo, y no un `Promise<Respuesta>` a secas, por dos razones:
+   * el número queda tomado antes de que salga el `fetch` (el orden de emisión es
+   * exacto, no el de resolución), y el llamador lo tiene también en el camino
+   * del fallo, donde no hay cuerpo del cual sacarlo.
+   *
+   * Un único punto de emisión: cualquier pedido de filas pasa por acá, así que
+   * no hay forma de emitir uno sin número.
+   */
   const pedirFilas = useCallback(
-    async (opts?: { forzar?: boolean; timeoutMs?: number }) => {
-      const ctrl = new AbortController();
-      const alarma = setTimeout(() => ctrl.abort(), opts?.timeoutMs ?? 30_000);
-      const res = await fetch(construirUrl({ forzar: opts?.forzar }), {
-        signal: ctrl.signal,
-        cache: 'no-store',
-      });
-      clearTimeout(alarma);
-      const body = (await res.json()) as Respuesta & { ok: boolean; error?: string };
-      if (!res.ok || body.ok === false) throw new Error(body.error ?? `HTTP ${res.status}`);
-      return body;
-    },
-    [construirUrl],
+    (opts?: { forzar?: boolean; timeoutMs?: number }): { seq: number; cuerpo: Promise<Respuesta> } => ({
+      seq: secuencia.emitir(),
+      cuerpo: leerFilas(construirUrl({ forzar: opts?.forzar }), opts?.timeoutMs ?? 30_000),
+    }),
+    [construirUrl, secuencia],
   );
+
+  /**
+   * Pinta una respuesta del endpoint de datos, o la descarta si ya se aplicó una
+   * más nueva (R5 c4). Devuelve si se aplicó.
+   *
+   * Las seis escrituras van juntas y bajo la MISMA guarda porque salen del mismo
+   * cuerpo: aplicar las filas de una respuesta y la Marca_Frescura de otra sería
+   * mostrar números de una lectura con la antigüedad de otra, que es la misma
+   * clase de mentira que este spec vino a sacar de la pantalla. Antes cada
+   * llamador hidrataba lo que se acordaba —el efecto de filtros los cuatro
+   * ajustes, el Boton_Actualizar y el tick sólo la frescura—; centralizarlo deja
+   * un solo lugar donde agregar lo que traiga la respuesta.
+   *
+   * Todas preguntan por el valor antes de escribirlo, y eso NO es defensa de más:
+   * el endpoint devuelve algunos campos sólo en algunos pedidos. La frescura de
+   * la Jerarquía viaja nula cuando el pedido no llevó `forzar`, porque sin
+   * `forzar` no se consulta, y "no la consulté" no es "está vieja". Escribirla
+   * igual haría que el tick del polling —uno por minuto, ninguno con `forzar`—
+   * borrara al minuto la antigüedad que el Boton_Actualizar acababa de traer. La
+   * guarda de secuencia no cubre ese caso: el tick es posterior y se aplica con
+   * todo derecho; lo que no tiene es nada que decir sobre la Jerarquía. Lo que se
+   * agregue acá va con la misma forma.
+   */
+  const aplicarRespuesta = (seq: number, body: Respuesta): boolean => {
+    if (!secuencia.aplicar(seq)) return false;
+    setData((prev) => ({
+      ...body,
+      filas: conservarPintadoEnVuelo(prev.filas, body.filas, enVueloToggle.current),
+    }));
+    if (body.adsFreshness) setFrescura(body.adsFreshness);
+    if (body.jerarquiaFreshness) setFrescuraJerarquia(body.jerarquiaFreshness);
+    if (typeof body.maxDailyBudgetEur === 'number') setMaxPresupuesto(body.maxDailyBudgetEur);
+    if (typeof body.maxDeltaPorTickEur === 'number') setMaxDelta(body.maxDeltaPorTickEur);
+    if (typeof body.frescuraUmbralSegundos === 'number') setUmbralFrescura(body.frescuraUmbralSegundos);
+    return true;
+  };
 
   useEffect(() => {
     if (firstRun.current) {
@@ -275,14 +856,16 @@ export function GestorAnuncios({
     }
     setLoading(true);
     setError(null);
-    pedirFilas()
+    const { seq, cuerpo } = pedirFilas();
+    cuerpo
       .then((body) => {
-        setData(body);
-        if (body.adsFreshness) setFrescura(body.adsFreshness);
-        if (typeof body.maxDailyBudgetEur === 'number') setMaxPresupuesto(body.maxDailyBudgetEur);
-        if (typeof body.maxDeltaPorTickEur === 'number') setMaxDelta(body.maxDeltaPorTickEur);
+        aplicarRespuesta(seq, body);
       })
       .catch((err: unknown) => {
+        // Un pedido que falló después de que llegara uno más nuevo no tiene nada
+        // que decir: la pantalla ya muestra datos posteriores a este, y el cartel
+        // de error hablaría de un pedido que quedó atrás.
+        if (!secuencia.vigente(seq)) return;
         if (err instanceof DOMException && err.name === 'AbortError') {
           setError('el pedido de filas no respondió en 30 segundos');
         } else {
@@ -470,12 +1053,16 @@ export function GestorAnuncios({
     ultimoRefresco.current = ahora;
     setFrenoSegundos(null);
     setRefrescando(true);
-    pedirFilas({ forzar: true, timeoutMs: 60_000 })
+    // El pedido más largo de los tres —con `forzar` espera el sync de gasto y el
+    // de la Jerarquía antes de leer— así que es el que más probablemente vuelva
+    // después de uno emitido más tarde.
+    const { seq, cuerpo } = pedirFilas({ forzar: true, timeoutMs: 60_000 });
+    cuerpo
       .then((body) => {
-        setData(body);
-        if (body.adsFreshness) setFrescura(body.adsFreshness);
+        aplicarRespuesta(seq, body);
       })
       .catch((err: unknown) => {
+        if (!secuencia.vigente(seq)) return;
         // R1 c9: filas guardadas y marca anterior, sin modificar
         setAviso(
           `El refresco de gasto falló: ${err instanceof Error ? err.message : 'sin respuesta'} — se muestran las filas guardadas.`,
@@ -498,13 +1085,15 @@ export function GestorAnuncios({
       if (tickEnVuelo.current) return;
       tickEnVuelo.current = true;
       setRefrescandoFondo(true);
-      pedirFilas()
+      const { seq, cuerpo } = pedirFilas();
+      cuerpo
         .then((body) => {
-          setData(body);
-          if (body.adsFreshness) setFrescura(body.adsFreshness);
+          aplicarRespuesta(seq, body);
           // Si el refetch de después de un lote había fallado (R16 c7), este
           // pedido es el que vuelve a poner la tabla al día: dejar el aviso de
-          // tabla vieja sería avisar de algo que ya no pasa.
+          // tabla vieja sería avisar de algo que ya no pasa. Afuera de la guarda:
+          // un cuerpo que se descarta se descarta porque hay otro más nuevo en
+          // pantalla, y eso también prueba que la tabla es del servidor.
           setAvisoTablaVieja(false);
         })
         .catch(() => {
@@ -526,44 +1115,57 @@ export function GestorAnuncios({
     },
   );
 
-  const edadGasto = textoEdadGasto(frescura) ?? '—';
+  // Las dos edades de la barra (R4.5), del mismo `textoEdad` para que se puedan
+  // comparar de un vistazo. El `'—'` es el caso sin frescura ninguna, que con las
+  // dos llegando del server component en el primer render no debería verse.
+  const edadGasto = textoEdad(frescura) ?? '—';
+  const edadJerarquia = textoEdad(frescuraJerarquia) ?? '—';
 
   // ── Acciones ─────────────────────────────────────────────────────────────
-  const toggleEstado = async (fila: MetricasObjeto): Promise<void> => {
-    const destino = fila.status === 'PAUSED' ? 'activate' : 'pause';
-    // optimista (R14 c11: sin diálogo); el refetch posterior pinta la verdad
-    setData((prev) => ({
-      ...prev,
-      filas: prev.filas.map((r) =>
-        r.objectId === fila.objectId ? { ...r, status: destino === 'pause' ? 'PAUSED' : 'ACTIVE' } : r,
-      ),
-    }));
-    try {
-      const res = await fetch('/api/ads/acciones', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ level: fila.level, accountId: fila.accountId, action: destino, objectIds: [fila.objectId] }),
-      });
-      const body = (await res.json()) as {
-        ok: boolean;
-        resultados?: { estado: string; mensaje: string | null }[];
-      };
-      if (!res.ok || body.ok === false || (body.resultados?.[0] && body.resultados[0].estado !== 'confirmado')) {
-        throw new Error(body.resultados?.[0]?.mensaje ?? `HTTP ${res.status}`);
-      }
-    } catch (e) {
-      setAviso(e instanceof Error ? e.message : String(e));
-    } finally {
-      setRetryTick((x) => x + 1); // R16 c6/c10: el server decide el valor final
-    }
-  };
+  /**
+   * Los ids con un cambio de estado en vuelo (R2 c8, task 4.1). Un Set por id y
+   * no un booleano global: tocar dos filas distintas a la vez es legítimo, dos
+   * escrituras sobre la MISMA fila no. En producción quedaron dos filas
+   * `activate confirmado` sobre el mismo conjunto separadas por un segundo,
+   * porque no había ninguna guarda.
+   *
+   * Ref y no estado: no se dibuja nada con esto, y un `setState` por click
+   * volvería a renderizar la tabla entera sin necesidad.
+   */
+  const enVueloToggle = useRef<Set<string>>(new Set());
+
+  /**
+   * El toggle de una fila: `ejecutarToggle` con este componente como entorno.
+   * Toda la lógica está allá arriba, afuera del componente, para que la guarda y
+   * la reversión se puedan testear sin render (task 4.3).
+   */
+  const toggleEstado = (fila: MetricasObjeto): Promise<void> =>
+    ejecutarToggle(fila, {
+      enVuelo: enVueloToggle.current,
+      pintar: (objectId, status, siMuestra) =>
+        setData((prev) => ({
+          ...prev,
+          filas: filasConEstado(prev.filas, objectId, status, siMuestra),
+        })),
+      avisar: setAvisoTonal,
+      refrescar: () => setRetryTick((x) => x + 1),
+      pedir: (url, init) => fetch(url, init),
+    });
 
   const editarPresupuesto = (fila: MetricasObjeto, eur: number): void => {
-    abrirConfirmacion('budget_set', { budgetEur: eur });
+    // El importe escrito en la celda siembra el campo del diálogo, y el alcance
+    // es esa fila aunque no esté tildada (R1 c2): sin el idsOverride la previa
+    // salía vacía y Ejecutar quedaba deshabilitado para siempre. Es el mismo
+    // criterio que el renombrado de una fila, que ya pasa `[fila.objectId]`.
+    abrirConfirmacion('budget_set', { budgetEur: eur }, [fila.objectId]);
   };
 
   const abrirConfirmacion = (accion: AccionAds, params: ParametrosAccion = {}, idsOverride?: string[]): void => {
-    setDialogoPresupuesto('');
+    // R1 c2: el campo se siembra con el importe que trae el llamador y sólo
+    // queda vacío cuando no viene ninguno (el camino de la barra de lote).
+    // Pisarlo siempre con '' borraba el valor de la celda antes de que el
+    // usuario viera el diálogo, y por eso la previa decía "después: —".
+    setDialogoPresupuesto(textoDeImporte(params.budgetEur));
     const ids = idsOverride ?? [...estadoSel.seleccion.ids];
     const previa = calcularPrevisualizacion(
       accion,
@@ -645,6 +1247,21 @@ export function GestorAnuncios({
       return;
     }
     const ids = confirmacion.ids;
+    // R1 c1, c3: el importe que viaja es el que el campo tiene AHORA, leído con
+    // la MISMA regla que habilita el botón. `confirmacion.params.budgetEur` no
+    // sirve: es el valor con el que se abrió el diálogo, no el que el usuario
+    // dejó, y desde la barra de lote no existe.
+    const presupuesto =
+      confirmacion.accion === 'budget_set'
+        ? presupuestoDelDialogo(dialogoPresupuesto, maxPresupuesto)
+        : null;
+    if (presupuesto !== null && !presupuesto.ok) {
+      // No se emite un pedido que ya sabemos que el route va a rechazar, y el
+      // aviso nombra el campo y la regla incumplida en lugar de un `Required`
+      // (R1 c6). El diálogo queda abierto: el importe se corrige y se reintenta.
+      setAviso(`No se fijó el presupuesto: ${presupuesto.bloqueo}.`);
+      return;
+    }
     setEjecutando(true);
     try {
       const body: Record<string, unknown> = {
@@ -653,7 +1270,7 @@ export function GestorAnuncios({
         action: confirmacion.accion,
         objectIds: ids,
       };
-      if (confirmacion.accion === 'budget_set') body.budgetEur = confirmacion.params.budgetEur;
+      if (presupuesto !== null) body.budgetEur = presupuesto.cuerpo.budgetEur;
       if (confirmacion.accion === 'duplicate') {
         const n = Number(dialogoDuplicar.presupuesto);
         body.copias = dialogoDuplicar.copias;
@@ -694,20 +1311,51 @@ export function GestorAnuncios({
         // en proceso y se informa qué se aplicó y qué no.
         signal: AbortSignal.timeout(confirmacion.accion === 'duplicate' ? 300_000 : 60_000),
       });
-      const respuesta = (await res.json()) as RespuestaLote & { ok: boolean; error?: string; detail?: string };
+      const cuerpo = await cuerpoDeAcciones(res);
       // R16 c6 / R18 c9: las filas fantasma se VACÍAN completas al responder y
       // se dibuja sólo lo que devuelve el servidor.
       setEnProceso([]);
-      if (!res.ok || (respuesta as { ok: boolean }).ok === false) {
-        setAviso((respuesta as { detail?: string }).detail ?? (respuesta as { error?: string }).error ?? `HTTP ${res.status}`);
+      // El MISMO traductor que el toggle (task 4.2, R2 c5). El
+      // `detail ?? error ?? HTTP ${status}` que estaba acá ya mostraba el detail
+      // —eso el toggle no lo hacía— pero mantenía su propio último recurso con el
+      // código HTTP, así que las dos pantallas tenían dos criterios para el mismo
+      // cuerpo. `avisoDeLote` delega en `mensajeDeResultado` para el sobre y para
+      // el lote de un objeto, y cuenta cuando hay varios: nunca deja que
+      // `resultados[0]` hable por los otros 99.
+      const av = avisoDeLote(res.status, cuerpo);
+      if (cuerpo === null || cuerpo.ok !== true) {
+        setAvisoTonal(av);
+        // El desglose de un lote anterior no puede quedar en pantalla al lado del
+        // error de este: serían dos afirmaciones sobre distintos pedidos leídas
+        // como una. Cuando el rechazo es del esquema o del Preflight el servidor
+        // no escribió nada, así que la tabla sigue siendo válida y no hace falta
+        // marcarla vieja.
+        setResultados(null);
+        if (cuerpo === null) setAvisoTablaVieja(true); // cuerpo ilegible: no se sabe qué se aplicó
         return;
       }
-      setResultados(respuesta);
+      setResultados({
+        aplicados: cuerpo.aplicados,
+        total: cuerpo.total,
+        corte: cuerpo.corte,
+        resultados: [...cuerpo.resultados],
+      });
+      // Sólo cuando ningún objeto cambió, y como resumen contado: el "X de Y
+      // aplicados" y la lista de no confirmados los dibuja `ResultadosLote`, que
+      // es la superficie real de reporte del lote.
+      setAvisoTonal(av);
       setConfirmacion(null);
       setEstadoSel(estadoInicial(nivel));
       // R16 c6: dibujar SOLO lo que devuelve el servidor
       try {
-        await pedirFilas({ timeoutMs: TOPES_ABORTO }).then(setData);
+        // `cuerpo` acá arriba es el del Endpoint_Acciones; este es el del
+        // endpoint de datos. Renombrado para que no haya dos cosas distintas con
+        // el mismo nombre en la misma función.
+        const { seq, cuerpo: respuesta } = pedirFilas({ timeoutMs: TOPES_ABORTO });
+        // Si esta respuesta se descarta es porque otra posterior ya se aplicó, y
+        // esa también vino del servidor: el valor optimista no sobrevive por
+        // ningún camino.
+        aplicarRespuesta(seq, await respuesta);
         setAvisoTablaVieja(false);
       } catch {
         setAvisoTablaVieja(true); // R16 c7
@@ -728,32 +1376,101 @@ export function GestorAnuncios({
     }
   };
 
-  // ── Totales de la barra de KPIs ──
+  // ── Totales de la barra de KPIs (R7.1, R7.3, Property 9 — task 17.2) ──
+  //
+  // Del FILTRO COMPLETO, no de la página. Los cinco números eran
+  // `data.filas.reduce(...)`, o sea el gasto de las filas visibles: con el
+  // resultado paginado, pasar a la página 2 mostraba un gasto más chico sin que
+  // nadie hubiera gastado menos, y eso es el reporte que este spec vino a
+  // cerrar. `data.totales` lo calcula el servidor con la misma cadena de CTEs
+  // sin OFFSET ni LIMIT, así que es una función del filtro y no de la página.
   const filas = data.filas;
-  const totGasto = filas.reduce((a, r) => a + r.spendEur, 0);
-  const totIngresos = filas.reduce((a, r) => a + r.revenueEur, 0);
-  const totGanancia = filas.reduce((a, r) => a + r.profitEur, 0);
-  const totNeto = filas.reduce((a, r) => a + r.netEur, 0);
+  const totales = data.totales;
+  const totGasto = totales.spendEur;
+  const totIngresos = totales.revenueEur;
+  const totGanancia = totales.profitEur;
+  const totNeto = totales.netEur;
+  // El ROI se deriva ACÁ porque el agregado no manda cocientes a propósito: el
+  // cociente de las sumas no es la suma de los cocientes. `null` y NO 0 cuando
+  // no hubo gasto, que es la regla de lib/ads/tipos.ts: un 0 se leería como
+  // «no devolvió nada», y sin gasto el retorno no se puede calcular.
   const totRoi = totGasto > 0 ? totNeto / totGasto : null;
+  // El alcance con el que se rotulan los cuatro KPIs y la línea de contexto de
+  // abajo. Los dos salen de los filtros vigentes, no de `data`: `data` puede ser
+  // de un pedido anterior mientras el nuevo está en vuelo, y en ese instante el
+  // rótulo tiene que decir sobre qué se pidió el número que se está por pintar.
+  //
+  // (Salvo el conteo de filas, que sí es de `data`: es un dato del resultado.)
+  const alcance = alcanceDeTotales(nivel, status);
+  const detalleTotales = detalleDeTotales({
+    filasFiltro: totales.filas,
+    filasPantalla: filas.length,
+    nombre,
+    cascada,
+    ocultarSinDatos,
+    ocultarPadreApagado,
+  });
+  // El denominador también pasa al agregado: mezclarlo con las ventas de UNA
+  // página hacía que la proporción —y con ella el color del Banner— cambiara al
+  // pasar de página, con el numerador quieto.
+  //
+  // Queda una asimetría que desde el cliente no se puede cerrar: `sinAtribuir`
+  // es de la cuenta y el período completos (su SQL no lleva nivel, estado ni
+  // nombre) y `totales.sales` es del filtro, así que un filtro que esconde
+  // ventas atribuidas infla la proporción. Por eso sólo decide el TONO del
+  // Banner y no se muestra como número: lo que el Banner afirma es el conteo de
+  // ventas sin atribuir, que sí es exacto.
   const sinAtribuirPct =
     data.sinAtribuir.sales > 0
-      ? data.sinAtribuir.sales / Math.max(1, data.sinAtribuir.sales + filas.reduce((a, r) => a + r.sales, 0))
+      ? data.sinAtribuir.sales / Math.max(1, data.sinAtribuir.sales + totales.sales)
       : 0;
+
+  // ── Frescura de las filas en pantalla (task 8, R3.1 y R3.3) ──────────────
+  /**
+   * El instante contra el que se miden TODAS las antigüedades de esta pintura.
+   *
+   * Se toma cuando cambia `data`, es decir cuando llega una respuesta del
+   * endpoint, y no en cada render: así la marca de una fila no se mueve porque el
+   * usuario tildó un checkbox, y todas las filas de una misma respuesta se miden
+   * contra el mismo reloj. Es el mismo criterio que la Marca_Frescura del gasto,
+   * que muestra el `ageSeconds` que calculó el server y se queda quieta hasta el
+   * próximo pedido; acá el cálculo es del cliente porque lo que viaja son las dos
+   * fechas de cada fila, no una edad ya resuelta.
+   *
+   * `data` es la única dependencia real: el umbral no entra en la cuenta del
+   * instante, sólo en la clasificación.
+   */
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const ahoraFrescura = useMemo(() => Date.now(), [data]);
+
+  const frescuraFilas = useMemo(
+    () => resumenFrescura(filas, umbralFrescura, ahoraFrescura),
+    [filas, umbralFrescura, ahoraFrescura],
+  );
+  const frasesFrescuraFilas = useMemo(
+    () => frasesFrescura(frescuraFilas, filas.length, umbralFrescura),
+    [frescuraFilas, filas.length, umbralFrescura],
+  );
+
+  // Una sola lectura del campo para la previa, el bloqueo del botón y el payload
+  // de `ejecutarLote`: los tres salen de acá, así el "después" que el usuario
+  // confirma es exactamente el importe que se manda (Property 4).
+  const presupuestoDialogo = useMemo(
+    () => presupuestoDelDialogo(dialogoPresupuesto, maxPresupuesto),
+    [dialogoPresupuesto, maxPresupuesto],
+  );
 
   const previaConPresupuesto = useMemo(() => {
     if (!confirmacion || confirmacion.accion !== 'budget_set') return confirmacion?.previa ?? null;
-    const n = Number(dialogoPresupuesto);
-    const params: ParametrosAccion =
-      dialogoPresupuesto !== '' && Number.isFinite(n) ? { budgetEur: n } : {};
     return calcularPrevisualizacion(
       'budget_set',
       nivel,
       data.filas,
       confirmacion.ids,
-      params,
+      presupuestoDialogo.params,
       { techoEur: maxPresupuesto, topeLoteEur: maxDelta, minimoDiarioEur: null },
     );
-  }, [confirmacion, dialogoPresupuesto, nivel, data.filas, maxPresupuesto, maxDelta]);
+  }, [confirmacion, presupuestoDialogo, nivel, data.filas, maxPresupuesto, maxDelta]);
 
   const previaDuplicar = useMemo(() => {
     if (!confirmacion || confirmacion.accion !== 'duplicate') return null;
@@ -824,8 +1541,10 @@ export function GestorAnuncios({
           <span className="text-xs text-neutral-500">actualizando gasto…</span>
         )}
         <BarraFrescura
-          edad={edadGasto}
-          error={frescura.error}
+          edadGasto={edadGasto}
+          errorGasto={frescura.error}
+          edadJerarquia={edadJerarquia}
+          errorJerarquia={frescuraJerarquia.error}
           refrescando={refrescando}
           segundosRestantes={frenoSegundos}
           onActualizar={actualizar}
@@ -868,7 +1587,15 @@ export function GestorAnuncios({
       />
 
       {(error || aviso || avisoTablaVieja) && (
-        <Banner tone="bad" title="Aviso">
+        <Banner
+          // El Banner junta los tres avisos, así que alcanza que uno sea un
+          // error para pintar el bloque de error. Sólo cuando lo único que hay
+          // es una advertencia se pinta ámbar: una Omisión del toggle, o un lote
+          // en el que nada se aplicó y nada falló. El cambio no ocurrió, pero no
+          // hay nada roto que ir a buscar.
+          tone={error === null && !avisoTablaVieja && aviso?.tono === 'aviso' ? 'warn' : 'bad'}
+          title="Aviso"
+        >
           <span className="flex flex-wrap items-center gap-x-4 gap-y-1">
             {error && (
               <span>
@@ -882,7 +1609,7 @@ export function GestorAnuncios({
                 </button>
               </span>
             )}
-            {aviso && <span>{aviso}</span>}
+            {aviso && <span>{aviso.texto}</span>}
             {avisoTablaVieja && (
               <span>
                 La tabla puede no reflejar el estado del servidor.
@@ -902,11 +1629,19 @@ export function GestorAnuncios({
       {resultados && <ResultadosLote respuesta={resultados} />}
 
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="Gasto" value={money(totGasto)} sub={edadGasto} tone="warn" />
-        <StatCard label="Ingresos" value={money(totIngresos)} sub="bruto aprobado" />
-        <StatCard label="Ganancia" value={money(totGanancia)} sub="neto − gasto" tone={totGanancia < 0 ? 'bad' : 'good'} />
-        <StatCard label="ROI" value={totRoi === null ? '—' : `${totRoi.toFixed(2)}×`} sub="neto ÷ gasto de ads" tone={totRoi === null ? 'neutral' : totRoi < 1 ? 'bad' : totRoi < 2 ? 'warn' : 'good'} />
+      {/* Los cuatro rótulos nombran el alcance («Gasto de conjuntos activos») y
+          la línea de abajo dice sobre cuántas filas y con qué otros filtros
+          (R7.2, R7.4). El rótulo lleva nivel y estado porque son los filtros que
+          mueven filas dentro y fuera del total sin que la plata cambie; el resto
+          va en la línea, que es una sola para los cuatro. */}
+      <div className="space-y-2">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <StatCard label={`Gasto de ${alcance}`} value={money(totGasto)} sub={edadGasto} tone="warn" />
+          <StatCard label={`Ingresos de ${alcance}`} value={money(totIngresos)} sub="bruto aprobado" />
+          <StatCard label={`Ganancia de ${alcance}`} value={money(totGanancia)} sub="neto − gasto" tone={totGanancia < 0 ? 'bad' : 'good'} />
+          <StatCard label={`ROI de ${alcance}`} value={totRoi === null ? '—' : `${totRoi.toFixed(2)}×`} sub="neto ÷ gasto de ads" tone={totRoi === null ? 'neutral' : totRoi < 1 ? 'bad' : totRoi < 2 ? 'warn' : 'good'} />
+        </div>
+        <p className="text-xs text-neutral-500">{detalleTotales}</p>
       </div>
 
       {data.sinAtribuir.sales > 0 && (
@@ -927,13 +1662,46 @@ export function GestorAnuncios({
         }}
       />
 
-      {data.total > 1000 && (
+      {/* `totales.filas` y no `total`: los dos cuentan las filas del filtro, pero
+          `total` sale de un `count(*) OVER ()` de la query de filas, así que es
+          relativo al cursor en el camino `after` y colapsa a 0 en una página más
+          allá del final —y ahí este aviso desaparecía justo cuando el resultado
+          seguía siendo enorme—. Lo mismo en el `hint` de la Card de abajo. */}
+      {data.totales.filas > 1000 && (
         <Banner tone="info" title="Resultado acotado">
-          Los filtros alcanzan {data.total} filas y se devuelven hasta 1000 por página (tope del contrato).
+          Los filtros alcanzan {fmtInt(data.totales.filas)} filas y se devuelven hasta 1000 por página (tope del contrato).
         </Banner>
       )}
 
-      <Card title={NIVEL_LABEL[nivel]} hint={`viendo ${filas.length} de ${data.total} fila(s)`}>
+      {/* R3.3: cuántas de las filas que se están mostrando tienen el dato
+          atrasado, y cuántas Meta ya no devuelve. Sin marcas no hay Banner: un
+          bloque que dice "0 filas viejas" es ruido en el caso normal.
+
+          El conteo es sobre las filas VISIBLES y lo dice con esas palabras («N
+          de las M filas en pantalla», en `frasesFrescura`), porque no hay ningún
+          agregado del servidor que cuente desactualizados sobre el filtro
+          completo: las fechas de frescura viajan por fila y la clasificación la
+          hace el cliente. Ese "en pantalla" es MÁS necesario desde la task 17.2,
+          no menos: la barra de KPIs de arriba ya está calculada sobre el filtro
+          entero, así que dos números del mismo tablero tienen alcances distintos
+          y cada uno tiene que declarar el suyo. */}
+      {frasesFrescuraFilas.length > 0 && (
+        <Banner
+          // Ámbar sólo cuando hay desaparecidas: son las que no se arreglan
+          // solas. Un atraso de la jerarquía lo cierra la próxima corrida del
+          // cron y no amerita el color de un problema.
+          tone={frescuraFilas.desaparecidas > 0 ? 'warn' : 'neutral'}
+          title="Filas con el dato atrasado"
+        >
+          <span className="flex flex-col gap-1">
+            {frasesFrescuraFilas.map((frase) => (
+              <span key={frase}>{frase}</span>
+            ))}
+          </span>
+        </Banner>
+      )}
+
+      <Card title={NIVEL_LABEL[nivel]} hint={`viendo ${filas.length} de ${fmtInt(data.totales.filas)} fila(s)`}>
         {loading && filas.length === 0 ? (
           <Skeleton variant="table" rows={8} />
         ) : filas.length === 0 ? (
@@ -961,6 +1729,8 @@ export function GestorAnuncios({
             onRenombrarFila={(fila) => abrirConfirmacion('rename', {}, [fila.objectId])}
             enProceso={enProceso}
             zona={data.rango.timezone}
+            umbralFrescura={umbralFrescura}
+            ahora={ahoraFrescura}
           />
         )}
         <Paginacion
@@ -984,6 +1754,11 @@ export function GestorAnuncios({
                     : confirmacion.previa
           }
           ejecutando={ejecutando}
+          // R1 c4: mientras el importe no cumpla la regla, Ejecutar queda
+          // deshabilitado y el diálogo dice por qué. La misma lectura que arma
+          // el payload, así no hay forma de habilitar el botón para un texto
+          // que después no se puede mandar (R1 c5).
+          bloqueo={confirmacion.accion === 'budget_set' ? presupuestoDialogo.bloqueo : null}
           onConfirmar={() => void ejecutarLote()}
           onCancelar={cerrarConfirmacion}
         >

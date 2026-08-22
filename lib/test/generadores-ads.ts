@@ -35,6 +35,41 @@ const isoDate: fc.Arbitrary<string> = fc
   })
   .map((d) => d.toISOString());
 
+/**
+ * Frescura_Objeto y marca de desaparición (spec frescura-y-acciones-anuncios,
+ * R3.1). Los dos campos se generan JUNTOS porque no son independientes: un
+ * objeto que Meta deja de devolver conserva el `syncedAt` de la última corrida
+ * en que sí vino y recibe `desaparecidoAt` en una corrida POSTERIOR, así que
+ * `desaparecidoAt > syncedAt` siempre. Generarlos por separado produciría
+ * contraejemplos imposibles (desaparecido antes de haberse sincronizado) y las
+ * propiedades de las tasks 8 y 15 fallarían por un dato que la base no puede
+ * tener.
+ *
+ * El caso desaparecido sale ~1 de cada 4: bastante para que las propiedades que
+ * lo consumen lo vean, sin volverlo el caso típico, que en la base no lo es.
+ */
+const genFrescura: fc.Arbitrary<{ syncedAt: string | null; desaparecidoAt: string | null }> = fc
+  .tuple(
+    fc.option(isoDate, { nil: null }),
+    // Cuánto pasó entre el último sync confirmado y la corrida que lo marcó
+    // ausente: de un minuto a treinta días. null = Meta lo sigue devolviendo.
+    fc.oneof(
+      { weight: 3, arbitrary: fc.constant(null) },
+      { weight: 1, arbitrary: fc.integer({ min: 60_000, max: 30 * 24 * 3_600_000 }) },
+    ),
+  )
+  .map(([syncedAt, desdeMs]) => ({
+    syncedAt,
+    desaparecidoAt:
+      desdeMs === null
+        ? null
+        : // Sin `syncedAt` (objeto que nunca se confirmó) la marca igual existe:
+          // se ancla en el extremo de la ventana de `isoDate`.
+          new Date(
+            (syncedAt === null ? Date.parse('2025-01-01T00:00:00Z') : Date.parse(syncedAt)) + desdeMs,
+          ).toISOString(),
+  }));
+
 export function genMetricasObjeto(): fc.Arbitrary<MetricasObjeto> {
   return fc
     .tuple(
@@ -74,6 +109,7 @@ export function genMetricasObjeto(): fc.Arbitrary<MetricasObjeto> {
       maybeNum(0, 50),
       maybeNum(0, 50),
       fc.option(isoDate, { nil: null }),
+      genFrescura,
     )
     .map((t) => {
       const [
@@ -113,6 +149,7 @@ export function genMetricasObjeto(): fc.Arbitrary<MetricasObjeto> {
         alcance,
         frecuencia,
         inicioProgramado,
+        frescura,
       ] = t;
       return {
         level,
@@ -155,6 +192,8 @@ export function genMetricasObjeto(): fc.Arbitrary<MetricasObjeto> {
         alcance,
         frecuencia,
         inicioProgramado,
+        syncedAt: frescura.syncedAt,
+        desaparecidoAt: frescura.desaparecidoAt,
       };
     });
 }

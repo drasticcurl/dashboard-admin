@@ -54,6 +54,8 @@ function row(over: Partial<RowMetricas>): RowMetricas {
     alcance: null,
     alcanceImpresiones: null,
     inicioProgramado: null,
+    syncedAt: null,
+    desaparecidoAt: null,
     ...over,
   };
 }
@@ -118,6 +120,47 @@ describe('filaDesdeRow (los cuatro cocientes y el mapeo)', () => {
     const f = filaDesdeRow('ad', row({ spendEur: '10', impressions: '0', clicks: '0' }));
     expect(f.ctr).toBeNull();
     expect(f.cpcEur).toBeNull();
+  });
+
+  // Frescura de la Jerarquía (R3.1). Los timestamptz llegan como Date con el
+  // driver de pg, y salen como ISO: la UI compara contra el umbral en ms.
+  it('synced_at y desaparecido_at salen en ISO, y la fila desaparecida conserva su sync viejo', () => {
+    const f = filaDesdeRow(
+      'adset',
+      row({
+        syncedAt: new Date('2026-08-12T10:00:00.000Z'),
+        desaparecidoAt: new Date('2026-08-13T10:00:00.000Z'),
+      }),
+    );
+    expect(f.syncedAt).toBe('2026-08-12T10:00:00.000Z');
+    expect(f.desaparecidoAt).toBe('2026-08-13T10:00:00.000Z');
+    // La marca es POSTERIOR al último sync confirmado: el objeto que no vino no
+    // refresca su synced_at.
+    expect(Date.parse(f.desaparecidoAt!)).toBeGreaterThan(Date.parse(f.syncedAt!));
+  });
+
+  it('objeto presente → desaparecidoAt null; fila de solo-gasto → los dos null', () => {
+    const presente = filaDesdeRow('adset', row({ syncedAt: new Date('2026-08-12T10:00:00.000Z'), desaparecidoAt: null }));
+    expect(presente.desaparecidoAt).toBeNull();
+
+    // Las filas del UNION ALL con `gasto` no tienen fila en la Jerarquía: el
+    // SELECT las trae con NULL en las dos columnas.
+    const soloGasto = filaDesdeRow('adset', row({ syncedAt: null, desaparecidoAt: null }));
+    expect(soloGasto.syncedAt).toBeNull();
+    expect(soloGasto.desaparecidoAt).toBeNull();
+  });
+
+  it('una propiedad ausente no tira: el mapeo la trata como null', () => {
+    // Guarda defensiva, no un caso que la query produzca hoy. `base` enumera sus
+    // columnas una por una: si una capa de proyección dejara de reenviarlas, pg
+    // no devolvería la propiedad y `new Date(undefined)` tiraría RangeError con
+    // la tabla entera. El cast es a propósito: el tipo ya no admite el hueco.
+    const sinLaColumna = row({});
+    delete (sinLaColumna as Partial<RowMetricas>).syncedAt;
+    delete (sinLaColumna as Partial<RowMetricas>).desaparecidoAt;
+    const f = filaDesdeRow('adset', sinLaColumna);
+    expect(f.syncedAt).toBeNull();
+    expect(f.desaparecidoAt).toBeNull();
   });
 });
 

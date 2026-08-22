@@ -130,6 +130,29 @@ export type MetricasObjeto = {
 
   /** Inicio programado que devolvió Meta, ISO 8601. null = sin inicio (R11 c8). */
   inicioProgramado: string | null;
+
+  // ── Agregados de frescura-y-acciones-anuncios (R3.1). OBLIGATORIOS y
+  // `| null`, por la misma regla del encabezado: son dos hechos distintos y
+  // ninguno se puede quedar en `—` sin que nadie se entere. ────────────────
+
+  /**
+   * Cuándo la Sync_Jerarquia confirmó este objeto contra Meta por última vez,
+   * ISO 8601 (`synced_at` de la fila). Es la Frescura_Objeto: distinta de la
+   * frescura de la CUENTA, que vive en `ad_accounts.last_hierarchy_sync_at`.
+   * null = la fila no viene de la Jerarquía (objeto con gasto y sin fila).
+   */
+  syncedAt: string | null;
+  /**
+   * Desde cuándo Meta dejó de devolver el objeto, ISO 8601. null = Meta lo
+   * sigue devolviendo, que es el caso normal.
+   *
+   * NO es derivable de `syncedAt`: un objeto desaparecido hace cinco días y uno
+   * cuyo sync viene fallando hace cinco días tienen el mismo `syncedAt` viejo y
+   * son problemas distintos (design §1). El objeto desaparecido conserva su
+   * `syncedAt` de la última corrida en que sí vino, así que `desaparecidoAt`
+   * siempre es POSTERIOR a `syncedAt`, nunca al revés.
+   */
+  desaparecidoAt: string | null;
 };
 
 export type PeriodoAds = 'today' | 'yesterday' | '7d' | '7d_excl_today';
@@ -226,6 +249,37 @@ export type ResultadoMetricas = {
   orden: { clave: ClaveOrden; dir: 'asc' | 'desc' };
   /** Cuando alguna Metricas_Rango se pidió y no se pudo traer. null = sin problema. */
   alcanceError: string | null;
+
+  /**
+   * Los totales del FILTRO COMPLETO, no de la página (R7.1, Property 9). Se
+   * calculan en SQL sobre la misma cadena de CTEs que las filas, sin OFFSET ni
+   * LIMIT, así que son una función del filtro y no de la paginación.
+   *
+   * OBLIGATORIO y no anulable: toda llamada devuelve uno. Sin filas los seis
+   * campos son 0, que es un total real y no un hueco.
+   *
+   * `netEur` y `profitEur` son las SUMAS de los valores por fila (mismas
+   * expresiones que produce cada `MetricasObjeto`), no un neto recalculado
+   * sobre los totales: así el total no puede separarse de lo que la tabla
+   * muestra.
+   *
+   * `filas` NO es redundante con `total`: `total` sale de un `count(*) OVER ()`
+   * de la query de filas, así que es relativo al cursor en el camino `after` y
+   * colapsa a 0 cuando la página pedida quedó más allá del final. `filas` es
+   * el conteo del filtro, siempre.
+   *
+   * NO hay cocientes acá (ROI, ROAS, CPA): el cociente de los totales NO es la
+   * suma de los cocientes, y quien lo necesite lo deriva de estos campos con la
+   * regla de siempre — null y no 0 cuando el denominador es cero.
+   */
+  totales: {
+    spendEur: number;
+    revenueEur: number;
+    netEur: number;
+    profitEur: number;
+    sales: number;
+    filas: number;
+  };
 };
 
 export type FirmaGetMetricasAds = (f: FiltrosAds) => Promise<ResultadoMetricas>;

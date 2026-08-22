@@ -75,6 +75,8 @@ function fila(level: MetricasObjeto['level'], objectName: string | null): Metric
     alcance: 80,
     frecuencia: 1.25,
     inicioProgramado: null,
+    syncedAt: '2026-08-12T10:00:00.000Z',
+    desaparecidoAt: null,
   };
 }
 

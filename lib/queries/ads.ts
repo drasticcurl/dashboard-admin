@@ -131,6 +131,16 @@ export type RowMetricas = {
 
   /** Inicio programado de la jerarquía (R11 c8). */
   inicioProgramado: Date | string | null;
+
+  /**
+   * Frescura de la Jerarquía (R3.1). Las tres ramas de la jerarquía traen las
+   * columnas del objeto y la rama de solo-gasto del `UNION ALL` las trae en
+   * `NULL`, así que la propiedad SIEMPRE viene: obligatorias y anulables, sin
+   * `?`. El `null` de la rama de solo-gasto es un dato, no un hueco: significa
+   * "este objeto no está en la Jerarquía".
+   */
+  syncedAt: Date | string | null;
+  desaparecidoAt: Date | string | null;
 };
 
 /**
@@ -213,7 +223,59 @@ export function filaDesdeRow(level: NivelAdsValido, row: RowMetricas): MetricasO
         : row.inicioProgramado instanceof Date
           ? row.inicioProgramado.toISOString()
           : new Date(row.inicioProgramado).toISOString(),
+    // ── Frescura de la Jerarquía (R3.1). Los dos son hechos distintos: cuándo
+    // se confirmó el objeto y desde cuándo Meta dejó de devolverlo. Las filas
+    // que salen del UNION ALL con `gasto` (objetos con gasto sin fila en la
+    // Jerarquía) traen NULL en las dos, que es correcto: nunca se sincronizaron
+    // ni desaparecieron. ──────────────────────────────────────────────────
+    syncedAt: isoDesdeRow(row.syncedAt),
+    desaparecidoAt: isoDesdeRow(row.desaparecidoAt),
   };
+}
+
+/**
+ * La fila del agregado del filtro completo (R7.1). Todo llega como string:
+ * `sum(numeric)` es numeric, `sum(int)` es bigint y `count(*)` es bigint, y el
+ * driver los pasa sin convertir para no perder precisión.
+ */
+export type RowTotales = {
+  spendEur: string;
+  revenueEur: string;
+  netEur: string;
+  profitEur: string;
+  sales: string;
+  filas: string;
+};
+
+/**
+ * Los totales del filtro completo. El agregado no tiene GROUP BY, así que
+ * SIEMPRE devuelve una fila; el `null` se contempla igual porque `q1` lo
+ * permite en el tipo, y un filtro sin filas vale 0 en los seis campos.
+ */
+export function totalesDesdeRow(row: RowTotales | null): ResultadoMetricas['totales'] {
+  return {
+    spendEur: Number(row?.spendEur ?? 0),
+    revenueEur: Number(row?.revenueEur ?? 0),
+    netEur: Number(row?.netEur ?? 0),
+    profitEur: Number(row?.profitEur ?? 0),
+    sales: Number(row?.sales ?? 0),
+    filas: Number(row?.filas ?? 0),
+  };
+}
+
+/**
+ * timestamptz de pg (Date con el driver, string si alguien castea a text) → ISO
+ * 8601, conservando el null. Sigue aceptando `undefined` y tratándolo como
+ * `null` aunque el tipo ya no lo permita: si algún día una capa de proyección
+ * deja de reenviar la columna, la propiedad llega ausente y
+ * `new Date(undefined).toISOString()` tira RangeError. Una fecha inválida
+ * también devuelve null: preferimos la columna en `—` antes que una excepción
+ * que voltea la tabla entera.
+ */
+function isoDesdeRow(v: Date | string | null | undefined): string | null {
+  if (v === null || v === undefined) return null;
+  const d = v instanceof Date ? v : new Date(v);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
 }
 
 /** bigint/numeric de pg (string) → number, conservando el null. */
@@ -297,7 +359,8 @@ function jerarquiaObjetos(level: NivelAdsValido, filtros: { status: string }): s
               WHEN c.lifetime_budget IS NOT NULL THEN 'lifetime'
               ELSE NULL END AS "budgetMode",
          CASE WHEN c.daily_budget IS NOT NULL THEN c.daily_budget / 100.0 ELSE NULL END AS "dailyBudgetEur",
-         c.start_time AS "inicioProgramado"
+         c.start_time AS "inicioProgramado",
+         c.synced_at AS "syncedAt", c.desaparecido_at AS "desaparecidoAt"
     FROM jerarquia_camps c
    WHERE ${vigencia}${filtros.status}`;
     }
@@ -313,7 +376,12 @@ function jerarquiaObjetos(level: NivelAdsValido, filtros: { status: string }): s
               WHEN s.lifetime_budget IS NOT NULL THEN 'lifetime'
               ELSE NULL END AS "budgetMode",
          CASE WHEN s.daily_budget IS NOT NULL THEN s.daily_budget / 100.0 ELSE NULL END AS "dailyBudgetEur",
-         s.start_time AS "inicioProgramado"
+         s.start_time AS "inicioProgramado",
+         -- Calificadas con el alias del conjunto y no a secas: esta rama lo une
+         -- con su campaña y las dos tablas tienen las dos columnas. La frescura
+         -- que la fila muestra es la DEL OBJETO del nivel pedido (R3.1), no la
+         -- de su padre.
+         s.synced_at AS "syncedAt", s.desaparecido_at AS "desaparecidoAt"
     FROM jerarquia_sets s
     JOIN jerarquia_camps c ON c.campaign_id = s.campaign_id
    WHERE ${vigencia}${filtros.status}`;
@@ -326,7 +394,8 @@ function jerarquiaObjetos(level: NivelAdsValido, filtros: { status: string }): s
          a."funnelId",
          a.status, a.effective_status AS "effectiveStatus",
          NULL::text AS "budgetLevel", NULL::text AS "budgetMode", NULL::numeric AS "dailyBudgetEur",
-         NULL::timestamptz AS "inicioProgramado"
+         NULL::timestamptz AS "inicioProgramado",
+         a.synced_at AS "syncedAt", a.desaparecido_at AS "desaparecidoAt"
     FROM jerarquia_ads a
    WHERE ${vigencia}${filtros.status}`;
     }
@@ -539,7 +608,12 @@ export async function getMetricasAds(f: FiltrosAds): Promise<ResultadoMetricas> 
            cu."funnelId",
            NULL::text AS status, NULL::text AS "effectiveStatus",
            NULL::text AS "budgetLevel", NULL::text AS "budgetMode", NULL::numeric AS "dailyBudgetEur",
-           NULL::timestamptz AS "inicioProgramado"
+           NULL::timestamptz AS "inicioProgramado",
+           -- Frescura en NULL y no en now(): esta rama son objetos con gasto en
+           -- ad_spend que NO tienen fila en la Jerarquía, así que nunca se
+           -- sincronizaron ni desaparecieron. Un now() acá los dibujaría como
+           -- los más frescos de la tabla, que es exactamente lo contrario.
+           NULL::timestamptz AS "syncedAt", NULL::timestamptz AS "desaparecidoAt"
       FROM gasto g
       JOIN cuenta cu ON cu."accountId" = g."accountId"
      WHERE NOT EXISTS (SELECT 1 FROM jerarquia_objetos h
@@ -579,7 +653,11 @@ export async function getMetricasAds(f: FiltrosAds): Promise<ResultadoMetricas> 
            al.reach AS "alcance",
            al.impressions AS "alcanceImpresiones",
            u."ultimaAccionAt",
-           o."inicioProgramado"
+           o."inicioProgramado",
+           -- Re-proyectadas explícitamente: este SELECT enumera sus columnas una
+           -- por una, así que una que llega a objetos y no se nombra acá no
+           -- llega nunca a la fila (medidas y el SELECT final sí usan estrella).
+           o."syncedAt", o."desaparecidoAt"
       FROM objetos o
       LEFT JOIN gasto g ON g."accountId" = o."accountId" AND g."objectId" = o."objectId"
       LEFT JOIN ventas v ON v.account_id = o."accountId" AND v."objectId" = o."objectId"
@@ -627,6 +705,15 @@ export async function getMetricasAds(f: FiltrosAds): Promise<ResultadoMetricas> 
      WHERE (NOT ${pOcultarSinDatos}::boolean OR b."spendEur" > 0 OR b."sales" > 0)
   )`;
 
+  // Los parámetros que `cadenaComun` referencia, congelados ACÁ: `p()` empuja
+  // sobre el mismo `params` y las ramas de la query de filas todavía van a
+  // agregar los suyos (offset/limit, o after/limit). Postgres deduce la aridad
+  // del $n más alto que el SQL nombra, así que ejecutar `cadenaComun` con el
+  // array completo tira `bind message supplies N parameters, but prepared
+  // statement requires M`. El snapshot va antes de esas ramas y no después,
+  // para que agregar un filtro nuevo arriba no obligue a tocar un número.
+  const paramsCadenaComun = params.slice();
+
   // `page` tiene precedencia sobre `after` (design §4). Con `after` se conserva
   // el comportamiento viejo por compatibilidad; con `page`, el orden es el del
   // Orden_Tabla resuelto SOBRE TODO el conjunto filtrado, y el recorte de
@@ -651,7 +738,32 @@ SELECT m.*, count(*) OVER () AS "totalFilas"
  LIMIT ${p(lim)}`;
       })();
 
-  // ── 4. Ventas sin atribuir (D-A8), para el nivel pedido. ──
+  // ── 4. Los totales del FILTRO COMPLETO (R7.1, Property 9). ──
+  // La MISMA `cadenaComun` que las filas, sin OFFSET ni LIMIT: el total es una
+  // función del filtro y no de la página. Corre sobre `medidas` y no sobre
+  // `base` porque el filtro `ocultarSinDatos` vive en el WHERE de `medidas`, y
+  // un total que incluyera filas que la tabla esconde no sería el de lo que el
+  // usuario ve.
+  //
+  // `netEur` y `profitEur` se SUMAN de las columnas que `medidas` ya calcula en
+  // lugar de rearmar la fórmula: dos copias de `revenue − refunded − comisiones
+  // − costos` se separan en el primer cambio, y entonces el total dejaría de
+  // cerrar contra las filas.
+  //
+  // Sin cocientes a propósito (ROI/ROAS/CPA): el cociente de las sumas no es la
+  // suma de los cocientes, y devolverlos acá invitaría a promediarlos.
+  // COALESCE porque sum() sobre cero filas es NULL, y el total de un filtro
+  // vacío es 0.
+  const totalesSql = `${cadenaComun}
+SELECT COALESCE(sum(m."spendEur"), 0)   AS "spendEur",
+       COALESCE(sum(m."revenueEur"), 0) AS "revenueEur",
+       COALESCE(sum(m."netEur"), 0)     AS "netEur",
+       COALESCE(sum(m."profitEur"), 0)  AS "profitEur",
+       COALESCE(sum(m."sales"), 0)      AS "sales",
+       count(*)                         AS "filas"
+  FROM medidas m`;
+
+  // ── 5. Ventas sin atribuir (D-A8), para el nivel pedido. ──
   const sinSql = `WITH${com}
 SELECT count(*) FILTER (WHERE status = 'approved')::int AS "sales",
        COALESCE(sum(amount_eur) FILTER (WHERE status = 'approved'), 0) AS "revenueEur"
@@ -660,8 +772,10 @@ SELECT count(*) FILTER (WHERE status = 'approved')::int AS "sales",
 
   const sinParams: unknown[] = [accountIds, desde, hasta, tz];
 
-  const [filasRaw, sinRow] = await Promise.all([
+  // Las tres en el mismo Promise.all: el agregado no agrega una vuelta de red.
+  const [filasRaw, totalesRow, sinRow] = await Promise.all([
     q<RowMetricas & { totalFilas: string }>(filasSql, params),
+    q1<RowTotales>(totalesSql, paramsCadenaComun),
     q1<{ sales: number; revenueEur: string }>(sinSql, sinParams),
   ]);
 
@@ -683,6 +797,7 @@ SELECT count(*) FILTER (WHERE status = 'approved')::int AS "sales",
     totalPaginas,
     orden: { clave: claveOrden, dir },
     alcanceError: null,
+    totales: totalesDesdeRow(totalesRow),
   };
 }
 

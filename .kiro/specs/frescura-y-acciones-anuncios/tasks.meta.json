@@ -1,0 +1,591 @@
+{
+  "pbtResults": {},
+  "executionHistory": {
+    "1.1 Crear `lib/ads/presupuesto.ts`": [
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787315294179
+      },
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787315318108
+      },
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787315528440
+      }
+    ],
+    "1.2 Escribir `lib/ads/presupuesto.test.ts`": [
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787315294327
+      },
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787315544381
+      },
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787315831845
+      }
+    ],
+    "2.1 Crear `lib/ads/mensajes.ts`": [
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787315294396
+      },
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787315838433
+      },
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787316263916
+      }
+    ],
+    "2.2 Escribir `lib/ads/mensajes.test.ts`": [
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787315294466
+      },
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787316272848
+      },
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787317333660
+      }
+    ],
+    "3.1 Dar al diálogo de confirmación un bloqueo declarado por el padre": [
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787315294519
+      },
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787317340602
+      },
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787317562376
+      }
+    ],
+    "3.2 Corregir el armado del payload en `GestorAnuncios.tsx`": [
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787315294575
+      },
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787317567812
+      },
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787318292376
+      }
+    ],
+    "3.3 Poner mensajes explícitos en el schema del route": [
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787315294623
+      },
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787318299463
+      },
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787318949098
+      }
+    ],
+    "3.4 Corregir el motivo de celda de presupuesto no editable": [
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787315294721
+      },
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787318954097
+      },
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787319515269
+      }
+    ],
+    "4.1 Corregir dirección, reversión y guarda de doble disparo": [
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787315294752
+      },
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787319521624
+      },
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787320618354
+      }
+    ],
+    "4.2 Usar el mismo traductor en la ejecución de lote": [
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787315294802
+      },
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787320623856
+      },
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787321951851
+      }
+    ],
+    "4.3 Escribir tests del toggle": [
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787315294848
+      },
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787321957867
+      },
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787323212658
+      }
+    ],
+    "5. Crear la migración `db/migrations/025_ads_frescura.sql`": [
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787315294890
+      },
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787323220626
+      },
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787323731727
+      }
+    ],
+    "6.1 Escribir la marca en `lib/ads/jerarquia.ts`": [
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787315294919
+      },
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787323737943
+      },
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787324658732
+      }
+    ],
+    "6.2 Escribir `last_hierarchy_sync_at` y su error": [
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787315294953
+      },
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787324664252
+      },
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787325100011
+      }
+    ],
+    "6.3 Escribir tests de la marca de desaparición": [
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787315294999
+      },
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787325106702
+      },
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787326184624
+      }
+    ],
+    "7.1 Agregar los dos campos a `MetricasObjeto`": [
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787315295038
+      },
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787326192158
+      },
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787326841862
+      }
+    ],
+    "7.2 Traer las columnas en la consulta": [
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787315295077
+      },
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787326848812
+      },
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787327382368
+      }
+    ],
+    "7.3 Exponer el umbral de frescura al cliente": [
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787315295137
+      },
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787327389937
+      },
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787327793688
+      }
+    ],
+    "8. Señalar en la tabla las filas viejas y las desaparecidas": [
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787315295232
+      },
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787327800794
+      },
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787328895095
+      }
+    ],
+    "9.1 Crear `lib/ads/liveJerarquia.ts`": [
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787315295280
+      },
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787328902200
+      },
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787329259546
+      }
+    ],
+    "9.2 Escribir `lib/ads/liveJerarquia.test.ts`": [
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787315295343
+      },
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787329266911
+      },
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787329776993
+      }
+    ],
+    "10. Invertir el orden en el endpoint de datos y enchufar la jerarquía": [
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787315295400
+      },
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787329785378
+      },
+      {
+        "executionId": "9ddb9282-e986-4650-acc7-afac2d54d670",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787346482662
+      }
+    ],
+    "11. Mostrar las dos edades en la barra de frescura": [
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787315295446
+      },
+      {
+        "executionId": "9ddb9282-e986-4650-acc7-afac2d54d670",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787345278299
+      }
+    ],
+    "12. Descartar respuestas de datos fuera de orden": [
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787315295496
+      },
+      {
+        "executionId": "9ddb9282-e986-4650-acc7-afac2d54d670",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787345283102
+      }
+    ],
+    "13. Escribir el test que fija el orden del endpoint": [
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787315295550
+      },
+      {
+        "executionId": "9ddb9282-e986-4650-acc7-afac2d54d670",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787345288251
+      }
+    ],
+    "14.1 Agregar la relectura selectiva al preflight": [
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787315295611
+      },
+      {
+        "executionId": "9ddb9282-e986-4650-acc7-afac2d54d670",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787345292165
+      }
+    ],
+    "14.2 Registrar la Discrepancia en la auditoría": [
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787315295638
+      },
+      {
+        "executionId": "9ddb9282-e986-4650-acc7-afac2d54d670",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787345298101
+      }
+    ],
+    "14.3 Incluir la antigüedad en el mensaje de omisión": [
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787315295669
+      },
+      {
+        "executionId": "9ddb9282-e986-4650-acc7-afac2d54d670",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787345302702
+      }
+    ],
+    "15. Advertir cuando el padre está pausado y cuando el objeto desapareció": [
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787315295787
+      },
+      {
+        "executionId": "9ddb9282-e986-4650-acc7-afac2d54d670",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787345306928
+      }
+    ],
+    "16. Limpiar la marca de desaparición después de una escritura confirmada": [
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787315295861
+      },
+      {
+        "executionId": "9ddb9282-e986-4650-acc7-afac2d54d670",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787345311026
+      }
+    ],
+    "17.1 Agregar el agregado a `getMetricasAds`": [
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787315295920
+      },
+      {
+        "executionId": "9ddb9282-e986-4650-acc7-afac2d54d670",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787345315186
+      }
+    ],
+    "17.2 Hacer que la barra de KPIs lea el agregado": [
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787315295969
+      },
+      {
+        "executionId": "9ddb9282-e986-4650-acc7-afac2d54d670",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787345329212
+      }
+    ],
+    "17.3 Escribir el test de los totales": [
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787315296001
+      },
+      {
+        "executionId": "9ddb9282-e986-4650-acc7-afac2d54d670",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787345349235
+      }
+    ],
+    "18. Verificar el conjunto": [
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787315296065
+      },
+      {
+        "executionId": "9ddb9282-e986-4650-acc7-afac2d54d670",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787345360222
+      },
+      {
+        "executionId": "9ddb9282-e986-4650-acc7-afac2d54d670",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787346455929
+      }
+    ],
+    "1. Extraer la regla de validez del presupuesto a un módulo propio": [
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787315831964
+      }
+    ],
+    "2. Centralizar la traducción de respuestas del Endpoint_Acciones": [
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787317333709
+      }
+    ],
+    "3. Hacer que el presupuesto que se envía sea el que el usuario escribió": [
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787319515465
+      }
+    ],
+    "4. Reescribir el toggle de estado": [
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787323212735
+      }
+    ],
+    "6. Marcar y desmarcar los objetos que Meta deja de devolver": [
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787326184791
+      }
+    ],
+    "7. Llevar la frescura al contrato de salida": [
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787327793729
+      }
+    ],
+    "9. Crear el sync de Jerarquía en vivo": [
+      {
+        "executionId": "5eba47fa-d8bb-42ad-a249-91dcb308afe8",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787329777031
+      }
+    ],
+    "14. Releer contra Meta los objetos viejos antes de decidir una omisión": [
+      {
+        "executionId": "9ddb9282-e986-4650-acc7-afac2d54d670",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787345302859
+      }
+    ],
+    "17. Calcular los totales en el servidor sobre el filtro completo": [
+      {
+        "executionId": "9ddb9282-e986-4650-acc7-afac2d54d670",
+        "chatSessionId": "sess_218e9b80-1463-4542-afe5-351867930515",
+        "timestamp": 1787345352886
+      }
+    ]
+  }
+}

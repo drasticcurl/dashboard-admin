@@ -31,7 +31,11 @@ export type FilaPrevisualizacion = {
   motivo: MotivoOmisionLote | null;
   /** No ejecutable: el diálogo lo marca y no lo manda (R12 c6). */
   ejecutable: boolean;
-  /** Aviso que no bloquea: nombre repetido entre hermanos (R12 c7), techo, etc. */
+  /**
+   * Aviso que no bloquea por sí mismo: nombre repetido entre hermanos (R12 c7),
+   * techo, padre apagado (R6.4) y Objeto_Desaparecido (R3.4). Cuando hay más de
+   * uno viajan todos, separados por ` · `.
+   */
   advertencia: string | null;
 };
 
@@ -46,6 +50,26 @@ export type DesgloseDuplicacion = {
   porObjeto: ReadonlyMap<string, { conjuntos: number; anuncios: number }>;
 };
 
+/**
+ * El `status` de los ANTEPASADOS de un objeto (R6.4). No vive en
+ * `MetricasObjeto` y no se puede derivar de él: un objeto no trae la fila de su
+ * padre, y el `effectiveStatus` del propio objeto no alcanza (ver
+ * `advertenciaPadreApagado`).
+ *
+ * Se llama «padres» en plural y no «padre» porque un anuncio tiene dos
+ * antepasados que lo pueden dejar sin entregar —su conjunto y su campaña— y
+ * `FiltrosAds.ocultarPadreApagado` ya usa «padre» con ese mismo alcance amplio.
+ *
+ * `null` en cualquiera de los dos es "no se sabe" o "no aplica", nunca "está
+ * activo": con `null` no se advierte nada.
+ */
+export type EstadoPadres = {
+  /** `status` de la campaña. null a nivel campaña: un objeto no es su padre. */
+  campania: string | null;
+  /** `status` del conjunto. Sólo lo tienen los anuncios; null en los otros. */
+  conjunto: string | null;
+};
+
 export type ParametrosAccion = {
   /** Duplicación: copias por objeto, entera 1..5, default 1 (R10 c4). */
   copias?: number;
@@ -57,6 +81,14 @@ export type ParametrosAccion = {
   modo?: ModoRenombre;
   /** Duplicación: el desglose de descendientes por objeto origen (R14 c5). */
   desglose?: DesgloseDuplicacion;
+  /**
+   * `status` de los antepasados, por objectId (R6.4). Mismo patrón que
+   * `desglose`: dato de la jerarquía que la fila no trae y que el llamador
+   * consigue de donde puede —el servidor lo lee en `leerObjetos`— sin que este
+   * módulo toque nada. Ausente, o sin entrada para un objeto, es "no se sabe" y
+   * no produce advertencia.
+   */
+  padres?: ReadonlyMap<string, EstadoPadres>;
 };
 
 export type Previsualizacion = {
@@ -130,6 +162,90 @@ function fmtEur(n: number | null): string | null {
  *  cuenta para las campañas. Sirve para armar los `ocupados` de los nombres. */
 function padreDe(fila: MetricasObjeto): string {
   return fila.level === 'adset' ? fila.campaignId : fila.accountId;
+}
+
+/**
+ * Un antepasado con este `status` NO entrega, y por lo tanto el objeto de abajo
+ * tampoco, por más que su propio `status` quede en ACTIVE.
+ *
+ * Cualquier cosa que no sea ACTIVE cuenta: PAUSED es el caso de R6.4, y
+ * ARCHIVED o DELETED tampoco entregan. `null` y `''` son "no se sabe" y no
+ * advierten nada: una advertencia inventada sobre un dato que no tenemos es
+ * peor que el silencio.
+ */
+function padreApagado(status: string | null): boolean {
+  return status !== null && status !== '' && status !== 'ACTIVE';
+}
+
+/**
+ * La advertencia de R6.4: qué decir cuando se activa un objeto cuyo antepasado
+ * está apagado. null = no hay nada que advertir.
+ *
+ * POR QUÉ NO ALCANZA `effectiveStatus`. Parece que sí —`CAMPAIGN_PAUSED` y
+ * `ADSET_PAUSED` son exactamente Meta diciendo que el padre está apagado— pero
+ * Meta resuelve el `effective_status` con el estado PROPIO antes que con el del
+ * padre: un conjunto PAUSED bajo una campaña PAUSED viene con
+ * `effective_status = 'PAUSED'`, no `'CAMPAIGN_PAUSED'`. Verificado contra la
+ * base: cuando se escribió esto eran 37 de 169 conjuntos, y son justo los que
+ * alguien va a querer activar (un objeto que ya está ACTIVE no se activa).
+ * Derivar el padre del `effective_status` dejaría la advertencia muda
+ * exactamente en el caso que la task vino a cubrir.
+ *
+ * QUÉ TIENE QUE DECIR. Las tres cosas que el panel hoy no distingue, porque
+ * confirmó un cambio que era real y a la vez inútil: que el cambio se aplicó
+ * («queda activo»), que el objeto igual no va a entregar («no entrega») y qué
+ * hacer al respecto («hasta que se active la campaña»). Es una advertencia y no
+ * un bloqueo: activar un conjunto con la campaña pausada es legítimo cuando se
+ * está preparando algo para prender después.
+ */
+export function advertenciaPadreApagado(
+  nivel: NivelAds,
+  padres: EstadoPadres | undefined,
+): string | null {
+  if (nivel === 'campaign' || !padres) return null; // una campaña no tiene padre
+  const campania = padreApagado(padres.campania);
+  if (nivel === 'adset') {
+    return campania
+      ? 'la campaña está pausada: el conjunto queda activo pero no entrega hasta que se active la campaña'
+      : null;
+  }
+  // Nivel anuncio: lo apaga cualquiera de los dos antepasados, y el mensaje
+  // nombra al que hay que ir a prender. Si son los dos, los dos.
+  const conjunto = padreApagado(padres.conjunto);
+  if (conjunto && campania) {
+    return 'el conjunto y la campaña están pausados: el anuncio queda activo pero no entrega hasta que se activen los dos';
+  }
+  if (conjunto) {
+    return 'el conjunto está pausado: el anuncio queda activo pero no entrega hasta que se active el conjunto';
+  }
+  if (campania) {
+    return 'la campaña está pausada: el anuncio queda activo pero no entrega hasta que se active la campaña';
+  }
+  return null;
+}
+
+/**
+ * La advertencia de R3.4: el objeto está marcado como Objeto_Desaparecido, o
+ * sea que Meta dejó de devolverlo y el «antes» que se muestra sale de una copia
+ * que ya nadie confirma. null = Meta lo sigue devolviendo.
+ *
+ * NO bloquea (R3.5): la desaparición puede ser transitoria y el objeto puede
+ * seguir siendo escribible. Sólo se dice antes de ejecutar.
+ */
+function advertenciaDesaparecido(fila: MetricasObjeto): string | null {
+  if (fila.desaparecidoAt === null) return null;
+  const desde = fmtFecha(fila.desaparecidoAt);
+  const cola = 'Meta ya no lo devuelve y la escritura puede fallar';
+  return desde === null
+    ? `objeto desaparecido: ${cola}`
+    : `objeto desaparecido desde el ${desde}: ${cola}`;
+}
+
+/** Suma una advertencia sin pisar la que ya había: dos hechos distintos sobre
+ *  la misma fila se cuentan los dos. null no agrega nada. */
+function sumarAdvertencia(base: FilaPrevisualizacion, texto: string | null): void {
+  if (texto === null) return;
+  base.advertencia = base.advertencia === null ? texto : `${base.advertencia} · ${texto}`;
 }
 
 function vacia(fila: MetricasObjeto): FilaPrevisualizacion {
@@ -230,7 +346,35 @@ export function calcularPrevisualizacion(
   };
 }
 
+/**
+ * La fila de UN objeto, con las advertencias que no dependen de la acción ya
+ * sumadas encima de las que sí.
+ *
+ * La advertencia de Objeto_Desaparecido vive acá y no dentro del switch porque
+ * R3.4 la pide para TODA acción de escritura, no sólo para las de estado: el
+ * hecho es del objeto, no de lo que se le quiere hacer. Va después del switch y
+ * no en `vacia` porque varias ramas escriben `advertencia` y la pisarían.
+ *
+ * Las dos filas que `calcularPrevisualizacion` arma sin pasar por acá
+ * (`excede_tope_de_lote` y `no_pertenece_al_nivel`) quedan afuera a propósito:
+ * son rechazos del PEDIDO, no del objeto, no se ejecutan por ningún camino y no
+ * hay nada que advertir antes de una escritura que no va a ocurrir.
+ */
 function calcularFila(
+  accion: AccionAds,
+  nivel: NivelAds,
+  fila: MetricasObjeto,
+  filasTodas: readonly MetricasObjeto[],
+  planeados: Map<string, string>,
+  params: ParametrosAccion,
+  topes: { techoEur: number; topeLoteEur: number; minimoDiarioEur: number | null },
+): FilaPrevisualizacion {
+  const base = calcularFilaPorAccion(accion, nivel, fila, filasTodas, planeados, params, topes);
+  sumarAdvertencia(base, advertenciaDesaparecido(fila)); // R3.4
+  return base;
+}
+
+function calcularFilaPorAccion(
   accion: AccionAds,
   nivel: NivelAds,
   fila: MetricasObjeto,
@@ -251,10 +395,25 @@ function calcularFila(
         ESTADOS_NO_ESCRIBIBLES.has(fila.status ?? '') ||
         ESTADOS_NO_ESCRIBIBLES.has(fila.effectiveStatus ?? '')
       ) {
+        // El objeto no se puede escribir en ningún caso: el estado del padre no
+        // cambia nada y nombrarlo acá sería ruido sobre una fila que no se manda.
         base.motivo = 'campo_no_aplica';
         base.ejecutable = false;
-      } else if (fila.status === destino) {
-        base.motivo = 'ya_esta_en_ese_estado';
+      } else {
+        if (fila.status === destino) base.motivo = 'ya_esta_en_ese_estado';
+        // R6.4, sólo para `activate`. `pause` no lo lleva: pausar algo que ya no
+        // entregaba deja al objeto exactamente donde el usuario pidió, así que
+        // no hay ninguna distancia entre lo que el panel confirma y lo que pasa
+        // en Meta. La advertencia existe para cerrar esa distancia, y en `pause`
+        // sería ruido sobre la operación de lote más común.
+        //
+        // Se suma también cuando el motivo es `ya_esta_en_ese_estado`: el objeto
+        // ya está ACTIVE y sigue sin entregar, que es la otra mitad del mismo
+        // "parece que lo habilita pero realmente no lo hace". El usuario pidió
+        // activar; la respuesta que necesita es la misma se escriba o se omita.
+        if (accion === 'activate') {
+          sumarAdvertencia(base, advertenciaPadreApagado(nivel, params.padres?.get(fila.objectId)));
+        }
       }
       return base;
     }

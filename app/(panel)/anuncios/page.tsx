@@ -24,6 +24,7 @@
 import { q, q1 } from '@/lib/db';
 import { getMetricasAds } from '@/lib/queries/ads';
 import { ensureFreshAdSpend } from '@/lib/ads/live';
+import type { FrescuraJerarquia } from '@/lib/ads/liveJerarquia';
 import { today } from '@/lib/day';
 import type { NivelAds, PeriodoAds } from '@/lib/ads/tipos';
 import { listFunnels, nombreVisible } from '@/lib/funnels';
@@ -155,17 +156,71 @@ export default async function AnunciosPage({ searchParams }: { searchParams: Sea
   const hoy = await today(data.rango.timezone);
   const adsFreshness = await ensureFreshAdSpend(data.rango.to, hoy);
 
-  // ── La Vista_Por_Defecto, para el primer render (R3 c8) ──
+  // ── Los settings del primer render y la antigüedad de la Jerarquía ──
+  //
+  // Los settings son la Vista_Por_Defecto (R3 c8) y el umbral de
+  // Frescura_Objeto (task 7.3). Van acá porque el efecto del cliente NO corre en
+  // el primer render: sin el umbral, la primera pintura marcaría filas viejas
+  // contra un default y las marcas cambiarían solas al primer cambio de filtro.
+  //
+  // La edad de la Jerarquía va por lo mismo, y con un motivo más fuerte: la barra
+  // la muestra aparte de la del gasto (R4.5, task 11), pero el cliente sólo la
+  // recibe en las respuestas con `forzar`, o sea únicamente cuando el usuario
+  // aprieta Actualizar. Sin este valor la barra no tendría nada que decir de la
+  // Jerarquía hasta ese click, y el número quedaría invisible exactamente
+  // mientras nadie lo fuerza —que es cuando puede estar atrasado hasta 15
+  // minutos, el intervalo del cron, y cuando hay que poder verlo—.
+  //
+  // Se LEE, no se sincroniza. `ensureFreshJerarquia` acá dispararía una
+  // Sync_Jerarquia (cuatro llamadas a Meta por cuenta) en cada apertura de la
+  // pantalla, y el diseño le dejó un único disparador, el Boton_Actualizar
+  // (R4.8). El SQL es el de `leerFrescura` de lib/ads/liveJerarquia.ts —misma
+  // fila, mismo filtro por cuenta activa de Meta, y la edad calculada por
+  // Postgres y no por el reloj del navegador— porque ese módulo no exporta la
+  // lectura sin el sync.
+  //
+  // Las dos consultas en la misma vuelta: son independientes y en serie sólo
+  // sumarían latencia al primer render.
+  const [ajustes, jerarquia] = await Promise.all([
+    q1<{ vistas: unknown; umbral: unknown }>(
+      `SELECT (SELECT value FROM settings WHERE key = 'ads_vistas') AS "vistas",
+              (SELECT value FROM settings WHERE key = 'ads_frescura_umbral_segundos') AS "umbral"`,
+    ),
+    q1<{ syncedAt: string | null; age: string | null; err: string | null }>(
+      `SELECT last_hierarchy_sync_at::text AS "syncedAt",
+              EXTRACT(EPOCH FROM (now() - last_hierarchy_sync_at))::text AS age,
+              last_hierarchy_sync_error AS err
+         FROM ad_accounts
+        WHERE account_id = $1 AND active AND platform = 'meta'`,
+      [account],
+    ),
+  ]);
+
+  // `refreshed: false` porque este render no fue a Meta: es lo que distingue esta
+  // frescura de la que devuelve el endpoint cuando el botón la fuerza. Sin fila o
+  // sin reloj escrito, `ageSeconds` queda en `null` y la barra dice "nunca
+  // sincronizado", que es lo que pasa hasta la primera corrida del cron.
+  const jerarquiaFreshness: FrescuraJerarquia = {
+    syncedAt: jerarquia?.syncedAt ?? null,
+    ageSeconds:
+      jerarquia?.syncedAt != null && jerarquia.age != null
+        ? Math.round(Number(jerarquia.age))
+        : null,
+    refreshed: false,
+    error: jerarquia?.err ?? null,
+  };
+
   let vistaPorDefecto: Vista | null = null;
-  const repoRow = await q1<{ value: unknown }>(
-    `SELECT value FROM settings WHERE key = 'ads_vistas'`,
-  );
-  if (repoRow && repoRow.value !== null) {
-    const repo = parseRepoVistas(repoRow.value);
+  if (ajustes && ajustes.vistas !== null && ajustes.vistas !== undefined) {
+    const repo = parseRepoVistas(ajustes.vistas);
     if (repo?.porDefecto) {
       vistaPorDefecto = repo.vistas.find((v) => v.id === repo.porDefecto) ?? null;
     }
   }
+
+  // `settings.value` es jsonb: si no hay número, el default es el mismo 900 que
+  // seedeó la 025.
+  const frescuraUmbralSegundos = typeof ajustes?.umbral === 'number' ? ajustes.umbral : 900;
 
   // ── Nombres de los ids de la cascada, para el ChipCascada (R8 c4) ──
   const idsCascada = nivel === 'adset' || nivel === 'ad' ? campaignIds : [];
@@ -183,6 +238,7 @@ export default async function AnunciosPage({ searchParams }: { searchParams: Sea
       cuentas={cuentas}
       initialData={data}
       adsFreshness={adsFreshness}
+      jerarquiaFreshness={jerarquiaFreshness}
       nivelInicial={nivel}
       filtrosIniciales={{
         period,
@@ -196,6 +252,7 @@ export default async function AnunciosPage({ searchParams }: { searchParams: Sea
       }}
       vistaPorDefecto={vistaPorDefecto}
       nombresCascada={nombresCascada}
+      frescuraUmbralSegundos={frescuraUmbralSegundos}
     />
   );
 }

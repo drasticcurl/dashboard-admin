@@ -19,9 +19,11 @@
  * dirección, e insertar un conjunto antes que su campaña viola la FK y aborta
  * la transacción entera. Los tres niveles de una cuenta van en UNA transacción.
  *
- * NO SE BORRA NADA (P-A04). Un objeto que Meta dejó de devolver simplemente no
- * se refresca y su `synced_at` queda atrás. Borrarlo perdería el nombre, que es
- * lo que hace legible el historial de `ad_actions` semanas después.
+ * NO SE BORRA NADA (P-A04, R3.5). Un objeto que Meta dejó de devolver se MARCA
+ * en `desaparecido_at` (T6.1) y se queda con su `synced_at` viejo. Borrarlo
+ * perdería el nombre, que es lo que hace legible el historial de `ad_actions`
+ * semanas después, y perdería la fila a la que `ad_spend` le atribuye gasto
+ * histórico. Cuando el objeto vuelve a aparecer, la marca se quita (R3.6).
  */
 
 import { q, tx } from '../db';
@@ -37,7 +39,13 @@ export type ResultadoCuenta = {
   campanias: ResultadoNivel;
   conjuntos: ResultadoNivel;
   anuncios: ResultadoNivel;
-  /** Cuántos objetos quedaron sin refrescar en esta corrida (§5). */
+  /**
+   * Cuántos objetos quedaron sin refrescar en esta corrida (§5), y por lo tanto
+   * cuántos quedaron con `desaparecido_at` puesto (T6.1). Cuenta exactamente lo
+   * que la marca escribe: un nivel que no se reconcilia
+   * (ver `debeReconciliarDesaparecidos`) aporta 0, para que el reporte no
+   * anuncie desapariciones que no se escribieron.
+   */
   desaparecidos: number;
   /**
    * La moneda de la cuenta si NO es EUR, y por eso se salteó (D-A10, §4).
@@ -135,11 +143,68 @@ export function anularPresupuestoEnCBO(
   );
 }
 
+/**
+ * Si un nivel de la Jerarquía se reconcilia contra la marca de desaparición en
+ * esta corrida, dada la cantidad de objetos que Meta devolvió PARA ESE NIVEL.
+ *
+ * EL PELIGRO QUE EVITA. "Marcar todo lo que no vino" sólo es correcto si la
+ * lista de lo que vino está completa. Un fallo duro nunca llega hasta acá: los
+ * tres `fetch` salen en un mismo `Promise.all` y cualquier rechazo propaga hasta
+ * el `catch` de `sincronizarJerarquia` ANTES de que `escribirCuenta` escriba una
+ * sola fila, así que la cuenta entera queda sin tocar. Lo que sí llega es una
+ * respuesta HTTP 200 con `data: []`: `paginar` la devuelve como lista vacía, sin
+ * error, y con esa lista el UPDATE de la marca alcanzaría a la jerarquía COMPLETA
+ * de la cuenta en una sola corrida.
+ *
+ * POR QUÉ LA DECISIÓN ES NO MARCAR. Una lista vacía admite dos lecturas —"la
+ * cuenta se quedó sin objetos de este nivel" y "la lectura no trajo nada por un
+ * problema transitorio"— y no hay nada en la respuesta que las distinga. Los
+ * costos del error no son simétricos:
+ *
+ * - Marcar de más pone la advertencia sobre TODAS las filas de la cuenta, y con
+ *   la advertencia previa a las escrituras (T15) sobre todas las acciones, por un
+ *   problema que no existe. Una alarma que suena para todo no se lee más.
+ * - No marcar deja las cosas como están hoy: los objetos siguen visibles con su
+ *   `synced_at` viejo, que la tabla ya señala como dato viejo (T8), y la próxima
+ *   corrida que traiga datos reconcilia. El error se corrige solo.
+ *
+ * El precio de la elección: una cuenta que de verdad se quedó sin objetos nunca
+ * los marca, y quedan como "viejos" en lugar de "desaparecidos". Es el lado
+ * barato del error, y las dos condiciones se muestran igual de visibles.
+ *
+ * La decisión es POR NIVEL y no por cuenta porque son tres llamadas distintas a
+ * tres edges distintas de Meta: que la de conjuntos venga vacía no dice nada
+ * sobre la de campañas.
+ */
+export function debeReconciliarDesaparecidos(cantidadTraida: number): boolean {
+  return cantidadTraida > 0;
+}
+
 type CampaniaNivel = MetaCampaign & { budgetLevel: 'campaign' | 'adset' };
+
+/**
+ * Los ids que Meta devolvió en esta corrida, por nivel. Es la referencia con la
+ * que se decide qué está presente y qué desapareció.
+ *
+ * Van SIN filtrar por huérfanos a propósito: un conjunto cuya campaña no está ni
+ * en Meta ni en la base no se puede guardar (violaría la FK), pero Meta lo
+ * devolvió, así que no desapareció. Marcarlo diría lo contrario de lo que pasó.
+ * Queda con la marca en NULL y con el `synced_at` viejo, que es exactamente el
+ * par de hechos que ocurrió: "Meta lo sigue devolviendo" y "no se pudo refrescar".
+ */
+type IdsTraidos = {
+  campanias: readonly string[];
+  conjuntos: readonly string[];
+  anuncios: readonly string[];
+};
 
 /**
  * Trae la jerarquía completa de las cuentas activas y la guarda.
  * Idempotente: dos corridas seguidas dejan la base igual (upsert por PK).
+ *
+ * Además deja anotado por cuenta CUÁNDO terminó su corrida y con qué error, en
+ * `ad_accounts.last_hierarchy_sync_at` / `last_hierarchy_sync_error` (T6.2,
+ * R4.4 / R4.5). Ver `anotarCorrida` y el comentario del punto donde se llama.
  */
 export async function sincronizarJerarquia(opts?: {
   cuentas?: string[]; // ausente = todas las activas de ad_accounts
@@ -175,9 +240,86 @@ export async function sincronizarJerarquia(opts?: {
             ? e.message
             : String(e);
     }
+
+    // ── El reloj de la corrida (T6.2, R4.4 / R4.5) ───────────────────────────
+    // ACÁ, y no dentro de la transacción de `escribirCuenta` como hace
+    // `syncAdSpend` con el suyo, por tres razones:
+    //
+    // 1. TODOS LOS DESENLACES CONVERGEN EN ESTE PUNTO. `sincronizarCuenta`
+    //    termina de tres maneras que no son la misma cosa —escribió la
+    //    jerarquía, se salteó la cuenta por moneda, o falló— y sólo la primera
+    //    pasa por `escribirCuenta`. Poniéndolo adentro harían falta tres sitios
+    //    de escritura para un hecho que es uno solo ("esta corrida terminó
+    //    así"), y tres oportunidades de que un desenlace nuevo se olvide de uno.
+    //    Después del try/catch el desenlace ya está decidido y está en `r.error`.
+    //
+    // 2. LA ATOMICIDAD QUE SE PIERDE ES LA BARATA. Lo que no puede pasar es que
+    //    el reloj avance sin que los datos estén: eso haría que la pantalla
+    //    llame fresco a un dato viejo. Y no puede pasar, porque este UPDATE
+    //    corre DESPUÉS del COMMIT de `escribirCuenta`. Lo que sí puede pasar es
+    //    lo contrario —datos escritos y reloj sin avanzar, si el proceso muere
+    //    entre los dos— y eso sólo hace que la cuenta se vea más atrasada de lo
+    //    que está, hasta que la próxima corrida la vuelva a traer.
+    //
+    // 3. Como este `now()` es posterior al de la transacción, queda siempre
+    //    `last_hierarchy_sync_at >= max(synced_at)` de las filas de la cuenta.
+    //    Un `synced_at` posterior al fin de su propia corrida no significaría
+    //    nada.
+    //
+    // EL DRY RUN NO ESCRIBE, y la guarda vive acá, en el único sitio que
+    // escribe en `ad_accounts`: que una corrida en seco no toque nada se
+    // verifica leyendo una línea, igual que la marca de desaparición se
+    // verifica leyendo el `if (dryRun) return` de `sincronizarCuenta`.
+    if (!dryRun) await anotarCorrida(cuenta.accountId, r.error);
   }
 
   return out;
+}
+
+/**
+ * Anota el fin de la corrida de UNA cuenta: `last_hierarchy_sync_at = now()` y
+ * el error al lado, o NULL si terminó bien (R4.4, R4.5).
+ *
+ * SE ESCRIBE TAMBIÉN CUANDO FALLA, igual que `syncAdSpend` con `last_sync_at`.
+ * La columna no significa "cuándo se trajo la jerarquía por última vez" sino
+ * "cuándo terminó el último intento", y eso importa por dos cosas:
+ *
+ * - El TTL de `ensureFreshJerarquia` (T9.1) se compara contra esta columna. Si
+ *   una cuenta que falla nunca avanzara el reloj, cada pedido volvería a
+ *   disparar el sync y el freno dejaría de frenar exactamente cuando Meta está
+ *   rechazando llamadas, que es cuando más hace falta.
+ * - El error va en la MISMA fila y se lee en la misma consulta que la hora
+ *   (ver el comentario de `lib/ads/live.ts` para el gasto): sin el error al
+ *   lado, una corrida fallida se leería como un dato fresco. Son las dos mitades
+ *   de un solo hecho y ninguna se sostiene sola.
+ *
+ * Una corrida exitosa pasa `null` y con eso limpia el error que hubiera quedado
+ * de una corrida anterior: el mismo UPDATE sirve para los dos casos.
+ *
+ * NO TIRA NUNCA. Es contabilidad sobre el resultado, y si falla no puede tapar
+ * lo que pasó de verdad: el error de la cuenta ya está en `r.error` y viaja en
+ * el resultado. Un fallo de esta escritura se loguea y la corrida sigue con la
+ * cuenta siguiente.
+ *
+ * El recorte a 500 es el mismo de `syncAdSpend`: un error de Meta puede venir
+ * con una página HTML entera adentro, y la columna la muestra /config en
+ * pantalla.
+ */
+async function anotarCorrida(accountId: string, error: string | null): Promise<void> {
+  try {
+    await q(
+      `UPDATE ad_accounts
+          SET last_hierarchy_sync_at = now(),
+              last_hierarchy_sync_error = $2
+        WHERE account_id = $1`,
+      [accountId, error === null ? null : error.slice(0, 500)],
+    );
+  } catch (e) {
+    console.error(
+      `ads jerarquía: no se pudo anotar la corrida de ${accountId} en ad_accounts:`,
+      e instanceof Error ? e.message : String(e),
+    );
+  }
 }
 
 async function sincronizarCuenta(
@@ -187,6 +329,33 @@ async function sincronizarCuenta(
 ): Promise<void> {
   // D-A10: sólo cuentas en EUR. El dato de ad_accounts puede estar desactualizado
   // y no está verificado, así que además de mirarlo se consulta a Meta (fetchCuenta).
+  //
+  // ESTOS DOS RETURNS AVANZAN EL RELOJ DE LA CORRIDA IGUAL, con el error en NULL
+  // (lo hace `anotarCorrida` desde el loop, porque `r.error` queda en null).
+  // Es una decisión, no un descuido:
+  //
+  // - Saltear por moneda NO es un fallo, es una cuenta fuera de alcance, y la
+  //   corrida para esa cuenta terminó bien: decidió correctamente que no hay
+  //   nada que traer. Un reloj en NULL para siempre diría lo contrario.
+  // - El lector de la frescura agrega con `min()` sobre las cuentas activas (así
+  //   lo hace `lib/ads/live.ts` con el gasto y así lo hará T9.1 con la
+  //   jerarquía): una sola cuenta sin reloj arrastra la barra de TODA la
+  //   pantalla a "nunca sincronizado", y ninguna corrida podría arreglarlo
+  //   nunca, porque el sync de esa cuenta es correcto al no traer nada. Sería
+  //   un atraso permanente que no señala ningún problema, y una alarma que no se
+  //   puede apagar deja de leerse (mismo argumento que
+  //   `debeReconciliarDesaparecidos`).
+  // - Por eso mismo el motivo del salteo NO va en `last_hierarchy_sync_error`:
+  //   el error se agrega con `max()` entre cuentas, así que un texto ahí
+  //   aparecería de forma permanente en la barra de todas. El "fuera de alcance"
+  //   viaja donde corresponde, en `r.monedaNoSoportada`, que es el campo que el
+  //   resultado tiene para eso y que el script de la corrida imprime.
+  //
+  // EL PRECIO: si Meta le cambia la moneda a una cuenta que ya tenía jerarquía,
+  // el reloj de la cuenta va a decir "recién" sobre filas que dejaron de
+  // refrescarse. Es el lado barato del error: esas filas conservan su propio
+  // `synced_at`, que es el dato por fila con el que la tabla las marca como
+  // viejas (T8), así que la condición sigue siendo visible donde importa.
   if (cuenta.currency != null && cuenta.currency !== 'EUR') {
     r.monedaNoSoportada = cuenta.currency;
     return;
@@ -270,15 +439,43 @@ async function sincronizarCuenta(
   r.anuncios.guardados = dryRun ? 0 : anunciosFinales.length;
   r.anuncios.huerfanos = adsFiltrados.huerfanos;
 
+  // Los ids crudos de Meta, que son los que deciden la marca de desaparición.
+  // No los de las listas que se escriben (`conjuntosFinales`, `anunciosFinales`):
+  // ésas ya pasaron por el filtro de huérfanos. Ver `IdsTraidos`.
+  //
+  // `Array.from` y no spread: el target de tsconfig pide --downlevelIteration
+  // para iterar un Set, y el resto del repo ya resuelve así (ver
+  // `lib/ads/reglas/coherencia.ts`).
+  const idsTraidos: IdsTraidos = {
+    campanias: Array.from(campTraidos),
+    conjuntos: Array.from(setTraidos),
+    anuncios: Array.from(adTraidos),
+  };
+
+  // Cuenta lo mismo que la marca escribe: un nivel que no se reconcilia no
+  // afirma nada sobre desapariciones, ni en la base ni en el reporte.
+  const faltantes = <T>(
+    existentes: readonly T[],
+    traidos: ReadonlySet<string>,
+    idDe: (x: T) => string,
+  ): number =>
+    debeReconciliarDesaparecidos(traidos.size)
+      ? existentes.filter((x) => !traidos.has(idDe(x))).length
+      : 0;
+
   r.desaparecidos =
-    campExistentes.filter((x) => !campTraidos.has(x.campaign_id)).length +
-    setExistentes.filter((x) => !setTraidos.has(x.adset_id)).length +
-    adExistentes.filter((x) => !adTraidos.has(x.ad_id)).length;
+    faltantes(campExistentes, campTraidos, (x) => x.campaign_id) +
+    faltantes(setExistentes, setTraidos, (x) => x.adset_id) +
+    faltantes(adExistentes, adTraidos, (x) => x.ad_id);
 
   r.conPresupuestoLifetime =
     campaniasNivel.filter((c) => c.lifetimeBudget !== null).length +
     conjuntosFinales.filter((s) => s.lifetimeBudget !== null).length;
 
+  // El dry run corta ACÁ, antes de la única función que escribe. La marca de
+  // desaparición vive adentro de `escribirCuenta` justamente por eso: no hay
+  // forma de que una corrida en seco toque `desaparecido_at`, del mismo modo que
+  // hoy no toca los upserts.
   if (dryRun) return;
 
   await escribirCuenta(
@@ -287,8 +484,21 @@ async function sincronizarCuenta(
     conjuntosFinales,
     anunciosFinales,
     dsa.length > 0 ? dsa : null,
+    idsTraidos,
   );
 }
+
+/**
+ * Los tres niveles con su tabla y su PK, en el orden en que se escriben. Mismo
+ * par que ya usan `lib/ads/acciones.ts` y `lib/ads/reglas/repo.ts`. Son
+ * constantes de código y nunca entrada del usuario, así que interpolarlas en el
+ * SQL no abre inyección; los ids, que sí vienen de Meta, van por `$n`.
+ */
+const NIVELES_MARCA = [
+  { tabla: 'ad_campaigns', pk: 'campaign_id', campo: 'campanias' },
+  { tabla: 'ad_sets', pk: 'adset_id', campo: 'conjuntos' },
+  { tabla: 'ads', pk: 'ad_id', campo: 'anuncios' },
+] as const satisfies ReadonlyArray<{ tabla: string; pk: string; campo: keyof IdsTraidos }>;
 
 async function escribirCuenta(
   accountId: string,
@@ -296,6 +506,7 @@ async function escribirCuenta(
   conjuntos: MetaAdSet[],
   anuncios: MetaAd[],
   dsa: DsaConjunto[] | null,
+  idsTraidos: IdsTraidos,
 ): Promise<void> {
   // DSA best-effort (P-G01): si la lectura trajo filas, se guardan y
   // dsa_checked_at marca la verificación; si no trajo (o falló), dsa_checked_at
@@ -442,6 +653,58 @@ async function escribirCuenta(
           anuncios.map((a) => a.creativeId),
           anuncios.map((a) => a.createdTime),
         ],
+      );
+    }
+
+    // ── La marca de desaparición (T6.1, R3.2 / R3.5 / R3.6) ──────────────────
+    // Va DENTRO de esta misma transacción, y eso es lo que importa: en dos
+    // transacciones separadas, un corte entre ellas dejaría objetos marcados como
+    // desaparecidos que el upsert acababa de confirmar, y la pantalla advertiría
+    // sobre datos que están bien. Con una sola, o queda todo o no queda nada.
+    //
+    // Va DESPUÉS de los upserts sólo por narrativa (primero lo que Meta dijo,
+    // después lo que no dijo): las dos escrituras son independientes, porque los
+    // conjuntos de filas se deciden por los ids traídos y no por `synced_at`.
+    //
+    // `now()` en Postgres es el instante de INICIO de la transacción, no de cada
+    // statement, así que el `desaparecido_at` que se escribe acá es exactamente el
+    // mismo instante que el `synced_at` de arriba: una corrida, una marca de
+    // tiempo, sin deriva entre niveles.
+    //
+    // No hay DELETE en ninguna rama (R3.5): la cantidad de filas por cuenta sólo
+    // puede crecer (Property 6).
+    for (const nivel of NIVELES_MARCA) {
+      const ids = idsTraidos[nivel.campo];
+      if (!debeReconciliarDesaparecidos(ids.length)) continue;
+
+      // (a) MARCAR lo que no vino. `desaparecido_at IS NULL` no es una
+      // optimización: es lo que hace que la marca signifique "desde cuándo".
+      // Un objeto que falta cinco corridas seguidas conserva la fecha de la
+      // PRIMERA en que faltó (Property 5); sin la guarda, cada corrida
+      // re-estamparía `now()` y la columna diría "hace 15 minutos" de algo que
+      // no se ve desde hace cinco días, que es justo el dato que el gestor
+      // necesita mostrar.
+      await cl.query(
+        `UPDATE ${nivel.tabla}
+            SET desaparecido_at = now()
+          WHERE account_id = $1
+            AND desaparecido_at IS NULL
+            AND ${nivel.pk} <> ALL($2::text[])`,
+        [accountId, ids],
+      );
+
+      // (b) DESMARCAR lo que volvió (R3.6). La condición sobre el valor previo no
+      // cambia el resultado —escribir NULL sobre NULL no cambia nada— pero evita
+      // reescribir todas las filas de las tres tablas en cada corrida del cron:
+      // serían miles de tuplas muertas cada 15 minutos, para autovacuum, por
+      // updates que no cambian ningún valor.
+      await cl.query(
+        `UPDATE ${nivel.tabla}
+            SET desaparecido_at = NULL
+          WHERE account_id = $1
+            AND desaparecido_at IS NOT NULL
+            AND ${nivel.pk} = ANY($2::text[])`,
+        [accountId, ids],
       );
     }
   });
