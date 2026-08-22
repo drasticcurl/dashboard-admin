@@ -230,9 +230,19 @@ type MetaErrorBody = {
   };
 };
 
-/** Timeout explícito: sin esto, una llamada colgada deja el cron trabado. */
+/**
+ * Timeout explícito: sin esto, una llamada colgada deja el cron trabado.
+ *
+ * El `cache: 'no-store'` no es decoración: dentro del runtime de Next, `fetch`
+ * cachea los GET por defecto, y como esta función es el ÚNICO camino de lectura
+ * hacia Meta, sin esa opción todo el panel sigue sirviendo la respuesta que Meta
+ * dio la primera vez que el proceso leyó, y escribe esos valores viejos encima de
+ * los frescos que escribe el cron. Los POST de este archivo nunca tuvieron el
+ * problema porque Next no los cachea.
+ */
 async function pedir<T>(url: string, accountId?: string): Promise<T> {
   const res = await fetch(url, {
+    cache: 'no-store',
     headers: { Authorization: `Bearer ${token()}` },
     signal: AbortSignal.timeout(30_000),
   });
