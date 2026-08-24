@@ -107,6 +107,8 @@ function filaTest(overrides: Partial<MetricasObjeto> = {}): MetricasObjeto {
     alcance: null,
     frecuencia: null,
     inicioProgramado: null,
+    syncedAt: '2026-08-12T10:00:00.000Z',
+    desaparecidoAt: null,
     ...overrides,
   };
 }
@@ -123,6 +125,17 @@ function resultadoMetricas(filas: MetricasObjeto[]): ResultadoMetricas {
     totalPaginas: 1,
     orden: { clave: 'gastos', dir: 'desc' },
     alcanceError: null,
+    // Los totales del filtro completo (R7.1). El ejecutor no los lee — evalúa
+    // condiciones fila por fila — así que se derivan de `filas` para que el
+    // fixture sea coherente y no para que alguna aserción los mire.
+    totales: {
+      spendEur: filas.reduce((a, f) => a + f.spendEur, 0),
+      revenueEur: filas.reduce((a, f) => a + f.revenueEur, 0),
+      netEur: filas.reduce((a, f) => a + f.netEur, 0),
+      profitEur: filas.reduce((a, f) => a + f.profitEur, 0),
+      sales: filas.reduce((a, f) => a + f.sales, 0),
+      filas: filas.length,
+    },
   };
 }
 
