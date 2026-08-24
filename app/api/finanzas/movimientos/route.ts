@@ -15,6 +15,7 @@ import { z } from 'zod';
 import { guard, json } from '@/app/api/config/_lib';
 import { q1 } from '@/lib/db';
 import {
+  FinanceInputError,
   createMovement,
   deleteMovement,
   listMovements,
@@ -43,6 +44,11 @@ const createSchema = z.object({
 
 const patchSchema = z.object({
   id: z.number().int().positive(),
+  // El kind SÍ se puede cambiar. Antes no estaba en el schema y como `z.object`
+  // no es estricto, el campo se descartaba sin avisar: el usuario cambiaba
+  // "Gasto" por "Retiro", la UI le decía "Movimiento actualizado" y el tipo
+  // seguía siendo gasto.
+  kind: kindEnum.optional(),
   category: categoryEnum.nullable().optional(),
   amountEur: z.number().finite().optional(),
   note: z.string().min(1).max(200).optional(),
@@ -126,14 +132,23 @@ export async function POST(req: NextRequest): Promise<Response> {
   const monto = validarMonto(d.kind, d.amountEur);
   if (!monto.ok) return json(400, { ok: false, error: 'invalid_payload', detail: monto.error });
 
-  const movement = await createMovement({
-    kind: d.kind,
-    category: cat.category,
-    amountEur: d.amountEur,
-    note: d.note,
-    day: d.day,
-  });
-  return json(200, { ok: true, movement });
+  try {
+    const movement = await createMovement({
+      kind: d.kind,
+      category: cat.category,
+      amountEur: d.amountEur,
+      note: d.note,
+      day: d.day,
+    });
+    return json(200, { ok: true, movement });
+  } catch (err) {
+    // Un CHECK que se escapó de las validaciones de arriba es un payload malo,
+    // no un server roto: 400 con el mensaje traducido en vez de un 500 pelado.
+    if (err instanceof FinanceInputError) {
+      return json(400, { ok: false, error: 'invalid_payload', detail: err.message });
+    }
+    throw err;
+  }
 }
 
 export async function PATCH(req: NextRequest): Promise<Response> {
@@ -146,13 +161,34 @@ export async function PATCH(req: NextRequest): Promise<Response> {
   }
   const d = parsed.data;
 
-  // El kind no se puede cambiar (no está en el schema del PATCH): el monto
-  // nuevo se valida contra el kind que el movimiento ya tiene.
-  const monto = validarMonto(undefined, d.amountEur);
+  // EL KIND EFECTIVO ES EL QUE MANDA. Antes esto llamaba
+  // `validarMonto(undefined, ...)`, y con el kind en undefined la validación
+  // caía en la rama de gasto/retiro y exigía un monto positivo: editar un
+  // ajuste negativo devolvía 400 SIEMPRE, así que un ajuste en negativo era
+  // imposible de guardar una vez cargado. El kind real sale de la fila.
+  const actual = await q1<{ kind: FinanceMovementKind }>(
+    'SELECT kind FROM finance_movements WHERE id = $1',
+    [d.id],
+  );
+  if (!actual) return json(404, { ok: false, error: 'unknown_movement' });
+  const kind = d.kind ?? actual.kind;
+
+  const monto = validarMonto(kind, d.amountEur);
   if (!monto.ok) return json(400, { ok: false, error: 'invalid_payload', detail: monto.error });
+
+  // La combinación kind/category también se valida acá, no sólo en el POST: sin
+  // esto, un PATCH que le pone categoría a un retiro llegaba al CHECK de la
+  // base y salía un 500 con el nombre del constraint. Sólo se chequea si el
+  // pedido toca la categoría; si no la toca, la que está guardada ya es válida
+  // y updateMovement la ajusta sola cuando cambia el tipo.
+  if (d.category !== undefined) {
+    const cat = validarCategoria(kind, d.category);
+    if (!cat.ok) return json(400, { ok: false, error: 'invalid_payload', detail: cat.error });
+  }
 
   try {
     const movement = await updateMovement(d.id, {
+      kind: d.kind,
       category: d.category,
       amountEur: d.amountEur,
       note: d.note,
@@ -160,6 +196,9 @@ export async function PATCH(req: NextRequest): Promise<Response> {
     });
     return json(200, { ok: true, movement });
   } catch (err) {
+    if (err instanceof FinanceInputError) {
+      return json(400, { ok: false, error: 'invalid_payload', detail: err.message });
+    }
     if (err instanceof Error && err.message === 'movimiento no encontrado') {
       return json(404, { ok: false, error: 'unknown_movement' });
     }

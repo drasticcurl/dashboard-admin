@@ -1,6 +1,11 @@
 {
   "compilerOptions": {
     "lib": ["dom", "dom.iterable", "esnext"],
+    // Sin `target`, tsc asume ES5 y rechaza el top-level await de los tests de
+    // finanzas con TS1378 ("only allowed when module is esnext AND target is
+    // es2017+"). `next build` no lo notaba porque inyecta su propio target, así
+    // que el error sólo aparecía en el editor y al correr `npx tsc` a mano.
+    "target": "es2022",
     "allowJs": true,
     "skipLibCheck": true,
     "strict": true,

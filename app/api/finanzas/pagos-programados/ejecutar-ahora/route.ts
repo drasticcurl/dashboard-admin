@@ -24,5 +24,8 @@ export async function POST(req: NextRequest): Promise<Response> {
 
   const tz = process.env.DASHBOARD_TZ ?? 'America/Argentina/Buenos_Aires';
   const res = await runScheduledPayments(await today(tz));
-  return json(200, { ok: true, ejecutados: res.ejecutados });
+  // Los fallidos viajan al cliente. Antes se descartaban y la UI mostraba
+  // "No hay pagos atrasados para ejecutar" en verde aunque el gasto no se
+  // hubiera generado.
+  return json(200, { ok: true, ejecutados: res.ejecutados, fallidos: res.fallidos });
 }

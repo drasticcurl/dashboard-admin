@@ -60,6 +60,13 @@ export type FinanceOverview = {
   byMonth: MonthlyPoint[];
   /** Pagos programados con atrasado=true. Se muestra como banner. */
   atrasados: ScheduledPayment[];
+  /**
+   * Hoy en la TZ del dashboard, 'YYYY-MM-DD'. Va en el overview porque ya se
+   * calcula acá para los atrasados, y porque el formulario lo necesita como
+   * fecha por defecto: si el cliente lo calculara con la TZ del browser, un
+   * movimiento cargado de noche podría quedar con el día de mañana.
+   */
+  hoy: string;
   generatedAt: string;
 };
 
@@ -131,15 +138,33 @@ const BY_MONTH_SQL = `
 // Atrasados (D8): activo, día ya pasado este mes, sin run para el mes actual.
 // La garantía de no-duplicación NO es esta consulta sino la PK compuesta de
 // finance_scheduled_payment_runs; esta query solo dice "quién está atrasado".
-const ATRASADOS_SQL = `
-  SELECT sp.*
-  FROM finance_scheduled_payments sp
-  WHERE sp.active
+//
+// LA CONDICIÓN ESTÁ ESCRITA UNA SOLA VEZ, ACÁ. Antes vivía copiada en tres
+// lugares (el overview, el chequeo de un pago suelto y la corrida del cron) y
+// las tres tenían que decir exactamente lo mismo para que la pantalla y lo que
+// hace el cron no se contradijeran. Tres copias de una regla de negocio son
+// tres oportunidades de que una quede vieja. `$1` es SIEMPRE el día de hoy.
+const COND_ATRASADO = `
+    sp.active
     AND sp.day_of_month <= EXTRACT(DAY FROM $1::date)::smallint
     AND NOT EXISTS (
       SELECT 1 FROM finance_scheduled_payment_runs r
       WHERE r.scheduled_payment_id = sp.id AND r.month = to_char($1::date, 'YYYY-MM')
     )`;
+
+const COLS_SCHEDULED = `sp.id, sp.name, sp.category, sp.amount_eur::text AS amount_eur,
+         sp.day_of_month, sp.active, sp.created_at, sp.updated_at`;
+
+const ATRASADOS_SQL = `
+  SELECT ${COLS_SCHEDULED}
+  FROM finance_scheduled_payments sp
+  WHERE ${COND_ATRASADO}
+  ORDER BY sp.id`;
+
+const ATRASADOS_IDS_SQL = `
+  SELECT sp.id
+  FROM finance_scheduled_payments sp
+  WHERE ${COND_ATRASADO}`;
 
 const LIST_MOVEMENTS_SQL = `
   SELECT id, kind, category, amount_eur::text AS amount_eur, note, day::text AS day,
@@ -186,20 +211,34 @@ function toScheduled(r: ScheduledRow, atrasado: boolean): ScheduledPayment {
   };
 }
 
-export async function getFinanceOverview(): Promise<FinanceOverview> {
-  const [patRow, monthRows, scheduledRows] = await Promise.all([
-    q1<{ patrimonio_total_eur: string }>(PATRIMONIO_SQL),
-    q<MonthRow>(BY_MONTH_SQL),
-    q<ScheduledRow>(LIST_SCHEDULED_SQL),
-  ]);
-
-  const hoy = await q1<{ day: string }>(
+/** El día de hoy en la TZ del dashboard. Un solo lugar que lo resuelve. */
+async function hoyEnTz(): Promise<string> {
+  const row = await q1<{ day: string }>(
     `SELECT (now() AT TIME ZONE $1)::date::text AS day`,
     [process.env.DASHBOARD_TZ ?? 'America/Argentina/Buenos_Aires'],
   );
-  const atrasadoIds = new Set(
-    (await q<{ id: number }>(ATRASADOS_SQL, [hoy!.day])).map((r) => r.id),
-  );
+  return row!.day;
+}
+
+/**
+ * Los ids de los pagos atrasados a una fecha, en UNA query, sirva para uno o
+ * para cien. Los ids se guardan como string porque `bigserial` llega como
+ * string de node-pg: comparar contra un number daría siempre false.
+ */
+async function idsAtrasados(hoy: string): Promise<Set<string>> {
+  const rows = await q<{ id: string }>(ATRASADOS_IDS_SQL, [hoy]);
+  return new Set(rows.map((r) => String(r.id)));
+}
+
+export async function getFinanceOverview(): Promise<FinanceOverview> {
+  const [patRow, monthRows, scheduledRows, hoy] = await Promise.all([
+    q1<{ patrimonio_total_eur: string }>(PATRIMONIO_SQL),
+    q<MonthRow>(BY_MONTH_SQL),
+    q<ScheduledRow>(LIST_SCHEDULED_SQL),
+    hoyEnTz(),
+  ]);
+
+  const atrasadoIds = await idsAtrasados(hoy);
 
   // El neto de cada mes se suma en JS, después del COALESCE en SQL: las dos
   // CTEs están LEFT JOINadas y sumarlas en SQL arrastraría NULL si alguna de
@@ -214,7 +253,10 @@ export async function getFinanceOverview(): Promise<FinanceOverview> {
   return {
     patrimonioTotalEur: MONEY(patRow!.patrimonio_total_eur),
     byMonth,
-    atrasados: scheduledRows.filter((r) => atrasadoIds.has(r.id)).map((r) => toScheduled(r, true)),
+    atrasados: scheduledRows
+      .filter((r) => atrasadoIds.has(String(r.id)))
+      .map((r) => toScheduled(r, true)),
+    hoy,
     generatedAt: new Date().toISOString(),
   };
 }
@@ -224,10 +266,17 @@ export async function listMovements(f: MovementsFilters): Promise<FinanceMovemen
   return rows.map(toMovement);
 }
 
+/**
+ * TRES queries, no `1 + 2N`. Antes esto llamaba `isAtrasado` por fila y cada
+ * llamada hacía dos queries más: con 6 pagos eran 13 viajes a la base contra un
+ * pool de 10 conexiones, y el costo crecía con cada pago que el usuario cargara.
+ * El set de atrasados se resuelve de una sola vez con la misma condición que usa
+ * el resto del módulo.
+ */
 export async function listScheduledPayments(): Promise<ScheduledPayment[]> {
-  const rows = await q<ScheduledRow>(LIST_SCHEDULED_SQL);
-  const atrasados = await Promise.all(rows.map((r) => isAtrasado(r.id)));
-  return rows.map((r, i) => toScheduled(r, atrasados[i]!));
+  const [rows, hoy] = await Promise.all([q<ScheduledRow>(LIST_SCHEDULED_SQL), hoyEnTz()]);
+  const atrasados = await idsAtrasados(hoy);
+  return rows.map((r) => toScheduled(r, atrasados.has(String(r.id))));
 }
 
 // ─── Escritura ──────────────────────────────────────────────────────────────
@@ -254,7 +303,9 @@ type MovementWriteRow = {
   updated_at: Date;
 };
 
-const MOVEMENT_BY_ID_SQL = `SELECT kind FROM finance_movements WHERE id = $1`;
+const MOVEMENT_BY_ID_SQL = `
+  SELECT kind, category, amount_eur::text AS amount_eur, note, day::text AS day
+  FROM finance_movements WHERE id = $1`;
 
 const INSERT_MOVEMENT_SQL = `
   INSERT INTO finance_movements (kind, category, amount_eur, note, day)
@@ -262,15 +313,34 @@ const INSERT_MOVEMENT_SQL = `
   RETURNING id, kind, category, amount_eur::text AS amount_eur, note, day::text AS day,
             scheduled_payment_id, created_at, updated_at`;
 
+// Todos los campos van EXPLÍCITOS, sin COALESCE. Con `COALESCE($2, category)`
+// era imposible borrar la categoría (mandar null y "no mandar nada" eran lo
+// mismo para la base), y `amount_eur = $3::numeric` sin COALESCE reventaba con
+// `invalid input syntax for numeric: "undefined"` cuando el PATCH no traía
+// monto. Ahora los valores finales se resuelven en JS contra la fila que ya
+// existe y el UPDATE escribe los cinco campos siempre.
 const UPDATE_MOVEMENT_SQL = `
   UPDATE finance_movements
-  SET category = COALESCE($2, category),
-      amount_eur = $3::numeric,
-      note = COALESCE($4, note),
-      day = COALESCE($5::date, day)
+  SET kind = $2,
+      category = $3,
+      amount_eur = $4::numeric,
+      note = $5,
+      day = $6::date
   WHERE id = $1
   RETURNING id, kind, category, amount_eur::text AS amount_eur, note, day::text AS day,
             scheduled_payment_id, created_at, updated_at`;
+
+/**
+ * Un pedido mal armado, no una falla del servidor. Existe para que los routes
+ * puedan contestar 400 con un mensaje legible sin comparar el texto del error:
+ * antes un CHECK violado en un PATCH salía como 500 con el SQLSTATE crudo.
+ */
+export class FinanceInputError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'FinanceInputError';
+  }
+}
 
 function isCheckViolation(err: unknown): boolean {
   return (
@@ -284,7 +354,9 @@ function isCheckViolation(err: unknown): boolean {
 /** Traduce un CHECK violado de la base a un mensaje entendible (D3/D4). */
 function movementErrorMessage(err: unknown): Error {
   if (isCheckViolation(err)) {
-    return new Error('el monto de un gasto/retiro tiene que ser negativo (o la categoría es inválida)');
+    return new FinanceInputError(
+      'el monto de un gasto/retiro tiene que ser negativo (o la categoría es inválida)',
+    );
   }
   return err instanceof Error ? err : new Error(String(err));
 }
@@ -311,33 +383,71 @@ export async function createMovement(input: {
   }
 }
 
+/**
+ * Edita un movimiento. Todo lo que no venga en `input` se queda como está.
+ *
+ * El `kind` SÍ se puede cambiar (antes el route lo descartaba en silencio y le
+ * decía "actualizado" al usuario mientras el tipo seguía igual). Cambiarlo tiene
+ * dos consecuencias que se resuelven acá y no en el que llama:
+ *
+ *  · El signo se recalcula contra el kind FINAL. Pasar un ajuste de +300 a
+ *    gasto tiene que dejar −300, no +300: si no, un gasto sumaría al patrimonio
+ *    en vez de restar, y el CHECK de la base lo rechazaría de todas formas con
+ *    un error ilegible.
+ *  · La categoría se limpia sola cuando el tipo deja de ser gasto, porque el
+ *    CHECK `finance_movements_categoria_solo_gasto` exige que sea NULL. Antes
+ *    esto llegaba crudo a Postgres y salía un 500 con el nombre del constraint.
+ */
 export async function updateMovement(
   id: number,
   input: Partial<{
+    kind: FinanceMovementKind;
     category: FinanceCategory | null;
     amountEur: number;
     note: string;
     day: string;
   }>,
 ): Promise<FinanceMovement> {
-  let signed = input.amountEur;
-  if (input.amountEur !== undefined) {
-    // El kind no es editable: el de la fila existente es el que corresponde.
-    // Sin este SELECT, editar un gasto con el valor absoluto invertiría el
-    // signo en la base sin que nadie lo note (plan §4 regla 1).
-    const row = await q1<{ kind: FinanceMovementKind }>(MOVEMENT_BY_ID_SQL, [id]);
-    if (!row) throw new Error('movimiento no encontrado');
-    signed = applySign(row.kind, input.amountEur);
+  const actual = await q1<{
+    kind: FinanceMovementKind;
+    category: FinanceCategory | null;
+    amount_eur: string;
+    note: string;
+    day: string;
+  }>(MOVEMENT_BY_ID_SQL, [id]);
+  if (!actual) throw new Error('movimiento no encontrado');
+
+  const kind = input.kind ?? actual.kind;
+
+  // Si vino monto nuevo se usa ése; si no, el que ya estaba. En los dos casos
+  // pasa por applySign con el kind final, que es lo que arregla el cambio de
+  // tipo: applySign('gasto', 300) → −300, applySign('ajuste', −300) → −300.
+  const signed = applySign(kind, input.amountEur ?? MONEY(actual.amount_eur));
+
+  let category = input.category !== undefined ? input.category : actual.category;
+  if (kind !== 'gasto') category = null;
+  if (kind === 'gasto' && category === null) {
+    // Mismo mensaje que valida el route en el POST: un gasto sin categoría no
+    // existe. Se chequea acá también porque acá es donde se conoce el kind final.
+    throw new FinanceInputError('un gasto necesita categoría');
   }
-  const rows = await q<MovementWriteRow>(UPDATE_MOVEMENT_SQL, [
-    id,
-    input.category === undefined ? null : input.category,
-    String(signed),
-    input.note ?? null,
-    input.day ?? null,
-  ]);
-  if (rows.length === 0) throw new Error('movimiento no encontrado');
-  return toMovement(rows[0]!);
+
+  try {
+    const rows = await q<MovementWriteRow>(UPDATE_MOVEMENT_SQL, [
+      id,
+      kind,
+      category,
+      String(signed),
+      input.note ?? actual.note,
+      input.day ?? actual.day,
+    ]);
+    if (rows.length === 0) throw new Error('movimiento no encontrado');
+    return toMovement(rows[0]!);
+  } catch (err) {
+    // Igual que createMovement: un CHECK violado sale como un mensaje que se
+    // puede leer, no como el SQLSTATE crudo (D3/D4).
+    throw movementErrorMessage(err);
+  }
 }
 
 export async function deleteMovement(id: number): Promise<void> {
@@ -400,20 +510,15 @@ export async function updateScheduledPayment(
   return toScheduled(rows[0]!, await isAtrasado(id));
 }
 
+/**
+ * Si UN pago está atrasado. Usa exactamente la misma condición que la lista y
+ * que el cron (COND_ATRASADO), así que las tres respuestas no pueden diferir.
+ */
 async function isAtrasado(id: number): Promise<boolean> {
-  const hoy = await q1<{ day: string }>(
-    `SELECT (now() AT TIME ZONE $1)::date::text AS day`,
-    [process.env.DASHBOARD_TZ ?? 'America/Argentina/Buenos_Aires'],
-  );
-  const row = await q1<{ id: number }>(
-    `SELECT sp.id FROM finance_scheduled_payments sp
-     WHERE sp.id = $1 AND sp.active
-       AND sp.day_of_month <= EXTRACT(DAY FROM $2::date)::smallint
-       AND NOT EXISTS (
-         SELECT 1 FROM finance_scheduled_payment_runs r
-         WHERE r.scheduled_payment_id = sp.id AND r.month = to_char($2::date, 'YYYY-MM')
-       )`,
-    [id, hoy!.day],
+  const hoy = await hoyEnTz();
+  const row = await q1<{ id: string }>(
+    `SELECT sp.id FROM finance_scheduled_payments sp WHERE sp.id = $2 AND ${COND_ATRASADO}`,
+    [hoy, id],
   );
   return row !== null;
 }
@@ -424,25 +529,17 @@ export async function deleteScheduledPayment(id: number): Promise<void> {
 
 // ─── Ejecución de pagos programados ─────────────────────────────────────────
 
-export async function runScheduledPayments(
-  today: string,
-): Promise<{ ejecutados: string[] }> {
-  const atrasados = await q<ScheduledRow & { atrasado: boolean }>(
-    `
-    SELECT sp.id, sp.name, sp.category, sp.amount_eur::text AS amount_eur,
-           sp.day_of_month, sp.active, sp.created_at, sp.updated_at
-    FROM finance_scheduled_payments sp
-    WHERE sp.active
-      AND sp.day_of_month <= EXTRACT(DAY FROM $1::date)::smallint
-      AND NOT EXISTS (
-        SELECT 1 FROM finance_scheduled_payment_runs r
-        WHERE r.scheduled_payment_id = sp.id AND r.month = to_char($1::date, 'YYYY-MM')
-      )
-    ORDER BY sp.id`,
-    [today],
-  );
+export type ScheduledRunResult = {
+  ejecutados: string[];
+  /** Los que NO se pudieron generar, con el motivo. Nunca se descartan. */
+  fallidos: { name: string; error: string }[];
+};
+
+export async function runScheduledPayments(today: string): Promise<ScheduledRunResult> {
+  const atrasados = await q<ScheduledRow>(ATRASADOS_SQL, [today]);
 
   const ejecutados: string[] = [];
+  const fallidos: { name: string; error: string }[] = [];
   const month = today.slice(0, 7);
 
   for (const sp of atrasados) {
@@ -474,11 +571,17 @@ export async function runScheduledPayments(
         }
       });
       ejecutados.push(sp.name);
-    } catch {
-      // Un pago roto no bloquea a los demás: el error se reporta en el
-      // resultado, no se aborta toda la corrida (plan §4 regla 4).
+    } catch (err) {
+      // Un pago roto no bloquea a los demás, PERO TAMPOCO DESAPARECE. Antes acá
+      // había un `catch {}` vacío: el gasto no se generaba, el pago seguía
+      // marcado como atrasado y la pantalla contestaba "No hay pagos atrasados
+      // para ejecutar" en verde. Un gasto que no se carga y nadie ve es
+      // exactamente la clase de silencio que hace que el patrimonio mienta.
+      const error = err instanceof Error ? err.message : String(err);
+      fallidos.push({ name: sp.name, error });
+      console.error(`[finanzas] el pago programado "${sp.name}" (id ${sp.id}) falló: ${error}`);
     }
   }
 
-  return { ejecutados };
+  return { ejecutados, fallidos };
 }

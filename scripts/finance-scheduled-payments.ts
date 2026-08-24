@@ -21,7 +21,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { getPool } from '../lib/db';
 import { today } from '../lib/day';
-import { runScheduledPayments } from '@/lib/queries/finance';
+import { runScheduledPayments, type ScheduledRunResult } from '../lib/queries/finance';
 
 // tsx no carga .env solo; en dev el env vive en el archivo, en producción
 // viene de PM2 y no existe (process.loadEnvFile es de Node >= 20.12).
@@ -30,7 +30,7 @@ if (typeof process.loadEnvFile === 'function' && existsSync(envPath)) {
   process.loadEnvFile(envPath);
 }
 
-export async function main(args: string[] = process.argv.slice(2)): Promise<{ ejecutados: string[] }> {
+export async function main(args: string[] = process.argv.slice(2)): Promise<ScheduledRunResult> {
   if (args.length > 0) throw new Error(`argumento desconocido: ${args[0]}`);
 
   const tz = process.env.DASHBOARD_TZ ?? 'America/Argentina/Buenos_Aires';
@@ -39,6 +39,19 @@ export async function main(args: string[] = process.argv.slice(2)): Promise<{ ej
   console.log(`finance-pagos: ${res.ejecutados.length} pagos ejecutados (${todayStr})`);
   for (const nombre of res.ejecutados) {
     console.log(`  - ${nombre}`);
+  }
+
+  // Un pago que no se pudo generar sale por stderr y deja el exit code en 1: es
+  // un gasto que falta en el patrimonio, y el cron escribe a
+  // /var/log/panel/finance.log. Antes esto se perdía en un catch vacío y la
+  // corrida terminaba diciendo "0 pagos ejecutados", igual que un día sin nada
+  // que hacer.
+  if (res.fallidos.length > 0) {
+    console.error(`finance-pagos: ${res.fallidos.length} pagos FALLARON y no generaron su gasto:`);
+    for (const f of res.fallidos) {
+      console.error(`  - ${f.name}: ${f.error}`);
+    }
+    process.exitCode = 1;
   }
   return res;
 }

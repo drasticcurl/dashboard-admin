@@ -29,8 +29,9 @@ import type {
   MonthlyPoint,
   ScheduledPayment,
 } from '@/lib/queries/finance';
-import { Badge, Banner, Card, ChartFrame, IconButton, Spinner, Table, fmtAxis, fmtDate, fmtMoney, fmtPct } from '@/components/ui';
+import { Badge, Banner, Card, ChartFrame, IconButton, Spinner, Table, fmtAxis, fmtDate, fmtMoney } from '@/components/ui';
 import { inputCls, btnCls, btnPrimary, btnGhost } from '../config/kit';
+import { formatearMontoParaInput, parsearMonto } from './monto';
 
 const CATEGORIES: FinanceCategory[] = ['sueldos', 'herramientas', 'alquiler', 'impuestos', 'otros'];
 
@@ -52,9 +53,13 @@ async function api<T = unknown>(url: string, init?: RequestInit): Promise<T> {
     headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
     cache: 'no-store',
   });
-  const body = (await res.json().catch(() => ({}))) as T & { error?: string };
+  const body = (await res.json().catch(() => ({}))) as T & { error?: string; detail?: string };
   if (!res.ok) {
-    throw new Error(body.error ?? `HTTP ${res.status}`);
+    // `detail` PRIMERO. Los routes ponen el motivo legible ("un gasto necesita
+    // categoría") en detail y un código estable en error: leyendo sólo error, el
+    // banner rojo le mostraba al usuario la palabra "invalid_payload" y todo el
+    // trabajo de traducir los CHECK a español se perdía en esta línea.
+    throw new Error(body.detail ?? body.error ?? `HTTP ${res.status}`);
   }
   return body;
 }
@@ -68,6 +73,9 @@ function MovimientoTooltip({
 }): JSX.Element | null {
   if (!active || !payload?.length) return null;
   const p = payload[0]!.payload;
+  // `shadow-xl` (utilidad de Tailwind) y no `shadow-float`: ese token vive sólo
+  // en el tailwind.config del rediseño, que todavía no está commiteado. Cuando
+  // el rediseño entre, esto vuelve a shadow-float.
   return (
     <div className="rounded-lg border border-border-strong bg-surface-raised px-3 py-2 text-xs shadow-xl">
       <p className="mb-1 font-semibold text-neutral-100">{p.month}</p>
@@ -105,6 +113,14 @@ export function FinanzasView({
 
   const show = useCallback((tone: 'good' | 'bad', text: string) => setFlash({ tone, text }), []);
 
+  // El aviso de éxito se borra solo a los 6 s. El de error NO: si algo no se
+  // guardó, el cartel se queda hasta que el usuario haga otra cosa.
+  useEffect(() => {
+    if (flash?.tone !== 'good') return;
+    const t = setTimeout(() => setFlash(null), 6000);
+    return () => clearTimeout(t);
+  }, [flash]);
+
   async function conBusy(fn: () => Promise<void>): Promise<void> {
     setBusy(true);
     try {
@@ -118,37 +134,60 @@ export function FinanzasView({
 
   // ─── Formulario de movimientos ────────────────────────────────────────────
 
-  const [movForm, setMovForm] = useState({
+  // El día arranca en HOY (en la TZ del panel, que la trae el server): antes
+  // arrancaba vacío y, como el botón sólo se habilitaba con la fecha puesta y
+  // nada decía que faltaba, parecía que el formulario estaba roto.
+  const movFormVacio = {
     kind: 'gasto' as FinanceMovementKind,
     category: 'sueldos' as FinanceCategory,
     amount: '',
     note: '',
-    day: '',
-  });
+    day: initialOverview.hoy,
+  };
+
+  const [movForm, setMovForm] = useState(movFormVacio);
   const [ajusteNegativo, setAjusteNegativo] = useState(false);
   const [editMov, setEditMov] = useState<number | null>(null);
 
-  const movFormVacio = { kind: 'gasto' as const, category: 'sueldos' as FinanceCategory, amount: '', note: '', day: '' };
-
-  function armarMontoAbs(): number {
-    const n = Number(movForm.amount);
-    if (!Number.isFinite(n) || n <= 0) throw new Error('el monto tiene que ser mayor que cero');
-    return n;
+  /**
+   * Qué le falta al formulario para poder guardarse, en palabras. Devuelve null
+   * cuando está listo.
+   *
+   * Existe porque antes el botón "Cargar" se deshabilitaba con un booleano y no
+   * había NADA que dijera por qué: con el monto escrito como "100,50" (la forma
+   * normal de escribir plata en español) el botón quedaba gris para siempre y no
+   * había forma de darse cuenta de qué pasaba.
+   */
+  function faltaEnMovimiento(): string | null {
+    const monto = parsearMonto(movForm.amount);
+    if (!monto.ok) return monto.error;
+    if (movForm.note.trim().length === 0) return 'falta la nota: ¿en qué se fue?';
+    if (movForm.day.length !== 10) return 'falta la fecha del movimiento';
+    return null;
   }
 
   async function guardarMovimiento(): Promise<void> {
-    const amountAbs = armarMontoAbs();
-    // El backend espera el valor absoluto para gasto/retiro; para ajuste, el
-    // signo lo pone el toggle +/− de la UI.
-    const amountEur = movForm.kind === 'ajuste' ? (ajusteNegativo ? -amountAbs : amountAbs) : amountAbs;
-    const body = {
-      kind: movForm.kind,
-      category: movForm.kind === 'gasto' ? movForm.category : null,
-      amountEur,
-      note: movForm.note.trim(),
-      day: movForm.day,
-    };
+    // La validación va DENTRO de conBusy: antes tiraba una excepción desde acá,
+    // fuera del try, así que el error terminaba como unhandled rejection en la
+    // consola del browser en lugar de aparecer en pantalla.
     await conBusy(async () => {
+      const monto = parsearMonto(movForm.amount);
+      if (!monto.ok) throw new Error(monto.error);
+      if (movForm.note.trim().length === 0) throw new Error('la nota no puede estar vacía');
+      if (movForm.day.length !== 10) throw new Error('elegí la fecha del movimiento');
+
+      // El backend espera el valor absoluto para gasto/retiro; para ajuste, el
+      // signo lo pone el toggle +/− de la UI.
+      const amountEur =
+        movForm.kind === 'ajuste' ? (ajusteNegativo ? -monto.valor : monto.valor) : monto.valor;
+      const body = {
+        kind: movForm.kind,
+        category: movForm.kind === 'gasto' ? movForm.category : null,
+        amountEur,
+        note: movForm.note.trim(),
+        day: movForm.day,
+      };
+
       if (editMov === null) {
         await api('/api/finanzas/movimientos', { method: 'POST', body: JSON.stringify(body) });
       } else {
@@ -167,7 +206,7 @@ export function FinanzasView({
     setMovForm({
       kind: m.kind,
       category: m.category ?? 'sueldos',
-      amount: String(Math.abs(m.amountEur)), // el form SIEMPRE pide el valor absoluto
+      amount: formatearMontoParaInput(m.amountEur), // el form SIEMPRE pide el valor absoluto
       note: m.note,
       day: m.day,
     });
@@ -190,16 +229,28 @@ export function FinanzasView({
 
   const pagoFormVacio = { name: '', category: 'sueldos' as FinanceCategory, amount: '', dayOfMonth: 1 };
 
+  function faltaEnPago(): string | null {
+    if (pagoForm.name.trim().length === 0) return 'falta el nombre del pago';
+    const monto = parsearMonto(pagoForm.amount);
+    if (!monto.ok) return monto.error;
+    return null;
+  }
+
   async function guardarPago(): Promise<void> {
-    const amountEur = Number(pagoForm.amount);
-    if (!Number.isFinite(amountEur) || amountEur <= 0) throw new Error('el monto tiene que ser mayor que cero');
-    const body = {
-      name: pagoForm.name.trim(),
-      category: pagoForm.category,
-      amountEur,
-      dayOfMonth: Number(pagoForm.dayOfMonth),
-    };
     await conBusy(async () => {
+      // Mismo motivo que en guardarMovimiento: validar acá adentro y no antes
+      // del try, así el error se ve en pantalla.
+      if (pagoForm.name.trim().length === 0) throw new Error('el nombre no puede estar vacío');
+      const monto = parsearMonto(pagoForm.amount);
+      if (!monto.ok) throw new Error(monto.error);
+
+      const body = {
+        name: pagoForm.name.trim(),
+        category: pagoForm.category,
+        amountEur: monto.valor,
+        dayOfMonth: Number(pagoForm.dayOfMonth),
+      };
+
       if (editPago === null) {
         await api('/api/finanzas/pagos-programados', { method: 'POST', body: JSON.stringify(body) });
       } else {
@@ -214,7 +265,12 @@ export function FinanzasView({
 
   function editarPago(p: ScheduledPayment): void {
     setEditPago(p.id);
-    setPagoForm({ name: p.name, category: p.category, amount: String(p.amountEur), dayOfMonth: p.dayOfMonth });
+    setPagoForm({
+      name: p.name,
+      category: p.category,
+      amount: formatearMontoParaInput(p.amountEur),
+      dayOfMonth: p.dayOfMonth,
+    });
   }
 
   async function togglePago(p: ScheduledPayment): Promise<void> {
@@ -239,16 +295,27 @@ export function FinanzasView({
 
   async function ejecutarAhora(): Promise<void> {
     await conBusy(async () => {
-      const res = await api<{ ejecutados: string[] }>('/api/finanzas/pagos-programados/ejecutar-ahora', {
-        method: 'POST',
-      });
+      const res = await api<{ ejecutados: string[]; fallidos: { name: string; error: string }[] }>(
+        '/api/finanzas/pagos-programados/ejecutar-ahora',
+        { method: 'POST' },
+      );
+      router.refresh();
+
+      // Los que fallaron ganan el cartel: un gasto que no se generó es plata
+      // que falta en el patrimonio. Antes esto se descartaba y la pantalla
+      // decía "No hay pagos atrasados para ejecutar" en verde.
+      if (res.fallidos.length > 0) {
+        const detalle = res.fallidos.map((f) => `${f.name} (${f.error})`).join('; ');
+        const ok = res.ejecutados.length > 0 ? `Se generaron: ${res.ejecutados.join(', ')}. ` : '';
+        throw new Error(`${ok}NO se pudo generar el gasto de: ${detalle}`);
+      }
+
       show(
         'good',
         res.ejecutados.length > 0
           ? `Ejecutados: ${res.ejecutados.join(', ')}`
           : 'No hay pagos atrasados para ejecutar',
       );
-      router.refresh();
     });
   }
 
@@ -258,12 +325,11 @@ export function FinanzasView({
   const movsVisibles = filtroKind === 'todos' ? movements : movements.filter((m) => m.kind === filtroKind);
   const atrasados = overview.atrasados;
 
-  const montoValido =
-    Number.isFinite(Number(movForm.amount)) &&
-    Number(movForm.amount) > 0 &&
-    (movForm.kind !== 'gasto' || movForm.category !== null) &&
-    movForm.note.trim().length > 0 &&
-    movForm.day.length === 10;
+  // Lo que falta, para mostrarlo. El botón ya NO se deshabilita por esto: se
+  // deshabilita sólo mientras hay un pedido en vuelo. Un botón gris sin motivo
+  // es un callejón sin salida, y era el síntoma que se reportó.
+  const faltaMov = faltaEnMovimiento();
+  const faltaPago = faltaEnPago();
 
   return (
     <div className="space-y-4">
@@ -342,9 +408,12 @@ export function FinanzasView({
               width={56}
             />
             <Tooltip content={<MovimientoTooltip />} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
-            {/* Las dos barras apiladas suman el neto del mes: profit (lo que
-                generó el negocio) + movimientos (gastos, retiros y ajustes,
-                normalmente en negativo). */}
+            {/* Dos barras apiladas desde el cero: el profit del mes crece para
+                arriba y los movimientos (gastos, retiros y ajustes, casi
+                siempre negativos) para abajo. OJO: la altura visible NO es el
+                neto — recharts apila los negativos hacia el otro lado en vez de
+                restarlos de la barra positiva. El neto del mes está en el
+                tooltip, que es donde se lee de verdad. */}
             <Bar dataKey="profitEur" name="Profit" stackId="mes" fill={panelColors.good} radius={[2, 2, 0, 0]} />
             <Bar dataKey="movementsEur" name="Movimientos" stackId="mes" fill={panelColors.warn} />
           </BarChart>
@@ -495,13 +564,8 @@ export function FinanzasView({
               />
             </label>
           </div>
-          <div className="mt-3 flex gap-2">
-            <button
-              type="button"
-              className={btnPrimary}
-              disabled={busy || !montoValido}
-              onClick={guardarMovimiento}
-            >
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <button type="button" className={btnPrimary} disabled={busy} onClick={guardarMovimiento}>
               {editMov === null ? 'Cargar' : 'Guardar cambios'}
             </button>
             {editMov !== null && (
@@ -518,7 +582,18 @@ export function FinanzasView({
                 Cancelar
               </button>
             )}
+            {/* El motivo, al lado del botón, mientras el formulario no está
+                listo. `aria-live` para que un lector de pantalla lo anuncie
+                cuando cambia sin que se recargue nada. */}
+            {faltaMov !== null && movForm.amount.trim().length > 0 && (
+              <span className="text-xs text-warn-300" aria-live="polite">
+                {faltaMov}
+              </span>
+            )}
           </div>
+          <p className="mt-2 text-xs text-neutral-500">
+            El monto se escribe con coma para los decimales: <span className="text-neutral-400">1234,56</span>.
+          </p>
           {movForm.kind === 'ajuste' && (
             <p className="mt-2 text-xs text-neutral-500">
               El ajuste se carga con el signo del toggle (+/−) y puede ir en cualquier dirección.
@@ -622,13 +697,8 @@ export function FinanzasView({
               </select>
             </label>
           </div>
-          <div className="mt-3 flex gap-2">
-            <button
-              type="button"
-              className={btnPrimary}
-              disabled={busy || pagoForm.name.trim().length === 0 || !(Number(pagoForm.amount) > 0)}
-              onClick={guardarPago}
-            >
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <button type="button" className={btnPrimary} disabled={busy} onClick={guardarPago}>
               {editPago === null ? 'Cargar' : 'Guardar cambios'}
             </button>
             {editPago !== null && (
@@ -643,6 +713,11 @@ export function FinanzasView({
               >
                 Cancelar
               </button>
+            )}
+            {faltaPago !== null && pagoForm.amount.trim().length > 0 && (
+              <span className="text-xs text-warn-300" aria-live="polite">
+                {faltaPago}
+              </span>
             )}
           </div>
         </div>

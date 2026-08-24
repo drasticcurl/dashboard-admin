@@ -135,4 +135,34 @@ describe.skipIf(!dbAvailable)('/api/finanzas/pagos-programados', () => {
     );
     expect(filas[0]!.n).toBe('1');
   });
+
+  it('7. un pago que falla se REPORTA y no bloquea a los demás', async () => {
+    // Antes había un `catch {}` vacío: el gasto no se generaba, el pago seguía
+    // atrasado y la respuesta era idéntica a "no había nada que hacer", así que
+    // la pantalla mostraba un cartel verde. Un gasto que falta en el patrimonio
+    // y nadie ve es el peor resultado posible de este módulo.
+    await POST(jsonReq('http://localhost/api/finanzas/pagos-programados', {
+      name: `${PREFIX}anda`, category: 'herramientas', amountEur: 50, dayOfMonth: 1,
+    }));
+    await POST(jsonReq('http://localhost/api/finanzas/pagos-programados', {
+      name: `${PREFIX}roto`, category: 'sueldos', amountEur: 90, dayOfMonth: 1,
+    }));
+
+    // Una falla a nivel base que sólo alcanza al segundo pago.
+    await q(`ALTER TABLE finance_movements ADD CONSTRAINT tmp_falla_pago CHECK (note NOT LIKE '%roto%')`);
+    try {
+      const res = await POST_EJECUTAR(new NextRequest('http://localhost/api/finanzas/pagos-programados/ejecutar-ahora'));
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        ejecutados: string[];
+        fallidos: { name: string; error: string }[];
+      };
+
+      expect(body.ejecutados).toContain(`${PREFIX}anda`);
+      expect(body.fallidos.map((f) => f.name)).toContain(`${PREFIX}roto`);
+      expect(body.fallidos.find((f) => f.name === `${PREFIX}roto`)!.error.length).toBeGreaterThan(0);
+    } finally {
+      await q('ALTER TABLE finance_movements DROP CONSTRAINT tmp_falla_pago');
+    }
+  });
 });

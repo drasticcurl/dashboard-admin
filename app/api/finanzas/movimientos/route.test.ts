@@ -165,4 +165,89 @@ describe.skipIf(!dbAvailable)('/api/finanzas/movimientos', () => {
     expect(body.movements.length).toBeGreaterThanOrEqual(1);
     expect(body.movements.every((m) => m.kind === 'ajuste')).toBe(true);
   });
+
+  // ─── Regresiones del PATCH ────────────────────────────────────────────────
+  //
+  // Los cuatro casos de abajo son bugs que estuvieron en producción. Cada uno
+  // rompía de una forma distinta y ninguno tenía test.
+
+  type PatchResp = {
+    ok?: boolean;
+    movement?: { id: number; kind: string; category: string | null; amountEur: number; note: string; day: string };
+    detail?: string;
+  };
+
+  async function crear(kind: string, category: string | null, amountEur: number, sufijo: string) {
+    const res = await POST(jsonReq('http://localhost/api/finanzas/movimientos', {
+      kind, category, amountEur, note: `${PREFIX}${sufijo}`, day: '2026-08-16',
+    }));
+    expect(res.status).toBe(200);
+    return ((await res.json()) as PatchResp).movement!;
+  }
+
+  async function patchMov(body: unknown): Promise<{ status: number; body: PatchResp }> {
+    const res = await PATCH(jsonReq('http://localhost/api/finanzas/movimientos', body, 'PATCH'));
+    return { status: res.status, body: (await res.json()) as PatchResp };
+  }
+
+  it('9. un ajuste NEGATIVO se puede editar sin perder el signo', async () => {
+    // Antes: 400 siempre. El route validaba el monto con kind=undefined, caía en
+    // la rama de gasto/retiro y exigía positivo, así que un ajuste en negativo
+    // era imposible de guardar una vez creado.
+    const m = await crear('ajuste', null, -250, '9');
+    expect(m.amountEur).toBe(-250);
+
+    const r = await patchMov({ id: m.id, kind: 'ajuste', category: null, amountEur: -250, note: `${PREFIX}9b`, day: '2026-08-17' });
+    expect(r.status).toBe(200);
+    expect(r.body.movement!.amountEur).toBe(-250);
+    expect(r.body.movement!.note).toBe(`${PREFIX}9b`);
+  });
+
+  it('10. PATCH sin amountEur no toca el monto (antes tiraba 500)', async () => {
+    // Antes: String(undefined) llegaba a `amount_eur = $3::numeric` y Postgres
+    // devolvía 22P02 invalid input syntax for numeric: "undefined".
+    const m = await crear('gasto', 'otros', 50, '10');
+    const r = await patchMov({ id: m.id, note: `${PREFIX}10b` });
+    expect(r.status).toBe(200);
+    expect(r.body.movement!.amountEur).toBe(-50);
+    expect(r.body.movement!.note).toBe(`${PREFIX}10b`);
+  });
+
+  it('11. ponerle categoría a un retiro → 400 legible, no el CHECK crudo', async () => {
+    // Antes: 500 con "violates check constraint finance_movements_categoria_solo_gasto".
+    const m = await crear('retiro', null, 400, '11');
+    const r = await patchMov({ id: m.id, category: 'sueldos' });
+    expect(r.status).toBe(400);
+    expect(r.body.detail).toBe('un retiro o ajuste no lleva categoría');
+  });
+
+  it('12. cambiar el kind funciona, limpia la categoría y recalcula el signo', async () => {
+    // Antes: el kind no estaba en patchSchema, se descartaba en silencio y la UI
+    // igual decía "Movimiento actualizado".
+    const m = await crear('gasto', 'alquiler', 700, '12');
+
+    const aRetiro = await patchMov({ id: m.id, kind: 'retiro', category: null });
+    expect(aRetiro.status).toBe(200);
+    expect(aRetiro.body.movement!.kind).toBe('retiro');
+    expect(aRetiro.body.movement!.category).toBeNull();
+    expect(aRetiro.body.movement!.amountEur).toBe(-700);
+
+    // Sin categoría un gasto no existe: 400 explicando, no un CHECK.
+    const sinCat = await patchMov({ id: m.id, kind: 'gasto' });
+    expect(sinCat.status).toBe(400);
+    expect(sinCat.body.detail).toBe('un gasto necesita categoría');
+
+    // Y un ajuste POSITIVO que pasa a gasto tiene que quedar negativo: si no,
+    // un gasto sumaría al patrimonio.
+    const aj = await crear('ajuste', null, 300, '12b');
+    expect(aj.amountEur).toBe(300);
+    const aGasto = await patchMov({ id: aj.id, kind: 'gasto', category: 'otros' });
+    expect(aGasto.status).toBe(200);
+    expect(aGasto.body.movement!.amountEur).toBe(-300);
+  });
+
+  it('13. PATCH de un id inexistente → 404', async () => {
+    const r = await patchMov({ id: 999999999, note: `${PREFIX}13` });
+    expect(r.status).toBe(404);
+  });
 });
