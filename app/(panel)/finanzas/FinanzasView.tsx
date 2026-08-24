@@ -73,11 +73,8 @@ function MovimientoTooltip({
 }): JSX.Element | null {
   if (!active || !payload?.length) return null;
   const p = payload[0]!.payload;
-  // `shadow-xl` (utilidad de Tailwind) y no `shadow-float`: ese token vive sólo
-  // en el tailwind.config del rediseño, que todavía no está commiteado. Cuando
-  // el rediseño entre, esto vuelve a shadow-float.
   return (
-    <div className="rounded-lg border border-border-strong bg-surface-raised px-3 py-2 text-xs shadow-xl">
+    <div className="rounded-lg border border-border-strong bg-surface-raised px-3 py-2 text-xs shadow-float">
       <p className="mb-1 font-semibold text-neutral-100">{p.month}</p>
       <p className="tabular-nums text-neutral-200">Neto: {fmtMoney(p.netEur, 'EUR')}</p>
       <p className="tabular-nums text-neutral-400">Profit: {fmtMoney(p.profitEur, 'EUR')}</p>
