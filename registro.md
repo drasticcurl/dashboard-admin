@@ -10,6 +10,60 @@ Lo más nuevo va arriba. Las reglas de cómo se escribe una entrada están en
 
 ---
 
+## 2026-08-24 — El revert de `/anuncios/reglas` era del IDE, no una decisión
+
+Cierra el pendiente que dejó la entrada de abajo ("quedó sin commitear, intacto,
+para que el dueño del cambio decida"). **Sin commit: el working tree volvió a
+coincidir con HEAD, así que el repo no cambió.**
+
+**Qué pasaba.** Los cuatro archivos de reglas parecían un revert deliberado de
+cuatro features ya commiteadas. No lo era: fue el IDE deshaciendo las ediciones
+de la sesión que había creado `d26cc05` (el menú de 3 puntos y el import/export
+de CSV). Deshacer esas ediciones devolvió `ReglasView.tsx` a su contenido
+*anterior*, que es el snapshot de `574510d`, y borró del disco los dos archivos
+que esa sesión había **creado** — deshacer una creación es borrarla. El efecto
+colateral, y el motivo de que pareciera intencional, es que el snapshot es
+anterior a TODO: se llevó de paso los otros tres commits de reglas que vinieron
+después (`224eefe`, `ab8a96d`, `b54a727`, `8396c63`).
+
+La prueba de que era una copia vieja y no una decisión, para que nadie tenga que
+repetir el diff de 1500 líneas:
+
+- `ReglasView.tsx` en disco (1154 líneas) era **byte-idéntico** a
+  `574510d:app/(panel)/anuncios/reglas/ReglasView.tsx`. Cero líneas propias.
+- `utmify.ts` en disco (821 líneas) era **byte-idéntico** a
+  `d26cc05:lib/ads/reglas/utmify.ts`, o sea la versión original sin las 12
+  líneas de `motivoIncoherente` que se le agregaron después.
+
+**Por qué se resolvió así.** `git checkout HEAD --` sobre los cuatro archivos, y
+no rescatar nada del disco. La entrada de abajo dudaba en hacerlo porque "borra
+trabajo sin commitear": esa premisa era falsa y los dos `diff` de arriba lo
+demuestran — el disco era estrictamente más viejo que HEAD, byte por byte, así
+que no había nada que rescatar. La alternativa (rehacer a mano las validaciones
+sobre la copia vieja) habría reescrito código que ya estaba commiteado y
+deployado.
+
+Los dos scripts temporales de esa sesión (`scripts/tmp-cookie.ts`,
+`scripts/tmp-roundtrip.ts`) se borraron. Servían para generar una cookie de
+sesión y comprobar el round-trip del CSV a mano; nunca fueron para el repo y el
+revert los había traído de vuelta.
+
+**Qué se verificó.** `_nombres.test.ts` era el único test que fallaba y ahora
+pasa: el error era `the given combination of arguments (null and string) is
+invalid for this assertion` en la línea de la ventana horaria, o sea el test de
+HEAD corriendo contra el `problema()` viejo que devolvía `null`. Después:
+`npm run build` limpio con typecheck, y `npm test` completo en **1041 tests, 86
+archivos, 0 fallos**.
+
+Detalle que casi mandó al tacho la verificación: la primera corrida daba **79
+tests fallando**, y no tenía nada que ver con esto. Colima estaba apagado
+(máquina reiniciada) y Postgres no atendía: `connect ECONNREFUSED
+127.0.0.1:5433` disfrazado de errores de `createScheduledPayment` en
+`lib/queries/finance.ts:482`. Con la base arriba, verde. Si una corrida falla en
+masa y los errores apuntan a queries, mirar primero si la base está viva.
+
+---
+
 ## 2026-08-24 — Auditoría de Finanzas, logout y el rediseño
 
 Sesión larga con tres cosas distintas. Se reporta como una sola porque las tres
