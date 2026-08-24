@@ -70,6 +70,57 @@ async function isAuthenticated(req: NextRequest): Promise<boolean> {
   return safeEqualHex(sig, expected);
 }
 
+/**
+ * La URL del login, en el dominio POR EL QUE ENTRÓ el visitante.
+ *
+ * NO se usa `new URL('/', req.url)`. En el build standalone detrás de Caddy,
+ * `req.url` lo arma Next con la dirección donde escucha el proceso, no con el
+ * Host que pidió el browser: el redirect salía a `http://localhost:3000/` y
+ * sacaba al usuario del panel cada vez que se le vencía la sesión (12 h) o
+ * apretaba Salir. Con PM2 el proceso escucha en 127.0.0.1:3005, así que ese
+ * `localhost:3000` no es ni siquiera una dirección que exista.
+ *
+ * El orden es a propósito:
+ *  1. `NEXT_PUBLIC_SITE_URL` — el valor canónico, y `deploy/deploy.sh` (§6) ya
+ *     aborta el deploy si falta. Es el único que no depende de headers que
+ *     puede escribir el cliente.
+ *  2. `x-forwarded-host` + `x-forwarded-proto` — lo que manda Caddy. Sólo se
+ *     usa si no hay (1), porque un header de estos es texto libre para quien
+ *     llegue sin pasar por el proxy.
+ *  3. `req.nextUrl` — dev local sin proxy, donde el host sí es el real.
+ */
+export function urlDeLogin(req: NextRequest): URL {
+  const canonica = process.env.NEXT_PUBLIC_SITE_URL;
+  if (canonica) {
+    try {
+      return new URL('/', canonica);
+    } catch {
+      // Una env var mal escrita no puede dejar el panel sin redirect: se cae a
+      // los headers de abajo.
+    }
+  }
+
+  const host = req.headers.get('x-forwarded-host') ?? req.headers.get('host');
+  if (host) {
+    // Caddy termina el TLS, así que el proto real viaja en el header; sin él,
+    // asumir https en cualquier host que no sea local es lo correcto para este
+    // panel (el HTTP de producción lo redirige Caddy igual).
+    const proto =
+      req.headers.get('x-forwarded-proto') ??
+      (host.startsWith('localhost') || host.startsWith('127.0.0.1') ? 'http' : 'https');
+    try {
+      return new URL('/', `${proto}://${host}`);
+    } catch {
+      // idem
+    }
+  }
+
+  const local = req.nextUrl.clone();
+  local.pathname = '/';
+  local.search = '';
+  return local;
+}
+
 export async function middleware(req: NextRequest): Promise<NextResponse> {
   const { pathname } = req.nextUrl;
 
@@ -79,7 +130,7 @@ export async function middleware(req: NextRequest): Promise<NextResponse> {
 
   const res = authed
     ? NextResponse.next()
-    : NextResponse.redirect(new URL('/', req.url));
+    : NextResponse.redirect(urlDeLogin(req));
 
   // Panel con datos de ventas en un subdominio público (D16): nada cacheable,
   // nada indexable.
