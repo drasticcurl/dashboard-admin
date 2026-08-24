@@ -143,5 +143,10 @@ export async function middleware(req: NextRequest): Promise<NextResponse> {
 }
 
 export const config = {
-  matcher: ['/((?!api/ingest|api/webhooks|_next/static|_next/image|favicon.ico).*)'],
+  // `icon.svg` está excluido junto a `favicon.ico`: es el favicon que genera
+  // `app/icon.svg` (convención de Next), y el HTML lo pide como
+  // `/icon.svg?<hash>`. Sin la exclusión el middleware lo redirige a `/` con un
+  // 307 mientras no haya cookie, así que el ícono no carga en la pantalla de
+  // login — justo donde es lo único que se ve. No filtra nada: es el logo.
+  matcher: ['/((?!api/ingest|api/webhooks|_next/static|_next/image|favicon.ico|icon.svg).*)'],
 };
