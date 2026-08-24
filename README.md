@@ -58,6 +58,17 @@ que el ingest devuelva 401 en vez de aceptar cualquier cosa.
 Todo lo demás (schema canónico, contratos congelados del ingest y del webhook,
 vocabulario de eventos, ownership de archivos) vive en `tasks/00-PLAN.md`.
 
+## Antes de tocar código
+
+- **`registro.md`** — qué se cambió y **por qué**. Es lo primero que conviene
+  leer si algo parece raro o si estás por deshacer una decisión: `git log` dice
+  qué cambió, el registro dice qué problema había y qué alternativas se
+  descartaron. Cada cambio se anota ahí (la regla y el formato están en
+  `.kiro/steering/registro.md`).
+- **`COMO-DEPLOYAR.md`** — el ciclo de cambio y deploy, y la lista de cosas que
+  ya salieron mal y no conviene repetir.
+- **`docs/runbook.md`** — operación de la base y diagnósticos.
+
 ---
 
 **Nota de versiones:** `npm install` resolvió las siguientes versiones sobre
