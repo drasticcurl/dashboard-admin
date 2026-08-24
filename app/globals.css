@@ -1,3 +1,287 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Base: lo que aplica a todo el documento.
+   ───────────────────────────────────────────────────────────────────────────── */
+
+@layer base {
+  :root {
+    /* Le dice al navegador que los widgets nativos (scrollbars, autofill,
+       date pickers) se pinten en oscuro. Sin esto, un <input type="date"> o el
+       autofill de Chrome aparecen BLANCOS en medio del panel. */
+    color-scheme: dark;
+
+    /* El hue del que salen todas las sombras del panel: el mismo del canvas.
+       Vive acá y no sólo en Tailwind porque las sombras compuestas de abajo
+       lo necesitan como valor CSS. */
+    --sombra: 4 6 14;
+  }
+
+  html {
+    scroll-behavior: smooth;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    /* Sin esto, el "rubber band" de iOS al final del scroll muestra el blanco
+       del body debajo del panel oscuro. */
+    background-color: theme('colors.canvas');
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Los números de un panel de métricas se leen en columna: si no son de ancho
+     fijo, las cifras bailan de fila en fila. */
+  th,
+  td,
+  input[type='number'] {
+    font-variant-numeric: tabular-nums;
+  }
+
+  ::selection {
+    background-color: rgb(34 197 138 / 0.28);
+    color: theme('colors.neutral.50');
+  }
+
+  /* Un solo tratamiento de foco para todo el panel. Antes había cuatro
+     variantes distintas (ring-2/50, ring-2/60, outline-2/60 y las de
+     emerald-500); esta es la base que hereda cualquier control que no defina
+     la suya, y es la que hace el panel navegable con Tab. */
+  :focus-visible {
+    outline: 2px solid rgb(34 197 138 / 0.65);
+    outline-offset: 2px;
+    border-radius: theme('borderRadius.md');
+  }
+
+  /* La barra de scroll como parte del panel y no como un tajo gris del OS. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(255 255 255 / 0.12) transparent;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background-color: rgb(255 255 255 / 0.1);
+    border: 2px solid transparent;
+    background-clip: content-box;
+    border-radius: 9999px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: rgb(255 255 255 / 0.18);
+  }
+
+  /* El autofill de Chrome pinta un amarillo #FAFFBD que ignora cualquier
+     `background-color`. La transición larguísima es el único truco que lo
+     evita sin !important. */
+  input:-webkit-autofill,
+  input:-webkit-autofill:focus {
+    -webkit-text-fill-color: theme('colors.neutral.100');
+    -webkit-box-shadow: 0 0 0 1000px theme('colors.surface-raised') inset;
+    transition: background-color 10000s ease-out 0s;
+    caret-color: theme('colors.neutral.100');
+  }
+
+  /*
+    No opcional: quien pidió menos movimiento en el sistema no recibe ninguna
+    de las animaciones de este rediseño. Se apaga TODO —entradas, shimmer,
+    scroll suave y las transiciones de hover— en un solo lugar, así ningún
+    componente nuevo se puede olvidar de respetarlo.
+  */
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Componentes: el vocabulario de "vidrio líquido" del panel.
+
+   Van en @layer components y no como utilidades sueltas porque cada uno es
+   una receta de 4 o 5 propiedades que tienen que viajar juntas (blur +
+   saturación + highlight + refracción + sombra teñida). Separadas se
+   desincronizan; juntas son un solo nombre.
+
+   OJO con el orden de capas: las utilidades de Tailwind ganan sobre estas
+   clases. Un `bg-surface` en el markup PISA el fondo de `.glass`. Es a
+   propósito (permite variar el tinte), pero significa que no hay que poner
+   utilidades de fondo sobre un elemento con .glass salvo que se quiera eso.
+   ───────────────────────────────────────────────────────────────────────────── */
+
+@layer components {
+  /*
+    El vidrio. Tres capas de luz, que es lo que separa esto de un
+    `backdrop-blur` pelado:
+
+      1. `saturate(180%)` — el ingrediente que casi nadie pone y el que más se
+         nota. Satura lo que hay DETRÁS del panel, así el vidrio recoge el
+         color del contenido en lugar de lavarlo a gris.
+      2. highlight de 1px arriba — el reflejo del borde superior.
+      3. anillo interno de 1px — la refracción del canto del vidrio.
+  */
+  .glass {
+    background-color: rgb(17 18 25 / 0.72);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    backdrop-filter: blur(20px) saturate(180%);
+    box-shadow:
+      inset 0 1px 0 0 rgb(255 255 255 / 0.07),
+      inset 0 0 0 1px rgb(255 255 255 / 0.04),
+      0 12px 32px -16px rgb(var(--sombra) / 0.8);
+  }
+
+  /* El vidrio del header: más translúcido, porque debajo pasa el contenido. */
+  .glass-bar {
+    background-color: rgb(8 9 13 / 0.62);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+    backdrop-filter: blur(24px) saturate(180%);
+  }
+
+  /*
+    Fallback honesto: si el navegador no sabe hacer backdrop-filter, el vidrio
+    translúcido se ve como un panel semitransparente sucio con el texto de
+    atrás cruzándolo. Ahí conviene fondo sólido y listo.
+  */
+  @supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+    .glass {
+      background-color: theme('colors.surface');
+    }
+
+    .glass-bar {
+      background-color: theme('colors.canvas');
+    }
+  }
+
+  /*
+    El brillo que recorre el canto superior de una tarjeta. Es un degradado
+    horizontal de 1px que se apaga en las puntas: un borde blanco parejo se ve
+    como un contorno dibujado, este se ve como luz cayendo sobre un objeto.
+  */
+  .sheen {
+    position: relative;
+  }
+
+  .sheen::before {
+    content: '';
+    position: absolute;
+    inset-inline: 1.25rem;
+    top: 0;
+    height: 1px;
+    pointer-events: none;
+    background-image: linear-gradient(
+      90deg,
+      transparent,
+      rgb(255 255 255 / 0.14) 22%,
+      rgb(255 255 255 / 0.14) 78%,
+      transparent
+    );
+  }
+
+  /*
+    Tarjeta interactiva: se levanta al hover. El movimiento va por `transform`
+    y no por `top`/`margin` para que lo componga la GPU y no dispare layout.
+  */
+  .lift {
+    transition:
+      transform 250ms cubic-bezier(0.34, 1.56, 0.64, 1),
+      box-shadow 250ms cubic-bezier(0.32, 0.72, 0, 1),
+      border-color 250ms cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  .lift:hover {
+    transform: translate3d(0, -2px, 0);
+  }
+
+  /* Feedback físico al apretar: el botón cede. */
+  .press {
+    transition: transform 140ms cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  .press:active {
+    transform: scale(0.97);
+  }
+
+  /*
+    La luz ambiental del fondo. Reemplaza al degradado lineal
+    violeta→esmeralda que había antes, que era el rasgo más genérico de la UI:
+    una barra de 45° con dos acentos peleando.
+
+    Ahora son tres manchas RADIALES desfasadas, todas del acento (verde) más
+    una fría al costado, al 6% y al 4%. Un degradado radial no tiene una
+    dirección que delate el truco, y al no estar centrado rompe la simetría del
+    layout sin mover un solo elemento. Es decoración: `pointer-events-none` y
+    detrás de todo.
+  */
+  .aurora {
+    position: fixed;
+    inset: 0;
+    z-index: -10;
+    pointer-events: none;
+    background-image:
+      radial-gradient(56rem 28rem at 12% -8%, rgb(34 197 138 / 0.09), transparent 65%),
+      radial-gradient(44rem 22rem at 88% -14%, rgb(74 154 232 / 0.07), transparent 62%),
+      radial-gradient(70rem 36rem at 62% 4%, rgb(34 197 138 / 0.035), transparent 70%);
+  }
+
+  /*
+    El grano. Un overlay fijo, no interactivo, con ruido de feTurbulence en un
+    data-URI (cero dependencias, cero requests). Es la diferencia entre un
+    fondo plano de vector y una superficie: al 3.5% no se ve como textura, se
+    ve como que el negro tiene materia.
+  */
+  .grain {
+    position: fixed;
+    inset: 0;
+    /*
+      Arriba del contenido y del header (z-20) para que el grano los cubra,
+      pero DEBAJO de los modales y el skip-link (z-50): con el grano en 50
+      quedaba empatado con los overlays y el orden lo decidía el DOM, que es
+      exactamente el tipo de empate que se rompe solo cuando alguien mueve un
+      componente de lugar.
+    */
+    z-index: 40;
+    pointer-events: none;
+    opacity: 0.035;
+    mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  /*
+    Entrada en cascada. Los hijos aparecen con 45ms de diferencia en lugar de
+    montarse todos en el mismo frame, que es lo que hace que una grilla de KPIs
+    se sienta armada y no volcada.
+
+    Se apaga sola con prefers-reduced-motion (regla de @layer base).
+  */
+  .reveal > * {
+    animation: rise-in 420ms cubic-bezier(0.32, 0.72, 0, 1) both;
+  }
+
+  .reveal > *:nth-child(1) { animation-delay: 0ms; }
+  .reveal > *:nth-child(2) { animation-delay: 45ms; }
+  .reveal > *:nth-child(3) { animation-delay: 90ms; }
+  .reveal > *:nth-child(4) { animation-delay: 135ms; }
+  .reveal > *:nth-child(5) { animation-delay: 180ms; }
+  .reveal > *:nth-child(6) { animation-delay: 225ms; }
+  .reveal > *:nth-child(7) { animation-delay: 270ms; }
+  .reveal > *:nth-child(8) { animation-delay: 315ms; }
+  .reveal > *:nth-child(n + 9) { animation-delay: 360ms; }
+}

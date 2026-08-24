@@ -171,7 +171,7 @@ function MenuTamaños({
           <div
             role="menu"
             aria-label={`Tamaño de ${labelWidget}`}
-            className="absolute right-0 top-9 z-30 w-44 overflow-hidden rounded-xl border border-border-strong bg-surface-raised py-1 shadow-xl"
+            className="absolute right-0 top-9 z-30 w-44 overflow-hidden rounded-xl border border-border-strong bg-surface-raised py-1 shadow-float"
           >
             {sizes.map((s) => {
               const esActual = s.w === actual.w && s.h === actual.h;

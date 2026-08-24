@@ -306,7 +306,7 @@ export function HistorialView(): JSX.Element {
                         <summary className="cursor-pointer text-neutral-500 hover:text-neutral-300">
                           objetos creados ({f.descendientes.length})
                         </summary>
-                        <ul className="mt-1 space-y-0.5 rounded-lg bg-black/20 p-2">
+                        <ul className="mt-1 space-y-0.5 rounded-lg bg-canvas/50 p-2">
                           {f.descendientes.map((d) => (
                             <li key={d.id} className="tabular-nums">
                               {d.nivel}: {d.nombre ?? '(sin nombre)'} ({d.id})
@@ -318,7 +318,7 @@ export function HistorialView(): JSX.Element {
                     {Object.keys(f.metrics ?? {}).length > 0 && (
                       <details className="mt-1">
                         <summary className="cursor-pointer text-neutral-500 hover:text-neutral-300">métricas</summary>
-                        <ul className="mt-1 space-y-0.5 rounded-lg bg-black/20 p-2">
+                        <ul className="mt-1 space-y-0.5 rounded-lg bg-canvas/50 p-2">
                           {Object.entries(f.metrics).map(([k, v]) => (
                             <li key={k} className="tabular-nums">
                               {METRICA_LABEL[k] ?? k}: {formatearMetrica(k, v)}

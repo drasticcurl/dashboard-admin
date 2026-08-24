@@ -23,7 +23,8 @@ import {
   clearSessionCookieOptions,
   isAuthenticated,
 } from '@/lib/auth';
-import { Nav, PanelLogo } from '@/components/Nav';
+import { Nav } from '@/components/Nav';
+import { PanelLogo } from '@/components/PanelLogo';
 import { RangePicker } from '@/components/RangePicker';
 
 export const dynamic = 'force-dynamic';
@@ -46,35 +47,80 @@ export default async function PanelLayout({ children }: { children: ReactNode })
   const funnels = await listFunnels();
 
   return (
-    <div className="min-h-screen bg-canvas text-neutral-100 antialiased">
-      {/* glow ambiental superior, igual que el /admin de los funnels */}
-      <div className="pointer-events-none fixed inset-x-0 top-0 -z-10 h-72 bg-gradient-to-b from-violet-600/10 via-emerald-500/[0.04] to-transparent blur-2xl" />
-      <header className="sticky top-0 z-20 border-b border-border-subtle bg-canvas/80 backdrop-blur-xl">
-        <div className="mx-auto flex max-w-6xl flex-col gap-3 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
+    /*
+      `min-h-dvh` y no `min-h-screen`: en Safari de iOS `100vh` cuenta la barra
+      de direcciones que se esconde al scrollear, así que el layout salta unos
+      píxeles al primer gesto. `dvh` mide el viewport que hay de verdad.
+    */
+    <div className="min-h-dvh bg-canvas text-neutral-100 antialiased">
+      {/* Luz ambiental y grano: las dos capas decorativas del fondo. */}
+      <div aria-hidden className="aurora" />
+      <div aria-hidden className="grain" />
+
+      {/*
+        Salto al contenido: el header tiene ~10 controles antes del <main>, así
+        que sin esto quien navega con teclado tabula por las 7 tabs, el select
+        de funnel, el de rango y Salir en CADA carga de página.
+      */}
+      <a
+        href="#contenido"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-lg focus:bg-surface-raised focus:px-3 focus:py-2 focus:text-sm focus:font-semibold focus:text-neutral-50 focus:shadow-float"
+      >
+        Saltar al contenido
+      </a>
+
+      {/*
+        El header es la única superficie de vidrio de verdad del panel: el
+        contenido pasa POR DEBAJO difuminado. El borde inferior no es una línea
+        pareja sino un degradado que se apaga en los extremos, así el header se
+        apoya sobre el contenido en lugar de cortarlo.
+      */}
+      <header className="glass-bar sticky top-0 z-20">
+        <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-3 lg:flex-row lg:items-center lg:justify-between lg:gap-6">
           <Link
             href="/resumen"
-            className="flex shrink-0 items-center gap-2 text-sm font-semibold tracking-tight text-neutral-100 hover:text-white"
+            className="flex shrink-0 items-center gap-2.5 text-sm font-semibold tracking-tight text-neutral-100 transition-colors hover:text-neutral-50"
           >
             <PanelLogo />
             <span className="hidden sm:inline">Panel · Hilvan</span>
             <span className="sm:hidden">Panel</span>
           </Link>
 
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2.5">
             <Nav funnels={funnels} />
             <RangePicker />
             <form action={logoutAction}>
               <button
                 type="submit"
-                className="rounded-lg px-2.5 py-1.5 text-sm text-neutral-400 transition-colors hover:bg-overlay/6 hover:text-neutral-100"
+                className="press rounded-lg px-2.5 py-1.5 text-sm font-medium text-neutral-400 transition-colors duration-250 hover:bg-overlay/8 hover:text-neutral-100"
               >
                 Salir
               </button>
             </form>
           </div>
         </div>
+        <div
+          aria-hidden
+          className="h-px bg-gradient-to-r from-transparent via-overlay/12 to-transparent"
+        />
       </header>
-      <main className="mx-auto max-w-6xl px-4 py-6">{children}</main>
+
+      {/*
+        Padding inferior más grande que el superior: ópticamente, un bloque con
+        el mismo aire arriba y abajo se ve caído hacia el final de la página.
+      */}
+      {/*
+        `reveal` escalona la entrada de los bloques de la pantalla (ver
+        globals.css): la cabecera, y después cada tarjeta con 45ms de
+        diferencia. Va acá, a nivel de página, y NO en el primitivo `Grid`:
+        los hijos de esa grilla son los widgets arrastrables y llevan un
+        `transform` inline de dnd-kit que una animación CSS pisaría, porque en
+        la cascada las animaciones ganan a los estilos inline. Animar la grilla
+        entera es seguro; animar sus items rompería el drag.
+      */}
+      <main id="contenido" className="reveal mx-auto max-w-7xl px-4 pb-16 pt-7">
+        {children}
+      </main>
     </div>
   );
 }

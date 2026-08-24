@@ -56,8 +56,15 @@ import {
 } from '@/components/ui';
 import { CaretDown, CaretUp } from '@phosphor-icons/react';
 
+/*
+  Los tres select de filtros. Antes definían sus propios colores crudos —alfas
+  de blanco escritas a mano para el borde y el fondo, y el verde de Tailwind
+  para el foco— y por eso eran los únicos controles del panel que no seguían la
+  paleta. Ahora usan los tokens y el fondo sólido, que es lo que evita que el
+  navegador los pinte de blanco.
+*/
 const SELECT_CLS =
-  'appearance-none rounded-lg border border-white/10 bg-white/[0.04] py-1.5 pl-3 pr-7 text-sm font-medium text-neutral-200 transition-colors hover:bg-white/[0.07] focus:border-emerald-500/50 focus:outline-none focus:ring-1 focus:ring-emerald-500/50';
+  'press appearance-none rounded-lg border border-border-strong bg-surface-raised py-1.5 pl-3 pr-8 text-sm font-medium text-neutral-200 shadow-inset-highlight transition-[background-color,border-color] duration-250 hover:border-overlay/18 hover:bg-surface-overlay';
 
 type CampaignRow = { campaign: string; sessions: number; purchases: number };
 type CampaignSortKey = 'campaign' | 'sessions' | 'purchases' | 'conversion';
@@ -204,7 +211,7 @@ export function EmbudoView({
             <button
               type="button"
               onClick={() => setRetryTick((t) => t + 1)}
-              className="rounded-md border border-white/10 px-2 py-1 font-semibold text-neutral-200 hover:bg-white/[0.06]"
+              className="rounded-md border border-border-strong px-2 py-1 font-semibold text-neutral-200 hover:bg-overlay/6"
             >
               Reintentar
             </button>
@@ -237,9 +244,9 @@ export function EmbudoView({
         reemplazaba por un toggle de portada que recortaba el embudo entero. El
         test se cerró, el embudo es uno solo y el ternario se fue con él.
       */}
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/[0.06] bg-[#13131a] p-4">
+      <div className="sheen flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border-subtle bg-surface p-4 shadow-card">
         <div>
-          <p className="text-sm text-neutral-300">
+          <p className="max-w-[70ch] text-pretty text-sm leading-relaxed text-neutral-300">
             % de personas que llegan a cada paso, medido desde{' '}
             <span className="font-semibold text-neutral-100">
               {base === 'landing' ? 'la landing (entrada)' : 'el inicio del quiz (1ª pregunta)'}
@@ -255,19 +262,26 @@ export function EmbudoView({
           </p>
         </div>
 
+        {/*
+          Mismo control segmentado que las tabs del Nav: canal hundido, opción
+          activa como pastilla elevada. Antes era el mismo widget con otra piel
+          —bordes y fill como alfas de blanco a mano, foco con el verde de
+          Tailwind—, así que dos controles idénticos del panel se veían
+          distintos.
+        */}
         <div
           role="group"
           aria-label="Base de medición del porcentaje"
-          className="flex items-center gap-1 rounded-lg border border-white/[0.06] bg-white/[0.02] p-1"
+          className="flex shrink-0 items-center gap-0.5 rounded-xl bg-canvas/70 p-1 shadow-[inset_0_1px_2px_0_rgba(4,6,14,0.6),inset_0_0_0_1px_rgba(255,255,255,0.05)]"
         >
           <button
             type="button"
             onClick={() => setBase('landing')}
             aria-pressed={base === 'landing'}
-            className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500/50 ${
+            className={`press rounded-lg px-3 py-1.5 text-sm transition-[background-color,color,box-shadow] duration-250 ${
               base === 'landing'
-                ? 'bg-white/[0.08] text-neutral-50'
-                : 'text-neutral-400 hover:bg-white/[0.05] hover:text-neutral-200'
+                ? 'bg-surface-raised font-semibold text-neutral-50 shadow-lozenge'
+                : 'font-medium text-neutral-400 hover:bg-overlay/7 hover:text-neutral-100'
             }`}
           >
             Desde la landing
@@ -276,10 +290,10 @@ export function EmbudoView({
             type="button"
             onClick={() => setBase('start')}
             aria-pressed={base === 'start'}
-            className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500/50 ${
+            className={`press rounded-lg px-3 py-1.5 text-sm transition-[background-color,color,box-shadow] duration-250 ${
               base === 'start'
-                ? 'bg-white/[0.08] text-neutral-50'
-                : 'text-neutral-400 hover:bg-white/[0.05] hover:text-neutral-200'
+                ? 'bg-surface-raised font-semibold text-neutral-50 shadow-lozenge'
+                : 'font-medium text-neutral-400 hover:bg-overlay/7 hover:text-neutral-100'
             }`}
           >
             Desde la 1ª pregunta
@@ -340,7 +354,7 @@ export function EmbudoView({
             {worstIndex >= 0 && (
               <p className="text-xs text-neutral-500">
                 Mayor caída:{' '}
-                <span className="font-semibold text-rose-400">{data.steps[worstIndex]!.label}</span>
+                <span className="font-semibold text-bad-400">{data.steps[worstIndex]!.label}</span>
               </p>
             )}
             {data.steps.map((s, i) => (
@@ -383,11 +397,11 @@ export function EmbudoView({
               aria-label="Variante"
               className={SELECT_CLS}
             >
-              <option value="" className="bg-[#13131a] text-neutral-200">
+              <option value="" className="bg-surface-raised text-neutral-200">
                 Todas las variantes
               </option>
               {funnel.variants.map((v) => (
-                <option key={v} value={v} className="bg-[#13131a] text-neutral-200">
+                <option key={v} value={v} className="bg-surface-raised text-neutral-200">
                   {v}
                 </option>
               ))}
@@ -399,13 +413,13 @@ export function EmbudoView({
             aria-label="Campaña"
             className={SELECT_CLS}
           >
-            <option value="" className="bg-[#13131a] text-neutral-200">
+            <option value="" className="bg-surface-raised text-neutral-200">
               Todas las campañas
             </option>
             {data.campaigns
               .filter((c) => c.campaign !== '(otras)')
               .map((c) => (
-                <option key={c.campaign} value={c.campaign} className="bg-[#13131a] text-neutral-200">
+                <option key={c.campaign} value={c.campaign} className="bg-surface-raised text-neutral-200">
                   {c.campaign}
                 </option>
               ))}
@@ -416,11 +430,11 @@ export function EmbudoView({
             aria-label="País"
             className={SELECT_CLS}
           >
-            <option value="" className="bg-[#13131a] text-neutral-200">
+            <option value="" className="bg-surface-raised text-neutral-200">
               Todos los países
             </option>
             {data.countries.map((c) => (
-              <option key={c.country} value={c.country} className="bg-[#13131a] text-neutral-200">
+              <option key={c.country} value={c.country} className="bg-surface-raised text-neutral-200">
                 {c.country}
               </option>
             ))}
@@ -558,7 +572,7 @@ function CampaignTable({ rows }: { rows: CampaignRow[] }) {
             setSortDesc(true);
           }
         }}
-        className={`text-xs font-semibold uppercase tracking-wide transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500/50 ${
+        className={`text-xs font-semibold uppercase tracking-wide transition-colors focus:outline-none focus:ring-2 focus:ring-good-500/50 ${
           align === 'right' ? 'w-full text-right' : ''
         } ${active ? 'text-neutral-200' : 'text-neutral-500 hover:text-neutral-300'}`}
         aria-label={`Ordenar por ${label}${active ? (sortDesc ? ' descendente' : ' ascendente') : ''}`}
@@ -581,7 +595,7 @@ function CampaignTable({ rows }: { rows: CampaignRow[] }) {
     <div className="overflow-x-auto">
       <table className="w-full text-left text-sm">
         <thead>
-          <tr className="border-b border-white/[0.06]">
+          <tr className="border-b border-border-subtle">
             <th scope="col" className="px-3 py-2">
               {header('campaign', 'Campaña', 'left')}
             </th>
@@ -605,7 +619,7 @@ function CampaignTable({ rows }: { rows: CampaignRow[] }) {
             </tr>
           ) : (
             sorted.map((r) => (
-              <tr key={r.campaign} className="border-b border-white/[0.04] last:border-0">
+              <tr key={r.campaign} className="border-b border-overlay/4 last:border-0">
                 <td className="px-3 py-2.5 text-neutral-200">
                   {r.campaign === '(otras)' ? <span className="text-neutral-500">{r.campaign}</span> : r.campaign}
                 </td>

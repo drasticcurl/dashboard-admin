@@ -32,8 +32,8 @@ import { layoutPorDefectoResumen } from './layout-por-defecto';
 import type { OverviewData } from '@/lib/queries/overview';
 import type { FrescuraAds } from '@/lib/ads/live';
 import type { WidgetLayout } from '@/lib/widgets/tipos';
-import { textoEdadGasto, usePollingGasto } from '@/lib/ads/polling';
-import { Banner, EmptyState, Skeleton, Spinner, fmtDateTime } from '@/components/ui';
+import { textoEdad, usePollingGasto } from '@/lib/ads/polling';
+import { Badge, Banner, EmptyState, Skeleton, Spinner, fmtDateTime } from '@/components/ui';
 
 // El reloj '14:20' de los avisos. La query lo arma con DASHBOARD_TZ en el
 // server; acá se usa la TZ del browser, que es lo que el usuario espera ver.
@@ -164,7 +164,7 @@ export function ResumenView({
   // pedido igual repinta las ventas, que sí se mueven.
   usePollingGasto(() => cargar({ silencioso: true }), { pausado: loading });
 
-  const edadGasto = textoEdadGasto(frescura) ?? '—';
+  const edadGasto = textoEdad(frescura) ?? '—';
   const empty = data.funnels.every((f) => f.sessions === 0 && f.orders === 0);
 
   return (
@@ -189,7 +189,7 @@ export function ResumenView({
         <span
           title={frescura.error ?? undefined}
           className={`flex items-center gap-2 text-xs ${
-            frescura.error ? 'text-amber-400' : 'text-neutral-500'
+            frescura.error ? 'text-warn-400' : 'text-neutral-500'
           }`}
         >
           {refrescando && <Spinner />}
@@ -204,7 +204,7 @@ export function ResumenView({
             <button
               type="button"
               onClick={() => setRetryTick((x) => x + 1)}
-              className="rounded-md border border-white/10 px-2 py-1 font-semibold text-neutral-200 hover:bg-white/[0.06]"
+              className="rounded-md border border-border-strong px-2 py-1 font-semibold text-neutral-200 hover:bg-overlay/6"
             >
               Reintentar
             </button>
@@ -257,10 +257,11 @@ export function ResumenView({
   );
 }
 
+/*
+  Era una copia a mano del `Badge` de `components/ui.tsx` con el tono `info`
+  escrito de nuevo clase por clase, así que quedaba fuera de cualquier cambio
+  del kit —de hecho ya había divergido en el radio—. Ahora usa el primitivo.
+*/
 function BadgeTodas(): JSX.Element {
-  return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-sky-500/15 px-2 py-0.5 text-[11px] font-semibold text-sky-300 ring-1 ring-sky-500/20">
-      todos los funnels
-    </span>
-  );
+  return <Badge tone="info">todos los funnels</Badge>;
 }

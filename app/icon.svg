@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!--
+    Favicon del panel. Es el mismo logo que el header: pastilla con el acento
+    del panel (good-400 → good-600) y el gráfico de línea ascendente. Antes no
+    había ninguno y la pestaña mostraba el globo genérico del navegador.
+
+    Va como app/icon.svg para que Next lo sirva y emita el <link rel="icon">
+    solo, sin tocar el layout.
+  -->
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3ed7a0" />
+      <stop offset="1" stop-color="#16a372" />
+    </linearGradient>
+  </defs>
+  <rect width="32" height="32" rx="8" fill="url(#g)" />
+  <path
+    d="M7 21.5 13.5 15l4 4L25 11.5"
+    fill="none"
+    stroke="#08090d"
+    stroke-width="3"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+  <path d="M19.5 11.5H25V17" fill="none" stroke="#08090d" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+</svg>

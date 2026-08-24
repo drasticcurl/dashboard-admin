@@ -13,7 +13,7 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { CaretDown, ChartLineUp } from '@phosphor-icons/react';
+import { CaretDown } from '@phosphor-icons/react';
 import { nombreVisible } from '@/lib/funnel-nombre';
 import type { Funnel } from '@/lib/funnels';
 
@@ -28,18 +28,18 @@ const TABS = [
 ];
 
 /**
- * El logo del panel. Vive en un client component porque el layout del panel
- * es un server component y `@phosphor-icons/react` llama a `createContext`
- * al importarse, que la build server-only de React no tiene (T07 §7, D-R11:
- * el logo deja de ser la letra P).
+ * El estilo compartido de los dos <select> del header (funnel y período).
+ * Está acá y lo importa `RangePicker` porque son el MISMO control con datos
+ * distintos: cuando divergen, el header se ve desalineado.
+ *
+ * Fondo SÓLIDO y no un `bg-overlay/N` translúcido. Un <select> sin
+ * background-color resuelto se pinta con el default del navegador, que es
+ * BLANCO: en un panel oscuro se ve como un bug de color, y es exactamente lo
+ * que pasaba cuando la escala de opacidad no tenía el valor usado. Con un
+ * token sólido no depende de eso.
  */
-export function PanelLogo(): JSX.Element {
-  return (
-    <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-violet-500 to-emerald-500 text-white shadow-lg shadow-violet-500/20">
-      <ChartLineUp size={16} weight="bold" aria-hidden />
-    </span>
-  );
-}
+export const SELECT_HEADER =
+  'press appearance-none rounded-lg border border-border-strong bg-surface-raised py-1.5 pl-3 pr-8 text-sm font-medium text-neutral-200 shadow-inset-highlight transition-[background-color,border-color,box-shadow] duration-250 hover:border-overlay/18 hover:bg-surface-overlay';
 
 export function Nav({ funnels }: { funnels: Funnel[] }) {
   const pathname = usePathname() ?? '/';
@@ -55,19 +55,25 @@ export function Nav({ funnels }: { funnels: Funnel[] }) {
   const selectedFunnel = searchParams.get('f');
 
   return (
-    <nav className="flex flex-wrap items-center gap-3">
+    <nav className="flex flex-wrap items-center gap-2.5">
       {/*
-        La tab activa se marca con TRES señales a la vez, no sólo con el color
-        de la letra: una pastilla sólida más clara que el canal, un borde
-        interno que la despega del fondo, y una barra debajo del texto. Con
-        seis tabs del mismo largo, un cambio de color de letra no alcanza para
-        responder "dónde estoy" de un vistazo.
+        Control segmentado, no una fila de links. El canal es un surco hundido
+        (fondo más oscuro que el header + sombra interna) y la tab activa una
+        pastilla que FLOTA dentro de él: por eso el canal lleva sombra hacia
+        adentro y la pastilla hacia afuera. Es la misma lógica de luz que el
+        resto del panel, y es lo que hace que se lea como un objeto físico.
 
-        El borde va como `ring-inset` y la barra como pseudo-elemento
-        posicionado: las dos cosas no ocupan espacio, así que las tabs no se
-        mueven un pixel al cambiar de sección.
+        La tab activa se marca con TRES señales a la vez, no sólo con el color
+        de la letra: la pastilla elevada, el peso semibold y una barra corta
+        debajo del texto. Con siete tabs del mismo largo, un cambio de color de
+        letra no alcanza para responder "dónde estoy" de un vistazo.
+
+        Nada de eso ocupa espacio: la pastilla es fondo, la barra es un
+        pseudo-elemento posicionado y el ancho de la tab lo fija el `after` del
+        texto en negrita (ver abajo). Así las tabs no se mueven un pixel al
+        cambiar de sección.
       */}
-      <ul className="flex items-center gap-1 rounded-lg border border-border-subtle bg-overlay/4 p-1">
+      <ul className="flex items-center gap-0.5 rounded-xl bg-canvas/60 p-1 shadow-[inset_0_1px_2px_0_rgba(4,6,14,0.6),inset_0_0_0_1px_rgba(255,255,255,0.05)]">
         {TABS.map((tab) => {
           const active =
             pathname === tab.href || pathname.startsWith(`${tab.href}/`);
@@ -76,13 +82,30 @@ export function Nav({ funnels }: { funnels: Funnel[] }) {
               <Link
                 href={{ pathname: tab.href, search: searchParams.toString() }}
                 aria-current={active ? 'page' : undefined}
-                className={`relative block rounded-md px-3 py-1.5 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-good-500/50 ${
+                className={`press relative block rounded-lg px-3 py-1.5 text-sm transition-[background-color,color,box-shadow] duration-250 ${
                   active
-                    ? 'bg-surface-raised font-semibold text-neutral-50 shadow-card ring-1 ring-inset ring-border-strong after:absolute after:inset-x-3 after:-bottom-px after:h-0.5 after:rounded-full after:bg-good-500 after:content-[""]'
-                    : 'font-medium text-neutral-400 hover:bg-overlay/6 hover:text-neutral-200'
+                    ? 'bg-surface-raised font-semibold text-neutral-50 shadow-lozenge after:absolute after:inset-x-3 after:bottom-1 after:h-0.5 after:rounded-full after:bg-good-500 after:content-[""]'
+                    : 'font-medium text-neutral-400 hover:bg-overlay/7 hover:text-neutral-100'
                 }`}
               >
-                {tab.label}
+                {/*
+                  El truco del ancho: los dos labels se apilan en la MISMA
+                  celda de un grid, así la celda mide lo que mide el más ancho
+                  —el semibold— siempre. Sin esto la tab se ensancha al
+                  activarse (medium → semibold ocupa más) y las otras seis se
+                  corren de lugar en cada navegación. Es el jitter que ya tenía
+                  el nav y que no se veía porque nadie mira las otras tabs
+                  mientras cambia de sección.
+                */}
+                <span className="grid">
+                  <span
+                    aria-hidden
+                    className="invisible col-start-1 row-start-1 font-semibold"
+                  >
+                    {tab.label}
+                  </span>
+                  <span className="col-start-1 row-start-1">{tab.label}</span>
+                </span>
               </Link>
             </li>
           );
@@ -99,19 +122,12 @@ export function Nav({ funnels }: { funnels: Funnel[] }) {
             }
             onChange={onFunnelChange}
             aria-label="Funnel"
-            /*
-              Fondo SÓLIDO y no un `bg-overlay/N` translúcido. Un <select> sin
-              background-color resuelto se pinta con el default del navegador,
-              que es BLANCO: en un panel oscuro se ve como un bug de color y es
-              exactamente lo que pasaba cuando la escala de opacidad no tenía
-              el valor usado. Con un token sólido no depende de eso.
-            */
-            className="appearance-none rounded-lg border border-border-strong bg-surface-raised py-1.5 pl-3 pr-7 text-sm font-medium text-neutral-200 transition-colors hover:border-overlay/20 focus:border-good-500/50 focus:outline-none focus:ring-1 focus:ring-good-500/50"
+            className={SELECT_HEADER}
           >
             {funnels.map((f) => (
               // El VALUE sigue siendo el slug: el alias es sólo presentación y no
               // puede cambiar lo que viaja en la URL.
-              <option key={f.slug} value={f.slug} className="bg-surface text-neutral-200">
+              <option key={f.slug} value={f.slug} className="bg-surface-raised text-neutral-200">
                 {nombreVisible(f)}
               </option>
             ))}
@@ -120,7 +136,7 @@ export function Nav({ funnels }: { funnels: Funnel[] }) {
             size={12}
             weight="bold"
             aria-hidden
-            className="pointer-events-none absolute right-2.5 text-neutral-500"
+            className="pointer-events-none absolute right-3 text-neutral-400"
           />
         </div>
       )}

@@ -53,7 +53,7 @@ import { Badge, ChartFrame, EmptyState, Table, fmtAxis, fmtDateTime, fmtInt, fmt
 import type { Tone } from '@/components/ui';
 import { panelColors } from '@/tailwind.config';
 import type { FrescuraAds } from '@/lib/ads/live';
-import { textoEdadGasto } from '@/lib/ads/polling';
+import { textoEdad } from '@/lib/ads/polling';
 import type { OrderRow, SalesData, SalesTotals, TierRow } from '@/lib/queries/sales';
 import type { WidgetCatalogo, WidgetDef, WidgetGrupo, WidgetPlacement, WidgetSize } from './tipos';
 
@@ -128,14 +128,15 @@ const STATUS_TONE: Record<string, Tone> = {
   pending: 'warn',
 };
 
-// Colores del mix por tier: todos de la paleta de tailwind.config.ts
-// (panelColors + los tonos -400 de good/bad/info), no literales nuevos.
+// Colores del mix por tier: TODOS de la paleta de tailwind.config.ts, ahora sí.
+// `upsell2` y `downsell` eran los dos literales que contradecían este comentario
+// (#38bdf8 y #fb7185); viven en panelColors como infoLight y badLight.
 const TIER_COLOR: Record<string, string> = {
   front: panelColors.good,
   bump: panelColors.info,
   upsell: panelColors.warn,
-  upsell2: '#38bdf8',
-  downsell: '#fb7185',
+  upsell2: panelColors.infoLight,
+  downsell: panelColors.badLight,
   unknown: panelColors.axis,
 };
 
@@ -264,7 +265,7 @@ function TipDia({
   if (!active || !payload?.length) return null;
   const d = payload[0]!.payload;
   return (
-    <div className="rounded-lg border border-border-strong bg-surface-raised px-3 py-2 text-xs shadow-xl">
+    <div className="rounded-lg border border-border-strong bg-surface-raised px-3 py-2 text-xs shadow-float">
       <p className="mb-1 font-semibold text-neutral-100">{d.day}</p>
       <p className="font-mono tabular-nums text-good-400">Neto: {fmtMoney(d.net, currency)}</p>
       <p className="font-mono tabular-nums text-bad-400">
@@ -308,7 +309,7 @@ function TipDevuelto({
   if (!active || !payload?.length) return null;
   const d = payload[0]!.payload;
   return (
-    <div className="rounded-lg border border-border-strong bg-surface-raised px-3 py-2 text-xs shadow-xl">
+    <div className="rounded-lg border border-border-strong bg-surface-raised px-3 py-2 text-xs shadow-float">
       <p className="mb-1 font-semibold text-neutral-100">{d.day}</p>
       <p className="font-mono tabular-nums text-bad-400">
         Devuelto: {fmtMoney(d.refunded, currency)}
@@ -347,7 +348,7 @@ function TipMix({
   if (!active || !payload?.length) return null;
   const p = payload[0]!.payload;
   return (
-    <div className="rounded-lg border border-border-strong bg-surface-raised px-3 py-2 text-xs shadow-xl">
+    <div className="rounded-lg border border-border-strong bg-surface-raised px-3 py-2 text-xs shadow-float">
       <p className="mb-1 font-semibold text-neutral-100">{p.label}</p>
       <p className="font-mono tabular-nums text-neutral-200">{fmtMoney(p.net, currency)}</p>
       <p className="font-mono tabular-nums text-neutral-400">{fmtInt(p.orders)} órdenes</p>
@@ -367,7 +368,7 @@ function MaskedEmail({ email }: { email: string | null }): JSX.Element {
       type="button"
       onClick={() => setOpen((o) => !o)}
       aria-label={open ? 'Ocultar email completo' : 'Mostrar email completo'}
-      className="rounded-sm font-mono tabular-nums text-neutral-300 underline decoration-dotted underline-offset-2 transition-colors hover:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+      className="rounded-sm font-mono tabular-nums text-neutral-300 underline decoration-dotted underline-offset-2 transition-colors hover:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-good-500/50"
     >
       {open ? email : masked}
     </button>
@@ -463,7 +464,7 @@ export const catalogoVentas: WidgetCatalogo<VentasWidgetData> = {
       const s = d.showEur;
       const cpa = s ? t.cpaEur : t.cpa;
       const base = cpa > 0 ? `CPA ${fmtMoney(cpa, curDe(t, s))}` : 'gasto de publicidad';
-      const edad = textoEdadGasto(d.frescura);
+      const edad = textoEdad(d.frescura);
       return edad ? `${base} · ${edad}` : base;
     },
     tone: (d) =>

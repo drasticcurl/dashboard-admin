@@ -153,7 +153,7 @@ export function LeadsView({
             <button
               type="button"
               onClick={() => setRetryTick((x) => x + 1)}
-              className="rounded-md border border-white/10 px-2 py-1 font-semibold text-neutral-200 hover:bg-white/[0.06]"
+              className="rounded-md border border-border-strong px-2 py-1 font-semibold text-neutral-200 hover:bg-overlay/6"
             >
               Reintentar
             </button>
@@ -163,13 +163,13 @@ export function LeadsView({
 
       {!data.configured && (
         <Banner tone="warn" title="Funnel sin configurar">
-          No hay credenciales de Supabase para <code className="rounded bg-white/10 px-1">{funnel.slug}</code>.
+          No hay credenciales de Supabase para <code className="rounded bg-overlay/10 px-1">{funnel.slug}</code>.
           Agregá{' '}
-          <code className="rounded bg-white/10 px-1">
+          <code className="rounded bg-overlay/10 px-1">
             SUPABASE_URL_{funnel.slug.toUpperCase()}
           </code>{' '}
           y{' '}
-          <code className="rounded bg-white/10 px-1">
+          <code className="rounded bg-overlay/10 px-1">
             SUPABASE_SERVICE_KEY_{funnel.slug.toUpperCase()}
           </code>{' '}
           al env del dashboard para ver sus leads. El resto del panel sigue
@@ -178,7 +178,7 @@ export function LeadsView({
       )}
       {data.supabaseError && (
         <Banner tone="bad" title="Supabase no responde">
-          <code className="rounded bg-white/10 px-1">{data.supabaseError}</code> — los números
+          <code className="rounded bg-overlay/10 px-1">{data.supabaseError}</code> — los números
           muestran ceros hasta que el fetch funcione.
         </Banner>
       )}
@@ -202,7 +202,7 @@ export function LeadsView({
               type="checkbox"
               checked={onlyNonBuyers}
               onChange={(e) => setOnlyNonBuyers(e.target.checked)}
-              className="h-4 w-4 accent-emerald-500"
+              className="h-4 w-4 accent-good-500"
             />
             Solo no-compradores
           </label>
@@ -218,9 +218,12 @@ export function LeadsView({
           <a
             href={data.configured ? exportHref : undefined}
             aria-disabled={!data.configured}
-            className={`flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-good-500/50 ${
+            className={`press flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-semibold transition-[background-color,filter] duration-250 focus:outline-none focus:ring-2 focus:ring-good-500/50 ${
               data.configured
-                ? 'bg-good-500 text-white hover:bg-good-400'
+                ? /* Texto OSCURO sobre el verde, no blanco: blanco sobre este
+                     tono da 2,2:1 de contraste (reprueba incluso AA), el canvas
+                     da 8,8:1. */
+                  'bg-gradient-to-b from-good-400 to-good-600 text-canvas shadow-glow-good hover:brightness-110'
                 : 'pointer-events-none bg-overlay/6 text-neutral-500'
             }`}
           >
@@ -350,5 +353,5 @@ function ComproBadge({ compro }: { compro: boolean | string | null }): JSX.Eleme
   if (compro == null || compro === '' || compro === false || compro === 'false') {
     return <span className="text-neutral-600">No</span>;
   }
-  return <span className="font-medium text-emerald-400">Sí</span>;
+  return <span className="font-medium text-good-400">Sí</span>;
 }

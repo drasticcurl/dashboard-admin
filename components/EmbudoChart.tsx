@@ -47,7 +47,7 @@ function severidad(e: EmbudoEtapa, esPrimera: boolean): Severidad {
 }
 
 const RELLENO: Record<Severidad, string> = {
-  base: '#3f3f46',
+  base: panelColors.muted,
   ok: panelColors.good,
   medio: panelColors.warn,
   malo: panelColors.bad,
@@ -144,7 +144,7 @@ export function EmbudoChart({ etapas }: { etapas: EmbudoEtapa[] }): JSX.Element 
                   textAnchor="middle"
                   fontSize={15}
                   fontWeight={700}
-                  fill={cabeElTexto ? '#0a0a0f' : '#e4e4e7'}
+                  fill={cabeElTexto ? panelColors.ink : panelColors.inkOnDark}
                   style={{ fontFamily: 'var(--font-geist-mono), ui-monospace, monospace' }}
                 >
                   {fmtPct(e.pctOfBase, 1)}

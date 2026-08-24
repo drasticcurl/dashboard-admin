@@ -171,7 +171,7 @@ export function ControlVistas({
       </p>
 
       {errorRepo && (
-        <p className="mb-2 text-xs text-amber-400">No se pudieron cargar las Vistas: {errorRepo}</p>
+        <p className="mb-2 text-xs text-warn-400">No se pudieron cargar las Vistas: {errorRepo}</p>
       )}
 
       <ul className="space-y-1">

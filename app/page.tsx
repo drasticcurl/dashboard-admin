@@ -14,6 +14,7 @@
 
 import { cookies, headers } from 'next/headers';
 import { redirect } from 'next/navigation';
+import { PanelLogo } from '@/components/PanelLogo';
 import {
   PANEL_COOKIE_NAME,
   checkLoginRateLimit,
@@ -80,49 +81,79 @@ export default function LoginPage({
   const error = typeof searchParams?.error === 'string' ? searchParams?.error : undefined;
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[#0a0a0f] px-4 text-neutral-100 antialiased">
-      <div className="w-full max-w-md rounded-2xl border border-white/[0.06] bg-[#13131a] p-6 shadow-2xl">
-        <div className="mb-4 flex items-center gap-2">
-          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-emerald-500 text-sm font-bold text-white shadow-lg shadow-violet-500/20">
-            P
-          </span>
+    /*
+      El login era una foto del panel ANTES de que existieran los tokens: los
+      dos colores de fondo escritos como hex crudos, los bordes como alfas de
+      blanco a mano, el acento y el error tomados directo de la paleta de
+      Tailwind en lugar de los tonos semánticos del panel, y el logo como la
+      letra "P" cuando el resto del panel ya usaba el icono. Ahora no define
+      ningún color propio: todo sale de los tokens y el logo es el componente
+      compartido.
+    */
+    <main className="relative flex min-h-dvh items-center justify-center bg-canvas px-4 text-neutral-100 antialiased">
+      <div aria-hidden className="aurora" />
+      <div aria-hidden className="grain" />
+
+      {/*
+        La tarjeta es de VIDRIO acá y no en el resto del panel porque es lo
+        único que hay en pantalla: el blur recoge la luz ambiental del fondo, y
+        es lo que hace que la primera pantalla se vea como un objeto apoyado
+        sobre el fondo en lugar de un recuadro sobre un color.
+      */}
+      <div className="glass sheen w-full max-w-md rounded-3xl border border-border-subtle p-7">
+        <div className="mb-5 flex items-center gap-2.5">
+          <PanelLogo size="md" />
           <span className="text-sm font-semibold text-neutral-300">Dashboard interno</span>
         </div>
-        <h1 className="text-lg font-semibold text-neutral-50">Acceso al panel</h1>
-        <p className="mt-1 text-sm text-neutral-400">
+
+        <h1 className="text-[1.5rem] font-semibold -tracking-[0.02em] text-neutral-50">
+          Acceso al panel
+        </h1>
+        <p className="mt-1.5 max-w-[42ch] text-pretty text-sm leading-relaxed text-neutral-400">
           Esta sección es privada. Ingresá la contraseña para continuar.
         </p>
 
-        <form action={loginAction} className="mt-5 space-y-3">
+        <form action={loginAction} className="mt-6 space-y-3.5">
           <label className="block">
-            <span className="block text-sm font-medium text-neutral-300">
-              Contraseña
-            </span>
+            <span className="block text-sm font-medium text-neutral-300">Contraseña</span>
             <input
               type="password"
               name="password"
               autoComplete="current-password"
               autoFocus
               required
-              className="mt-1.5 w-full rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-neutral-100 placeholder:text-neutral-600 focus:border-emerald-500/50 focus:outline-none focus:ring-1 focus:ring-emerald-500/50"
+              /* El anillo de foco lo da el `:focus-visible` global. Acá sólo
+                 viaja el cambio de borde, que es la señal de "estoy escribiendo
+                 en este campo" y sobrevive al click del mouse. */
+              className="mt-2 w-full rounded-xl border border-border-strong bg-canvas/60 px-3.5 py-2.5 text-sm text-neutral-100 shadow-[inset_0_1px_2px_0_rgba(4,6,14,0.5)] transition-colors duration-250 placeholder:text-neutral-600 hover:border-overlay/16 focus:border-good-500/60"
               placeholder="••••••••••••••••••••••••"
             />
           </label>
 
           <button
             type="submit"
-            className="w-full rounded-xl bg-emerald-500 px-3 py-2 text-sm font-semibold text-emerald-950 transition-colors hover:bg-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:ring-offset-2 focus:ring-offset-[#0a0a0f]"
+            className="press w-full rounded-xl bg-gradient-to-b from-good-400 to-good-600 px-3 py-2.5 text-sm font-semibold text-canvas shadow-glow-good transition-[filter,box-shadow] duration-250 hover:brightness-110"
           >
             Ingresar
           </button>
 
           {error && (
-            <p className="text-sm text-rose-400" role="alert">
-              Contraseña incorrecta.
+            /*
+              El mensaje es genérico a propósito: no distingue contraseña mala
+              de rate limit, para no filtrar en qué estado está el login. Lo que
+              cambió es la forma — antes era una línea de texto roja suelta que
+              se podía perder de vista; ahora es un bloque teñido con el tono
+              `bad`, que es el mismo lenguaje de error del resto del panel.
+            */
+            <p
+              className="rounded-xl border border-bad-500/22 bg-bad-500/[0.09] px-3.5 py-2.5 text-sm text-bad-200"
+              role="alert"
+            >
+              No pudimos validar esa contraseña. Probá de nuevo.
             </p>
           )}
         </form>
       </div>
-    </div>
+    </main>
   );
 }

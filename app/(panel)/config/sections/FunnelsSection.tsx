@@ -11,6 +11,7 @@
 import { useState } from 'react';
 import type { Funnel } from '@/lib/funnels';
 import { Badge, Card, Table, fmtInt } from '@/components/ui';
+import { panelColors } from '@/tailwind.config';
 import { btnGhost, btnPrimary, inputCls, type ConfigShell } from '../kit';
 
 export function FunnelsSection({
@@ -30,7 +31,13 @@ export function FunnelsSection({
     alias: '',
     timezone: 'America/Argentina/Buenos_Aires',
     sellCurrency: 'ARS',
-    color: '#8b5cf6',
+    // El violeta #8b5cf6 que había acá era el último resto del degradado
+    // violeta→esmeralda que se sacó del panel, y no era sólo una clase: este
+    // valor se PERSISTE en la fila del funnel y de ahí viaja a los gráficos.
+    // El default nuevo es el acento del panel. Ojo: los funnels que ya existen
+    // guardaron el violeta en la base y lo siguen mostrando hasta que alguien
+    // les cambie el color a mano en esta misma pantalla.
+    color: panelColors.good,
     variants: 'default',
     active: true,
   });
@@ -173,7 +180,7 @@ export function FunnelsSection({
           <p className="text-sm font-semibold text-warn-200">
             Key nueva para {newKey.slug} — se muestra una sola vez
           </p>
-          <code className="mt-2 block break-all rounded-lg bg-black/40 p-3 text-xs text-amber-100">
+          <code className="mt-2 block break-all rounded-lg bg-canvas/70 p-3 text-xs text-warn-200">
             {newKey.key}
           </code>
           <p className="mt-2 text-xs text-warn-200/80">

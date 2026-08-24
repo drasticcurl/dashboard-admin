@@ -15,6 +15,7 @@
 
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { CaretDown } from '@phosphor-icons/react';
+import { SELECT_HEADER } from '@/components/Nav';
 import type { RangePreset } from '@/lib/day';
 
 const RANGE_OPTIONS: ReadonlyArray<{ value: RangePreset; label: string }> = [
@@ -54,18 +55,19 @@ export function RangePicker() {
         value={current}
         onChange={onChange}
         aria-label="Período del panel"
-        /* Sólido y no translúcido: ver el comentario del <select> de Nav.tsx.
-           Un select sin fondo resuelto lo pinta el navegador de BLANCO. */
-        className="appearance-none rounded-lg border border-border-strong bg-surface-raised py-1.5 pl-3 pr-7 text-sm font-medium text-neutral-200 transition-colors hover:border-overlay/20 focus:border-good-500/50 focus:outline-none focus:ring-1 focus:ring-good-500/50"
+        /* El estilo lo define `SELECT_HEADER` en Nav.tsx: este select y el de
+           funnel son el mismo control con datos distintos, y cuando cada uno
+           tenía su copia de las clases el header se veía desalineado. */
+        className={SELECT_HEADER}
       >
         {RANGE_OPTIONS.map((o) => (
-          <option key={o.value} value={o.value} className="bg-surface text-neutral-200">
+          <option key={o.value} value={o.value} className="bg-surface-raised text-neutral-200">
             {o.label}
           </option>
         ))}
       </select>
-      <span className="pointer-events-none absolute right-2.5 text-neutral-500">
-        <CaretDown size={14} weight="bold" aria-hidden="true" />
+      <span className="pointer-events-none absolute right-3 text-neutral-400">
+        <CaretDown size={12} weight="bold" aria-hidden="true" />
       </span>
     </div>
   );

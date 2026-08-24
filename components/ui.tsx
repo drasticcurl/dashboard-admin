@@ -28,7 +28,13 @@ import type { ReactNode } from 'react';
 import { Children, cloneElement, isValidElement } from 'react';
 import type { ReactElement } from 'react';
 import { ResponsiveContainer, Tooltip } from 'recharts';
-import { ArrowsOut, DotsSixVertical, TrendDown, TrendUp } from '@phosphor-icons/react';
+import {
+  ArrowsOut,
+  ChartLineUp,
+  DotsSixVertical,
+  TrendDown,
+  TrendUp,
+} from '@phosphor-icons/react';
 
 export type Tone = 'neutral' | 'good' | 'warn' | 'bad' | 'info';
 
@@ -43,19 +49,25 @@ const TONE_TEXT: Record<Tone, string> = {
 };
 
 const TONE_PILL: Record<Tone, string> = {
-  neutral: 'bg-overlay/6 text-neutral-300 ring-border-strong',
-  good: 'bg-good-500/15 text-good-300 ring-good-500/20',
-  warn: 'bg-warn-500/15 text-warn-300 ring-warn-500/20',
-  bad: 'bg-bad-500/15 text-bad-300 ring-bad-500/20',
-  info: 'bg-info-500/15 text-info-300 ring-info-500/20',
+  neutral: 'bg-overlay/7 text-neutral-300 ring-border-strong',
+  good: 'bg-good-500/14 text-good-300 ring-good-500/22',
+  warn: 'bg-warn-500/14 text-warn-300 ring-warn-500/22',
+  bad: 'bg-bad-500/14 text-bad-300 ring-bad-500/22',
+  info: 'bg-info-500/14 text-info-300 ring-info-500/22',
 };
 
+/**
+ * El relleno de las barras. Va en degradado vertical y no en color plano: una
+ * barra plana se lee como un rectángulo de color, con el degradado se lee como
+ * un volumen iluminado desde arriba, que es la misma dirección de luz que
+ * usan todas las superficies del panel.
+ */
 const TONE_BAR: Record<Tone, string> = {
-  neutral: 'bg-neutral-400',
-  good: 'bg-good-500',
-  warn: 'bg-warn-500',
-  bad: 'bg-bad-500',
-  info: 'bg-info-500',
+  neutral: 'bg-gradient-to-b from-neutral-300 to-neutral-500',
+  good: 'bg-gradient-to-b from-good-400 to-good-600',
+  warn: 'bg-gradient-to-b from-warn-400 to-warn-600',
+  bad: 'bg-gradient-to-b from-bad-400 to-bad-600',
+  info: 'bg-gradient-to-b from-info-400 to-info-600',
 };
 
 // ─── Card ──────────────────────────────────────────────────────────────────
@@ -72,15 +84,31 @@ export function Card({
   className?: string;
 }): JSX.Element {
   return (
+    /*
+      `sheen` dibuja el reflejo de 1px en el canto superior (ver globals.css):
+      es un degradado que se apaga en las puntas, no un borde parejo, así la
+      tarjeta parece iluminada desde arriba en lugar de contorneada.
+
+      El hint va con `text-pretty` para que no quede una palabra huérfana sola
+      en la última línea, que es lo que pasaba con los hints largos de Embudo.
+    */
     <div
-      className={`rounded-2xl border border-border-subtle bg-surface shadow-card ${
+      className={`sheen rounded-2xl border border-border-subtle bg-surface shadow-card ${
         className ?? ''
       }`}
     >
       {(title || hint) && (
         <div className="flex flex-col gap-1 border-b border-border-subtle px-5 py-4">
-          {title && <h2 className="text-sm font-semibold text-neutral-100">{title}</h2>}
-          {hint && <p className="text-xs text-neutral-500">{hint}</p>}
+          {title && (
+            <h2 className="text-sm font-semibold -tracking-[0.01em] text-neutral-100">
+              {title}
+            </h2>
+          )}
+          {hint && (
+            <p className="max-w-[68ch] text-pretty text-xs leading-relaxed text-neutral-500">
+              {hint}
+            </p>
+          )}
         </div>
       )}
       <div className="p-5">{children}</div>
@@ -105,32 +133,49 @@ export function StatCard({
 }): JSX.Element {
   const trendUp = typeof trend === 'number' && trend >= 0;
   return (
-    <div className="rounded-2xl border border-border-subtle bg-surface p-4 shadow-inset-highlight">
+    /*
+      El KPI es la pieza que más se mira del panel, así que es la que más gana
+      con jerarquía: el número creció a 30px con tracking negativo (a ese
+      tamaño el espaciado por defecto se ve suelto) y la etiqueta se apagó a
+      `neutral-400`. Antes competían: los dos eran chicos y del mismo peso.
+
+      `lift` levanta la tarjeta 2px al hover con la curva spring. En una grilla
+      de 4 KPIs, es lo que confirma que cada uno es un objeto separado.
+    */
+    <div className="sheen lift rounded-2xl border border-border-subtle bg-surface p-4 shadow-card hover:border-overlay/11 hover:shadow-card-hover">
       <div className="truncate text-xs font-medium text-neutral-400">{label}</div>
-      <div className="mt-1.5 flex items-baseline gap-2">
+      <div className="mt-2 flex items-baseline gap-2">
         <span
-          className={`font-mono text-2xl font-semibold tabular-nums tracking-tight ${
+          className={`font-mono text-[1.875rem] font-semibold leading-none tabular-nums -tracking-[0.03em] ${
             tone === 'neutral' ? 'text-neutral-50' : TONE_TEXT[tone]
           }`}
         >
           {value}
         </span>
         {typeof trend === 'number' && (
+          /*
+            La tendencia va en su propia pastilla teñida: suelta al lado del
+            número parecía parte de la cifra. La flecha ADEMÁS del color, nunca
+            sólo el color: en una pantalla en blanco y negro o para un daltónico
+            rojo-verde, "+12 %" y "-12 %" tienen que distinguirse igual.
+          */
           <span
-            className={`flex items-center gap-0.5 font-mono text-xs font-semibold tabular-nums ${
-              trendUp ? 'text-good-400' : 'text-bad-400'
+            className={`flex items-center gap-0.5 rounded-md px-1.5 py-0.5 font-mono text-[11px] font-semibold tabular-nums ring-1 ${
+              trendUp
+                ? 'bg-good-500/12 text-good-300 ring-good-500/20'
+                : 'bg-bad-500/12 text-bad-300 ring-bad-500/20'
             }`}
           >
             {trendUp ? (
-              <TrendUp size={12} weight="bold" aria-hidden="true" />
+              <TrendUp size={11} weight="bold" aria-hidden="true" />
             ) : (
-              <TrendDown size={12} weight="bold" aria-hidden="true" />
+              <TrendDown size={11} weight="bold" aria-hidden="true" />
             )}
             {fmtPct(Math.abs(trend))}
           </span>
         )}
       </div>
-      {sub && <div className="mt-1 text-xs text-neutral-500">{sub}</div>}
+      {sub && <div className="mt-1.5 text-xs text-neutral-500">{sub}</div>}
     </div>
   );
 }
@@ -145,8 +190,14 @@ export function Badge({
   tone?: Tone;
 }): JSX.Element {
   return (
+    /*
+      `rounded-md` y no `rounded-full`: la pastilla redonda perfecta es la forma
+      por defecto de cualquier badge y hace que todos los estados se vean como
+      etiquetas pegadas. Con el radio del resto del panel el badge pertenece a
+      la tarjeta que lo contiene.
+    */
     <span
-      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ${TONE_PILL[tone]}`}
+      className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-semibold tracking-[0.01em] ring-1 ${TONE_PILL[tone]}`}
     >
       {children}
     </span>
@@ -165,16 +216,18 @@ export function Banner({
   children: ReactNode;
 }): JSX.Element {
   const map: Record<Tone, string> = {
-    neutral: 'border-border-strong bg-overlay/3 text-neutral-200',
-    good: 'border-good-500/20 bg-good-500/[0.08] text-good-200',
-    warn: 'border-warn-500/20 bg-warn-500/[0.08] text-warn-200',
-    bad: 'border-bad-500/20 bg-bad-500/[0.08] text-bad-200',
-    info: 'border-info-500/20 bg-info-500/[0.08] text-info-200',
+    neutral: 'border-border-strong bg-overlay/4 text-neutral-200',
+    good: 'border-good-500/22 bg-good-500/[0.09] text-good-200',
+    warn: 'border-warn-500/22 bg-warn-500/[0.09] text-warn-200',
+    bad: 'border-bad-500/22 bg-bad-500/[0.09] text-bad-200',
+    info: 'border-info-500/22 bg-info-500/[0.09] text-info-200',
   };
   return (
-    <div className={`rounded-xl border px-4 py-2.5 text-xs ${map[tone]}`}>
-      {title && <div className="mb-1 font-semibold">{title}</div>}
-      {children}
+    <div
+      className={`rounded-xl border px-4 py-3 text-xs leading-relaxed shadow-inset-highlight ${map[tone]}`}
+    >
+      {title && <div className="mb-1 font-semibold -tracking-[0.01em]">{title}</div>}
+      <div className="max-w-[70ch] text-pretty">{children}</div>
     </div>
   );
 }
@@ -204,10 +257,17 @@ export function Table<T>({
         <thead>
           <tr className="border-b border-border-subtle">
             {columns.map((c) => (
+              /*
+                Encabezado en caja normal, no en VERSALITAS. Los headers ya
+                vienen en sentence case desde las vistas ("Campaña",
+                "Sesiones") y forzarlos a mayúsculas sólo los hacía gritar y
+                más difíciles de leer de reojo. El peso y el tono alcanzan para
+                separarlos de los datos.
+              */
               <th
                 key={c.key}
                 scope="col"
-                className={`px-3 py-2 text-xs font-semibold uppercase tracking-wide text-neutral-500 ${
+                className={`px-3 pb-2.5 pt-1 text-xs font-medium text-neutral-400 ${
                   c.align === 'right' ? 'text-right' : ''
                 } ${c.className ?? ''}`}
               >
@@ -219,7 +279,7 @@ export function Table<T>({
         <tbody>
           {rows.length === 0 ? (
             <tr>
-              <td colSpan={columns.length} className="px-3 py-8 text-center text-sm text-neutral-500">
+              <td colSpan={columns.length} className="px-3 py-10 text-center text-sm text-neutral-500">
                 {empty}
               </td>
             </tr>
@@ -227,12 +287,12 @@ export function Table<T>({
             rows.map((row, i) => (
               <tr
                 key={i}
-                className="border-b border-overlay/4 last:border-0 hover:bg-overlay/2"
+                className="border-b border-overlay/4 transition-colors duration-150 last:border-0 hover:bg-overlay/4"
               >
                 {columns.map((c) => (
                   <td
                     key={c.key}
-                    className={`px-3 py-2.5 text-neutral-200 ${
+                    className={`px-3 py-3 text-neutral-200 ${
                       c.align === 'right' ? 'font-mono text-right tabular-nums' : ''
                     } ${c.className ?? ''}`}
                   >
@@ -272,13 +332,22 @@ export function BarRow({
       <span className="w-44 shrink-0 truncate text-xs font-medium text-neutral-300" title={label}>
         {label}
       </span>
+      {/*
+        El canal va HUNDIDO (sombra hacia adentro) y la barra tiene su propio
+        reflejo arriba: el mismo par surco/objeto que el control segmentado del
+        Nav. Con fondo plano las dos piezas se leían como un solo rectángulo
+        bicolor.
+
+        El ancho transiciona en 500ms: cuando cambia el rango o el filtro, las
+        barras se reacomodan en lugar de saltar de un valor al otro.
+      */}
       <div
         role="img"
         aria-label={`${label}: ${fmtPct(pct)} (${fmtInt(count)})`}
-        className="relative h-2.5 flex-1 overflow-hidden rounded-full bg-overlay/6"
+        className="relative h-2.5 flex-1 overflow-hidden rounded-full bg-canvas/70 shadow-[inset_0_1px_2px_0_rgba(4,6,14,0.7),inset_0_0_0_1px_rgba(255,255,255,0.04)]"
       >
         <div
-          className={`h-full rounded-full ${TONE_BAR[barTone]}`}
+          className={`h-full rounded-full shadow-[inset_0_1px_0_0_rgba(255,255,255,0.22)] transition-[width] duration-500 ease-smooth ${TONE_BAR[barTone]}`}
           style={{ width: `${clamped}%` }}
         />
       </div>
@@ -308,22 +377,46 @@ export function Spinner(): JSX.Element {
     <span
       role="status"
       aria-label="Cargando"
-      className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-overlay/20 border-t-overlay/80"
+      className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-overlay/14 border-t-good-400"
     />
   );
 }
 
+/**
+ * El vacío COMPUESTO, no un párrafo centrado.
+ *
+ * Lleva una marca de agua circular arriba del texto: sin ella, una tarjeta sin
+ * datos se veía como una tarjeta que no terminó de cargar. El círculo dice
+ * "acá no hay nada y está bien" en lugar de "algo falló".
+ *
+ * `action` es opcional y va abajo: es el lugar donde una pantalla puede ofrecer
+ * la salida (ir a Config, limpiar filtros) en vez de dejar al usuario en un
+ * callejón.
+ */
 export function EmptyState({
   title,
   hint,
+  action,
 }: {
   title: string;
   hint?: string;
+  action?: ReactNode;
 }): JSX.Element {
   return (
-    <div className="flex flex-col items-center gap-1 py-10 text-center">
+    <div className="flex flex-col items-center gap-2 py-12 text-center">
+      <span
+        aria-hidden
+        className="mb-1 flex h-11 w-11 items-center justify-center rounded-full bg-overlay/4 text-neutral-600 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.05)]"
+      >
+        <ChartLineUp size={20} weight="bold" />
+      </span>
       <p className="text-sm font-medium text-neutral-300">{title}</p>
-      {hint && <p className="text-xs text-neutral-500">{hint}</p>}
+      {hint && (
+        <p className="max-w-[46ch] text-pretty text-xs leading-relaxed text-neutral-500">
+          {hint}
+        </p>
+      )}
+      {action && <div className="mt-2">{action}</div>}
     </div>
   );
 }
@@ -436,7 +529,7 @@ export function Widget({
 }): JSX.Element {
   return (
     <div
-      className={`relative h-full rounded-2xl border border-border-subtle bg-surface shadow-inset-highlight ${
+      className={`sheen relative h-full rounded-2xl border border-border-subtle bg-surface shadow-card transition-[border-color,box-shadow] duration-250 hover:border-overlay/11 hover:shadow-card-hover ${
         className ?? ''
       }`}
     >
@@ -455,11 +548,13 @@ export function Widget({
         {(title || hint) && (
           <div className="flex flex-col gap-0.5 border-b border-border-subtle px-4 py-3 pr-16">
             {title && (
-              <h2 className="truncate text-[11px] font-semibold uppercase tracking-wider text-neutral-400">
+              <h2 className="truncate text-[11px] font-semibold uppercase tracking-[0.09em] text-neutral-400">
                 {title}
               </h2>
             )}
-            {hint && <p className="text-xs leading-snug text-neutral-500">{hint}</p>}
+            {hint && (
+              <p className="text-pretty text-xs leading-snug text-neutral-500">{hint}</p>
+            )}
           </div>
         )}
         <div className="min-h-0 flex-1 p-4">{children}</div>
@@ -469,7 +564,7 @@ export function Widget({
           <span
             aria-hidden
             title="Arrastrar para reordenar"
-            className="flex h-6 w-6 cursor-grab items-center justify-center rounded-md text-neutral-500 transition-colors hover:bg-overlay/4 hover:text-neutral-300 active:cursor-grabbing"
+            className="flex h-7 w-7 cursor-grab items-center justify-center rounded-md text-neutral-500 transition-colors duration-250 hover:bg-overlay/7 hover:text-neutral-200 active:cursor-grabbing"
           >
             <DotsSixVertical size={14} weight="bold" />
           </span>
@@ -528,13 +623,31 @@ function ChartTip({
   const bands = payload.filter((p) => Number(p.value) !== 0);
   if (bands.length === 0) return null;
   return (
-    <div className="rounded-lg border border-border-strong bg-surface-raised px-3 py-2 text-xs shadow-xl">
+    /*
+      El tooltip flota sobre el gráfico, así que usa `shadow-float` (la sombra
+      teñida con más caída) en lugar del `shadow-xl` negro de Tailwind: sobre un
+      fondo azulado, el negro puro se lee como un agujero.
+
+      Cada serie lleva su punto de color además del texto coloreado: cuando dos
+      series tienen tonos parecidos, el texto de color solo no alcanza para
+      saber cuál es cuál.
+    */
+    <div className="rounded-xl border border-border-strong bg-surface-overlay/95 px-3 py-2 text-xs shadow-float backdrop-blur-sm">
       {label !== undefined && label !== '' && (
-        <p className="mb-1 font-semibold text-neutral-100">{label}</p>
+        <p className="mb-1.5 font-semibold -tracking-[0.01em] text-neutral-100">{label}</p>
       )}
       {bands.map((p, i) => (
-        <p key={p.name ?? i} className="font-mono tabular-nums" style={{ color: p.color }}>
-          {p.name ?? 'Valor'}: {fmtInt(Number(p.value))}
+        <p
+          key={p.name ?? i}
+          className="flex items-center gap-1.5 font-mono tabular-nums text-neutral-200"
+        >
+          <span
+            aria-hidden
+            className="h-1.5 w-1.5 shrink-0 rounded-full"
+            style={{ backgroundColor: p.color }}
+          />
+          <span className="text-neutral-400">{p.name ?? 'Valor'}</span>
+          <span className="font-semibold text-neutral-100">{fmtInt(Number(p.value))}</span>
         </p>
       ))}
     </div>
@@ -573,8 +686,18 @@ export function Skeleton({
   variant: 'kpi' | 'chart' | 'table' | 'text';
   rows?: number;
 }): JSX.Element {
-  const bar = 'animate-pulse rounded-md bg-overlay/6';
-  const shell = 'rounded-2xl border border-border-subtle bg-surface';
+  /*
+    Barra con BARRIDO, no con `animate-pulse`. El pulso hace latir toda la
+    pantalla al mismo ritmo, que se lee como un error intermitente; el barrido
+    va en una dirección y se lee como progreso. El brillo viaja por
+    `transform` (no por `background-position`) para que lo componga la GPU.
+
+    `before:` necesita un ancestro con `overflow-hidden` y `relative`, que es
+    lo que hacen las dos primeras clases.
+  */
+  const bar =
+    'relative overflow-hidden rounded-md bg-overlay/6 before:absolute before:inset-0 before:animate-shimmer before:bg-gradient-to-r before:from-transparent before:via-overlay/8 before:to-transparent before:content-[""]';
+  const shell = 'sheen rounded-2xl border border-border-subtle bg-surface shadow-card';
   if (variant === 'kpi') {
     return (
       <div role="status" aria-label="Cargando" className={`${shell} p-4`}>
@@ -621,9 +744,17 @@ export function Toolbar({
   children?: ReactNode;
 }): JSX.Element {
   return (
-    <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-      <div className="flex items-center gap-2">
-        <h1 className="text-lg font-semibold tracking-tight text-neutral-100">{title}</h1>
+    /*
+      El h1 creció y se le cerró el tracking: es el único título de la pantalla
+      y antes pesaba lo mismo que el título de una tarjeta, así que la jerarquía
+      "pantalla > tarjeta > dato" no existía. A 22px con -0.02em de tracking la
+      cabecera tiene presencia sin ocupar más alto de línea.
+    */
+    <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+      <div className="flex items-center gap-2.5">
+        <h1 className="text-[1.375rem] font-semibold -tracking-[0.02em] text-neutral-50">
+          {title}
+        </h1>
         {badge}
       </div>
       {children && <div className="flex flex-wrap items-center gap-2">{children}</div>}
@@ -652,7 +783,13 @@ export function IconButton({
       title={label}
       onClick={onClick}
       disabled={disabled}
-      className={`inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border-subtle bg-surface transition-colors hover:bg-overlay/4 hover:text-neutral-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-good-500/60 disabled:cursor-not-allowed disabled:opacity-40 ${
+      /*
+        El foco no se declara acá: lo hereda del `:focus-visible` global de
+        `globals.css`, que es el mismo anillo para todo el panel. Antes cada
+        control traía su propia variante (había cuatro distintas) y el resultado
+        era que el foco cambiaba de forma según dónde estuvieras.
+      */
+      className={`press inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border-subtle bg-surface-raised shadow-inset-highlight transition-[background-color,border-color,color] duration-250 hover:border-overlay/16 hover:bg-surface-overlay hover:text-neutral-50 disabled:cursor-not-allowed disabled:opacity-40 ${
         tone === 'neutral' ? 'text-neutral-300' : TONE_TEXT[tone]
       }`}
     >

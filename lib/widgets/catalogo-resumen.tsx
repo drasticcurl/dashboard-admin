@@ -213,7 +213,7 @@ function StackedTooltip({
   const d = payload[0]!.payload;
   const bands = payload.filter((p) => Number(p.value) !== 0);
   return (
-    <div className="rounded-lg border border-border-strong bg-surface-raised px-3 py-2 text-xs shadow-xl">
+    <div className="rounded-lg border border-border-strong bg-surface-raised px-3 py-2 text-xs shadow-float">
       <p className="mb-1 font-semibold text-neutral-100">{d.day}</p>
       <p className="tabular-nums text-neutral-300">Total: {fmtMoney(d.netEur, 'EUR')}</p>
       {bands.map((p) => (
