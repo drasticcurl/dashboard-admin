@@ -12,8 +12,8 @@ Lo más nuevo va arriba. Las reglas de cómo se escribe una entrada están en
 
 ## 2026-08-26 — Un solo parseo de plata: `1.000` no era mil en ninguno de los cuatro campos
 
-Spec `parseo-montos-anuncios`. Todavía **sin commitear**: el trabajo está sobre
-`8e07ff8`, que es HEAD hoy.
+Spec `parseo-montos-anuncios`, commiteado en `0e151e0` (Montos: un solo parseo de
+plata, «1.000» ya no se lee como 1) sobre `8e07ff8`.
 
 **Qué pasaba.** `parsearPresupuesto('1.000', 5000)` devolvía
 `{"ok":true,"valor":1}`, y de ahí salía `campos: { daily_budget: '100' }` a la
@@ -186,6 +186,41 @@ un float válido y 1 está dentro del rango, así que el browser tampoco protest
 que sí tienen los otros tests de integración; sus `describe.skipIf` quedan
 condicionados a una base que nunca ven. Es previo a este spec y está fuera de
 alcance, pero son 46 tests que no corren y nadie lo dice en ningún lado.
+
+**Dónde quedó cada cosa, y qué no se toca.** La lista de archivos la da `git show
+0e151e0 --stat`; acá va sólo lo que el nombre del archivo no dice.
+
+- **`lib/monto.ts`** es el núcleo compartido (`leerNumeroEscrito`) más la política
+  de Finanzas (`parsearMonto`). Es el módulo que las tres pantallas comparten.
+- **`lib/test/preservacion-montos.ts` no entra al bundle**: sólo lo importan tests.
+  Tiene la Bug_Condition, las siete familias de excepción como siete regex
+  nombradas, y los generadores. Está en un solo archivo a propósito: dos copias del
+  predicado se ensancharían por separado, que es el mismo error que este spec
+  arregló una escala más arriba.
+- **`lib/ads/presupuesto.preservacion.test.ts` y
+  `app/(panel)/anuncios/reglas/numeroDeCampo.preservacion.test.ts` tienen los dos
+  parseos viejos copiados adentro a propósito**: son los oráculos de la
+  refactorización y **no se actualizan nunca**. Si el arreglo los hace fallar, lo
+  que se discute es el arreglo, no el oráculo. Cada uno lleva además una tabla de
+  flips que exige que cada familia demuestre su cambio con los dos veredictos, y
+  eso es lo que impide ensanchar el predicado para tapar un flip nuevo.
+- **`app/(panel)/anuncios/montoAmbiguo.test.ts` se escribió para fallar** contra el
+  código sin arreglar (9/9 en rojo), y es el que confirmó que la causa era la
+  hipotetizada. Cruza el presupuesto y Reglas a propósito: es lo que hace de esto
+  un bug y no cuatro.
+- **`lib/ads/reglas/sospecha.ts`** es el predicado y los umbrales de los valores ya
+  guardados. **Puro, sin `pg`**, porque lo importan un script de Node y un
+  componente cliente. El umbral vive ahí y no en el SQL del script justamente para
+  que los dos no puedan discrepar.
+- **`scripts/verificar-montos-reglas.ts`** es el reporte de sólo lectura: que no
+  haya una sola sentencia de escritura en el archivo es el contrato, no una
+  promesa.
+- **`lib/paleta.test.ts`** tiene su límite declarado adentro: sólo ve clases
+  escritas completas, y una armada por interpolación le es invisible igual que al
+  JIT de Tailwind.
+- **`app/(panel)/anuncios/reglas/_formBase.ts`** (el fixture que se anota entre los
+  pendientes de arriba) está en `app/` y no en `lib/test/` porque `FormEstado` es
+  un tipo de esa pantalla.
 
 Si este cambio llegara a causar una caída de deploy va también en
 `COMO-DEPLOYAR.md` §«Cosas que ya pasaron y no conviene repetir». Hoy no aplica.
