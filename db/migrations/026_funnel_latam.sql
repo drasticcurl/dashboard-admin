@@ -28,9 +28,29 @@
 -- Los tres pasos que faltan, en este orden:
 --   1. Config → Funnels → generar la ingest key de `chauhinchazon-latam`
 --      (POST /api/config/funnels/ingest-key). El panel la muestra UNA sola vez.
+--      Alternativa por CLI: `npm run db:ingest-key chauhinchazon-latam <key>`.
 --   2. Cargarla en el env del funnel como PANEL_INGEST_KEY_LATAM
---      (/srv/chauhinchazon/shared/.env.production) y reload de PM2.
+--      (/srv/chauhinchazon/shared/.env.production) ANTES de deployar: `deploy.sh`
+--      copia ese archivo al release, así el código nuevo y la key entran juntos y
+--      no queda una ventana en la que LATAM reporte al funnel de AR.
 --   3. Verificar en el Embudo del funnel nuevo que entren sesiones.
+--
+-- ⚠️ Y EL PASO QUE NO ES OBVIO Y DECIDE SI ESTE EMBUDO RECIBE ALGO:
+-- LOS ANUNCIOS DE LATAM TIENEN QUE APUNTAR AL HOST QUE REPORTA.
+-- El mismo deploy sirve tres hostnames, pero `PANEL_INGEST_HOSTS` (en el env del
+-- funnel) es un allowlist de cuáles reportan al panel, y hoy vale
+-- `ritual.hilvanapp.org` a secas. `chauhinchazon.hilvanapp.com` está EXCLUIDO a
+-- propósito: quedó como puerta de la PWA y su tráfico ensuciaría el embudo con
+-- gente que no viene de un anuncio.
+--
+-- O sea que la campaña tiene que ir a `https://ritual.hilvanapp.org/latam`. Con
+-- `chauhinchazon.hilvanapp.com/latam` el funnel anda perfecto, la visitante compra,
+-- y el embudo del panel queda en cero — sin ningún error a la vista. El único
+-- rastro es un warning en los logs de PM2:
+--   [panel] host '<host>' no está en PANEL_INGEST_HOSTS (...) — sus eventos NO se
+--   reportan al panel
+-- Si hace falta habilitar otro host, se agrega a `PANEL_INGEST_HOSTS` separado por
+-- comas y se recarga PM2; no hay que tocar código.
 --
 -- Mientras el paso 2 no esté hecho, `ingestKeyFor` (testfunnel/lib/panel-ingest.ts)
 -- cae a la key de AR y LATAM sigue contando dentro de `chauhinchazon` con
@@ -68,12 +88,12 @@
 --     UTC+1 en verano (WEST) — no UTC-1. El nombre IANA es el que va acá:
 --     guardar un offset fijo rompería el corte dos veces al año.
 --
---   · CONSECUENCIA A TENER PRESENTE: el funnel `chauhinchazon` sigue en
---     'America/Argentina/Buenos_Aires', o sea 4 horas de diferencia en verano.
---     "Hoy" significa dos cosas distintas según qué funnel esté elegido en el
---     selector, y las ventas de la tarde de LATAM caen en el día siguiente
---     respecto del corte argentino. Si algún día se quieren comparar los dos
---     embudos día contra día, hay que poner los dos en la misma zona.
+--   · QUEDA ALINEADO CON AR. `chauhinchazon` ya estaba en 'Europe/Lisbon' (lo
+--     movieron desde Config en algún momento después del seed de la 009, que lo
+--     había creado en 'America/Argentina/Buenos_Aires'). Así que los dos embudos
+--     comparten el corte del día y se pueden comparar día contra día en el
+--     selector, que es lo que hace falta para decidir dónde poner la plata.
+--     `reset` sigue en Buenos_Aires: ese sí tiene otro corte.
 --
 --   · El gasto de Meta entra en la zona de la CUENTA PUBLICITARIA. Si esa cuenta
 --     no está en Lisboa, el ROAS diario del funnel LATAM mezcla ingresos de un
