@@ -31,7 +31,7 @@ import type {
 } from '@/lib/queries/finance';
 import { Badge, Banner, Card, ChartFrame, IconButton, Spinner, Table, fmtAxis, fmtDate, fmtMoney } from '@/components/ui';
 import { inputCls, btnCls, btnPrimary, btnGhost } from '../config/kit';
-import { formatearMontoParaInput, parsearMonto } from './monto';
+import { formatearMontoParaInput, parsearMonto } from '@/lib/monto';
 
 const CATEGORIES: FinanceCategory[] = ['sueldos', 'herramientas', 'alquiler', 'impuestos', 'otros'];
 

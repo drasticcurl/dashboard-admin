@@ -1,0 +1,341 @@
+{
+  "pbtResults": {
+    "1. Escribir el test de exploración de la Bug_Condition": {
+      "status": "passed",
+      "failingExample": "9 tests | 9 failed — el fallo es el entregable. La hipótesis del diseño quedó CONFIRMADA: los seis casos reprodujeron exactamente el veredicto predicho.\n\nLos seis casos concretos (veredicto de hoy, corrido, no leído):\n1. parsearPresupuesto('1.000', 5000) → {\"ok\":true,\"valor\":1}   [expected true to be false]\n2. numeroDeTexto('1.000') → 1   [expected 1 to be null]; problemaAccion(actionValue '1.000') → null; payloadDeForm(...).actionValue → 1\n3. problemaCondiciones(spend > '1.000') → null   [expected null not to be null]; payload → [{\"metric\":\"spend\",\"op\":\">\",\"value\":1}]\n4. problemaProgramacion(maxRunsPerDay '1.000') → null   [expected null not to be null]; payload → 1\n5. parsearPresupuesto('1000.000', 5000) → {\"ok\":true,\"valor\":1000}   [expected true to be false]\n6. parsearPresupuesto('100,50', 5000) → {\"ok\":false,\"motivo\":\"no_numero\"} vs parsearMonto('100,50') → {\"ok\":true,\"valor\":100.5}   [expected false to be true]\n\nContraejemplos de las tres propiedades (fast-check 4.9.0, la semilla varía):\nCounterexample: [\"0.000\"] → Caused by: AssertionError: Reglas leyó un número de \"0.000\": expected +0 to be null\nCounterexample: [\"1000.000\"] → expected 1000 to be null\nCounterexample: [\"1000.000\"] → Caused by: AssertionError: actionValue = \"1000.000\": problema() dejó guardar: expected null not to be null\nCounterexample: [\"0.000\",1] → el presupuesto rechaza por 'bajo_el_minimo' y el mensaje «el importe mínimo es 0,01 EUR» no ofrece «0000» ni ninguna lectura\nCounterexample: [\"1000.000\",1] → ídem con 'sobre_el_techo' («el importe supera el techo de presupuesto configurado»)\n\nHallazgo que la tabla de seis casos no cubría: dentro de C hay textos que hoy se rechazan igual, pero por el motivo equivocado y con un mensaje que no ofrece ninguna escritura posible.",
+      "lastRunTimestamp": 1787745247891
+    },
+    "3.7 Verificar que el test de exploración ahora pasa": {
+      "status": "passed",
+      "failingExample": "Sin contraejemplos. `npm test -- 'app/(panel)/anuncios/montoAmbiguo'` → Test Files 1 passed (1), Tests 9 passed (9), 78ms. El MISMO archivo que la task 1 dejó con 9/9 fallando, sin una línea editada, ahora pasa completo.\n\nLos seis casos concretos (§Exploratory Bug Condition Checking):\n1. el diálogo de presupuesto rechaza «1.000» y ofrece las dos lecturas — PASA\n2. el valor de la acción no se lee como 1 y el guardado se bloquea nombrando el campo — PASA\n3. el valor de una condición no se guarda como «gasto > 1» — PASA\n4. el límite de ejecuciones diarias no se guarda como 1 — PASA\n5. el borde de la regla ancha: «1000.000» también es ambiguo (familia (e)) — PASA\n6. el mismo texto con coma da el mismo veredicto en el presupuesto que en Finanzas — PASA\n\nLas tres propiedades sobre la familia entera (fast-check 4.9.0, numRuns 300 cada una, generador `${0..999}.${000..999}` de C más la familia (e) de 4 a 8 dígitos):\n- para todo texto ambiguo, el diálogo de presupuesto lo rechaza y ofrece las dos lecturas — PASA\n- para todo texto ambiguo, Reglas no lee ningún número — PASA\n- para todo texto ambiguo y los cinco campos de Reglas, el guardado se bloquea y el payload no lleva valor — PASA\n\nLos contraejemplos que la task 1 había registrado quedaron cubiertos: «0.000» y «1000.000» ya no producen número en Reglas, y los dos casos donde el rechazo llegaba con el motivo equivocado (`bajo_el_minimo` para «0.000» y `sobre_el_techo` para «1000.000», con mensajes que no ofrecían ninguna escritura) ahora rechazan por `ambiguo` con las dos lecturas en el texto.",
+      "lastRunTimestamp": 1787756355359
+    },
+    "3.8 Verificar que la preservación sigue pasando, y que los flips ocurren": {
+      "status": "passed",
+      "failingExample": "Sin contraejemplos. Los DOS archivos de la task 2, sin una línea editada y sin tocar el predicado de excepciones: Test Files 2 passed (2), Tests 77 passed (77), 52ms.\n\n`lib/ads/presupuesto.preservacion.test.ts` — 37 tests\n- el oráculo reproduce el presente (4): MINIMO_EUR sigue en 0,01; los 59 veredictos pinneados texto por texto; los 8 con techo NaN/0/1e21 (3.4); y la comprobación estricta, que se retiró sola por `ARREGLO_PUESTO` y dejó afirmado que el oráculo no se movió (`parsearPresupuestoOriginal('1.000', 5000)` sigue dando `ok:1`).\n- Property 2 (2), las dos con numRuns 2_000 (≥ 1000): «si el veredicto cambió, el texto cumple C o cae en una de las siete familias» y su contrarrecíproca campo por campo (mismo ok, mismo valor con Object.is, mismo motivo).\n- tabla de flips: 15 filas × 2 mitades + la comprobación de bucket. Las dos mitades PASAN: la «viejo» contra el oráculo congelado y la «nuevo» contra el arreglo. Reparto por familia: C 2, (a) 2, (b) 1, (c) 3, (d) 2, (e) 2, (f) 1, (g) 2 — las SIETE familias representadas.\n\n`app/(panel)/anuncios/reglas/numeroDeCampo.preservacion.test.ts` — 40 tests\n- el oráculo reproduce el presente (3): las 50 lecturas pinneadas (incluido `-0` con Object.is) y el retiro por `ARREGLO_PUESTO` (`numeroDeTexto` ya no existe; `leeElOraculo('1.000')` sigue dando 1).\n- Property 2 (1), numRuns 2_000.\n- los 7 casos que no cambian: `1,5`→1,5 y `100,50`→100,5 (3.8), `0`→0 (3.9), `''` y `'   '`→null (3.10), `1000`→1000 (3.1), `1.2.3`→null.\n- tabla de flips: 14 filas × 2 mitades + la comprobación de bucket, las dos mitades PASAN. Reparto: C 2, (a) 3 (dos de coma más la fila de `,` con la forma de (f)), (b) 1, (c) 2, (d) 2, (e) 1, (f) 1, (g) 2 — las SIETE familias representadas.\n\nLos flips de la familia (g), que es la que `tasks.md` no nombraba porque se declaró en la 3.2, quedaron demostrados de los dos lados: presupuesto `'-1.000'` y `'-1000.000'` de `no:bajo_el_minimo` a `no:ambiguo`; Reglas de −1 y −1000 a null.\n\n`lib/monto.test.ts`: shasum -a 1 → ed58dc53c9fd77909eb7934c754c8a5ed8b617a2, idéntico al blob de `HEAD:app/(panel)/finanzas/monto.test.ts`. `git diff --stat -M HEAD` → 1 file changed, 0 insertions(+), 0 deletions(-); git status lo ve como `R` puro. 12/12 tests pasan desde la ubicación nueva.\n\nRepo entero: `npx tsc --noEmit` limpio (exit 0). `npm test` → Test Files 89 passed | 3 skipped (92), Tests 1140 passed | 46 skipped (1186), 257,84s. Los mismos números que dejó la 3.6.",
+      "lastRunTimestamp": 1787756785096
+    },
+    "6.1 Crear `lib/ads/reglas/sospecha.ts`": {
+      "status": "passed",
+      "lastRunTimestamp": 1787760989659
+    }
+  },
+  "executionHistory": {
+    "1. Escribir el test de exploración de la Bug_Condition": [
+      {
+        "executionId": "fbae93d4-05f1-4b23-b8f3-671a52d06f46",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787744419566
+      },
+      {
+        "executionId": "fbae93d4-05f1-4b23-b8f3-671a52d06f46",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787744456556
+      },
+      {
+        "executionId": "fbae93d4-05f1-4b23-b8f3-671a52d06f46",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787745309437
+      }
+    ],
+    "2. Congelar los dos oráculos y escribir la preservación": [
+      {
+        "executionId": "fbae93d4-05f1-4b23-b8f3-671a52d06f46",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787744419942
+      },
+      {
+        "executionId": "fbae93d4-05f1-4b23-b8f3-671a52d06f46",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787745322153
+      },
+      {
+        "executionId": "fbae93d4-05f1-4b23-b8f3-671a52d06f46",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787747922787
+      }
+    ],
+    "3.1 Mover `monto.ts` y su test a `lib/`, sin editar el test": [
+      {
+        "executionId": "fbae93d4-05f1-4b23-b8f3-671a52d06f46",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787744420420
+      },
+      {
+        "executionId": "fbae93d4-05f1-4b23-b8f3-671a52d06f46",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787747937477
+      },
+      {
+        "executionId": "fbae93d4-05f1-4b23-b8f3-671a52d06f46",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787748569160
+      }
+    ],
+    "3.2 Extraer `leerNumeroEscrito` y dejar `parsearMonto` como núcleo + política": [
+      {
+        "executionId": "fbae93d4-05f1-4b23-b8f3-671a52d06f46",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787744420677
+      },
+      {
+        "executionId": "fbae93d4-05f1-4b23-b8f3-671a52d06f46",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787748582191
+      },
+      {
+        "executionId": "fbae93d4-05f1-4b23-b8f3-671a52d06f46",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787750162514
+      }
+    ],
+    "3.3 `lib/ads/presupuesto.ts`: el motivo `ambiguo` y el campo `texto`": [
+      {
+        "executionId": "fbae93d4-05f1-4b23-b8f3-671a52d06f46",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787744420771
+      },
+      {
+        "executionId": "fbae93d4-05f1-4b23-b8f3-671a52d06f46",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787750175700
+      },
+      {
+        "executionId": "fbae93d4-05f1-4b23-b8f3-671a52d06f46",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787751712865
+      }
+    ],
+    "3.4 El input de presupuesto y sus dos consumidores": [
+      {
+        "executionId": "fbae93d4-05f1-4b23-b8f3-671a52d06f46",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787744420847
+      },
+      {
+        "executionId": "fbae93d4-05f1-4b23-b8f3-671a52d06f46",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787751726867
+      },
+      {
+        "executionId": "fbae93d4-05f1-4b23-b8f3-671a52d06f46",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787752456197
+      }
+    ],
+    "3.5 `ReglasView.tsx`: `numeroDeCampo` con estado y los cinco call sites": [
+      {
+        "executionId": "fbae93d4-05f1-4b23-b8f3-671a52d06f46",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787744420906
+      },
+      {
+        "executionId": "fbae93d4-05f1-4b23-b8f3-671a52d06f46",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787752468674
+      },
+      {
+        "executionId": "fbae93d4-05f1-4b23-b8f3-671a52d06f46",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787754637368
+      }
+    ],
+    "3.6 Actualizar los cinco tests existentes que cambian, según la tabla del diseño": [
+      {
+        "executionId": "fbae93d4-05f1-4b23-b8f3-671a52d06f46",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787744420998
+      },
+      {
+        "executionId": "fbae93d4-05f1-4b23-b8f3-671a52d06f46",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787754651028
+      },
+      {
+        "executionId": "fbae93d4-05f1-4b23-b8f3-671a52d06f46",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787756186862
+      }
+    ],
+    "3.7 Verificar que el test de exploración ahora pasa": [
+      {
+        "executionId": "fbae93d4-05f1-4b23-b8f3-671a52d06f46",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787744421048
+      },
+      {
+        "executionId": "fbae93d4-05f1-4b23-b8f3-671a52d06f46",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787756201830
+      },
+      {
+        "executionId": "fbae93d4-05f1-4b23-b8f3-671a52d06f46",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787756868056
+      }
+    ],
+    "3.8 Verificar que la preservación sigue pasando, y que los flips ocurren": [
+      {
+        "executionId": "fbae93d4-05f1-4b23-b8f3-671a52d06f46",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787744421115
+      },
+      {
+        "executionId": "fbae93d4-05f1-4b23-b8f3-671a52d06f46",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787756882198
+      }
+    ],
+    "4.1 Ningún payload lleva un número que el texto no dice": [
+      {
+        "executionId": "fbae93d4-05f1-4b23-b8f3-671a52d06f46",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787744421174
+      },
+      {
+        "executionId": "fbae93d4-05f1-4b23-b8f3-671a52d06f46",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787756898962
+      },
+      {
+        "executionId": "fbae93d4-05f1-4b23-b8f3-671a52d06f46",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787758725682
+      }
+    ],
+    "4.2 El veredicto es el mismo en las tres pantallas": [
+      {
+        "executionId": "fbae93d4-05f1-4b23-b8f3-671a52d06f46",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787744421329
+      },
+      {
+        "executionId": "fbae93d4-05f1-4b23-b8f3-671a52d06f46",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787758739752
+      }
+    ],
+    "4.3 Un rechazo siempre tiene texto, y es el mismo en los dos lugares": [
+      {
+        "executionId": "fbae93d4-05f1-4b23-b8f3-671a52d06f46",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787744421389
+      },
+      {
+        "executionId": "fbae93d4-05f1-4b23-b8f3-671a52d06f46",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787758753270
+      }
+    ],
+    "5. Escribir los recorridos punta a punta": [
+      {
+        "executionId": "fbae93d4-05f1-4b23-b8f3-671a52d06f46",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787744421450
+      },
+      {
+        "executionId": "fbae93d4-05f1-4b23-b8f3-671a52d06f46",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787758768299
+      },
+      {
+        "executionId": "fbae93d4-05f1-4b23-b8f3-671a52d06f46",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787760399502
+      }
+    ],
+    "6.1 Crear `lib/ads/reglas/sospecha.ts`": [
+      {
+        "executionId": "fbae93d4-05f1-4b23-b8f3-671a52d06f46",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787744421511
+      },
+      {
+        "executionId": "fbae93d4-05f1-4b23-b8f3-671a52d06f46",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787760412644
+      },
+      {
+        "executionId": "fbae93d4-05f1-4b23-b8f3-671a52d06f46",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787761614076
+      }
+    ],
+    "6.2 Crear `scripts/verificar-montos-reglas.ts` y el script de npm": [
+      {
+        "executionId": "fbae93d4-05f1-4b23-b8f3-671a52d06f46",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787744421650
+      },
+      {
+        "executionId": "fbae93d4-05f1-4b23-b8f3-671a52d06f46",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787761629235
+      }
+    ],
+    "6.3 Mostrar el aviso en la lista de Reglas": [
+      {
+        "executionId": "fbae93d4-05f1-4b23-b8f3-671a52d06f46",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787744421743
+      },
+      {
+        "executionId": "fbae93d4-05f1-4b23-b8f3-671a52d06f46",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787761643092
+      },
+      {
+        "executionId": "fbae93d4-05f1-4b23-b8f3-671a52d06f46",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787762541566
+      }
+    ],
+    "7. Arreglar el token y dejar la guarda que hace que se note": [
+      {
+        "executionId": "fbae93d4-05f1-4b23-b8f3-671a52d06f46",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787744421816
+      },
+      {
+        "executionId": "fbae93d4-05f1-4b23-b8f3-671a52d06f46",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787762557377
+      }
+    ],
+    "8. Checkpoint — que todo pase": [
+      {
+        "executionId": "fbae93d4-05f1-4b23-b8f3-671a52d06f46",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787744421877
+      }
+    ],
+    "9. Registrar el cambio en `registro.md`": [
+      {
+        "executionId": "fbae93d4-05f1-4b23-b8f3-671a52d06f46",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787744421940
+      }
+    ],
+    "3. Un solo parseo compartido": [
+      {
+        "executionId": "fbae93d4-05f1-4b23-b8f3-671a52d06f46",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787756882320
+      }
+    ],
+    "4. Escribir las Properties 3, 4 y 5": [
+      {
+        "executionId": "fbae93d4-05f1-4b23-b8f3-671a52d06f46",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787758753351
+      }
+    ],
+    "6. Detectar los valores guardados sospechosos": [
+      {
+        "executionId": "fbae93d4-05f1-4b23-b8f3-671a52d06f46",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787762541637
+      }
+    ]
+  }
+}

@@ -28,6 +28,7 @@
     "ads:reconciliar": "tsx scripts/reconciliar-ads-manual.ts",
     "ads:jerarquia": "tsx scripts/sync-ads-jerarquia.ts",
     "ads:reglas": "tsx scripts/run-ad-rules.ts",
+    "ads:auditar-montos": "tsx scripts/verificar-montos-reglas.ts",
     "ads:telegram": "tsx scripts/telegram-setup.ts",
     "import:csv": "tsx scripts/import-shopify-csv.ts",
     "days:recompute": "tsx scripts/recompute-days.ts"

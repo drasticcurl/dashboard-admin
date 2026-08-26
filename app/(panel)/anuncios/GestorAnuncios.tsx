@@ -65,7 +65,7 @@ import {
   type ParametrosAccion,
   type Previsualizacion as Previa,
 } from '@/lib/ads/previsualizacion';
-import { parsearPresupuesto, textoDeMotivo } from '@/lib/ads/presupuesto';
+import { parsearPresupuesto } from '@/lib/ads/presupuesto';
 import {
   avisoDeLote,
   mensajeDeResultado,
@@ -233,7 +233,12 @@ export type PresupuestoDelDialogo =
 export function presupuestoDelDialogo(texto: string, techoEur: number): PresupuestoDelDialogo {
   const importe = parsearPresupuesto(texto, techoEur);
   if (!importe.ok) {
-    return { ok: false, cuerpo: null, params: {}, bloqueo: textoDeMotivo(importe.motivo) };
+    // El `texto` del rechazo y no `textoDeMotivo(motivo)`: es el MISMO campo del
+    // MISMO objeto que pinta el borde rojo del campo en `FormularioPresupuesto`,
+    // así que los dos mensajes no pueden contradecirse por construcción (3.6). Y
+    // es el único que trae la explicación interpolada de `ambiguo`, que nombra
+    // las dos lecturas posibles del texto y no puede salir de un `Record` fijo.
+    return { ok: false, cuerpo: null, params: {}, bloqueo: importe.texto };
   }
   return {
     ok: true,

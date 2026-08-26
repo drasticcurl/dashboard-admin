@@ -50,7 +50,7 @@ export function ChipCascada({
         onClick={onLimpiar}
         aria-label="Limpiar el filtro de cascada"
         title="Limpiar el filtro de cascada"
-        className="rounded-full p-0.5 text-good-300 transition-colors hover:bg-good-500/20 hover:text-good-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-good-500/60"
+        className="rounded-full p-0.5 text-good-300 transition-colors hover:bg-good-500/20 hover:text-good-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-good-500/60"
       >
         <X size={12} weight="bold" />
       </button>

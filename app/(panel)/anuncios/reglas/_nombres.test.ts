@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import fc from 'fast-check';
 import { nombreDeCopia } from './_nombres';
 import { aplicadoA, problema } from './ReglasView';
+import { formBase } from './_formBase';
 
 /**
  * Property 10 y los dos casos puros de la pantalla (task 9.5 y 9.6).
@@ -10,33 +11,6 @@ import { aplicadoA, problema } from './ReglasView';
  * importan desde acá; si el environment 'node' de Vitest no puede cargar el
  * componente (recharts, etc.), el plan B del task es moverlas a _nombres.ts.
  */
-
-type FormEstado = Parameters<typeof problema>[0];
-
-function formBase(over: Partial<FormEstado> = {}): FormEstado {
-  return {
-    name: 'Regla de prueba',
-    accountId: 'act_123',
-    level: 'adset',
-    statusFilter: 'active',
-    nameFilter: '',
-    nameFilterMode: 'contains',
-    action: 'pause',
-    actionValue: '',
-    actionUnit: 'percent',
-    budgetMax: '',
-    budgetMin: '',
-    period: 'today',
-    everyMinutes: 15,
-    windowStart: '',
-    windowEnd: '',
-    maxRunsPerDay: '',
-    cooldownMinutes: 60,
-    maxActionsPerObjectPerDay: 4,
-    conditions: [],
-    ...over,
-  };
-}
 
 describe('nombreDeCopia', () => {
   it('Feature: reglas-anuncios-por-cuenta, Property 10: el nombre que propone Duplicar nunca colisiona dentro de la cuenta', () => {

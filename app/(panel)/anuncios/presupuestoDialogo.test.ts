@@ -42,8 +42,26 @@ describe('el importe del diálogo de presupuesto (R1 c1, c3)', () => {
   it('un importe fuera de la regla se bloquea con el motivo, no con un mensaje genérico', () => {
     expect(presupuestoDelDialogo('0', TECHO).bloqueo).toContain('mínimo');
     expect(presupuestoDelDialogo('200.01', TECHO).bloqueo).toContain('techo');
-    expect(presupuestoDelDialogo('10.005', TECHO).bloqueo).toContain('decimales');
+    // CASO 5 DE LOS CINCO CAMBIOS DECLARADOS de la task 3.6. Acá estaba
+    // `'10.005'` esperando el mensaje de los decimales, y ese texto está dentro de
+    // la Bug_Condition: pasa a `ambiguo` (se afirma en el test de abajo). El corte
+    // de decimales sigue existiendo y sigue teniendo su mensaje, así que el caso
+    // se REESCRIBE CON COMA en lugar de borrarse: son los mismos tres decimales
+    // por el camino que ahora se lee (2.2).
+    expect(presupuestoDelDialogo('10,005', TECHO).bloqueo).toContain('decimales');
     expect(presupuestoDelDialogo('abc', TECHO).bloqueo).toContain('número');
+  });
+
+  it('un importe ambiguo se bloquea ofreciendo LAS DOS lecturas, no un «está mal»', () => {
+    // El veredicto nuevo del caso 5. El bloqueo del botón Ejecutar sale de
+    // `importe.texto`, que para `ambiguo` es la explicación del núcleo: es el único
+    // motivo cuyo mensaje no puede salir de un `Record` fijo, porque interpola el
+    // texto que la persona escribió. Sin las dos escrituras el rechazo no le sirve
+    // a nadie: el valor está en que la persona elija (2.1).
+    const bloqueo = presupuestoDelDialogo('10.005', TECHO).bloqueo;
+    expect(bloqueo).toContain('10005'); // sin el punto
+    expect(bloqueo).toContain('10'); // truncado en el punto
+    expect(presupuestoDelDialogo('10.005', TECHO).cuerpo).toBeNull();
   });
 
   it('los dos bordes del rango son ejecutables', () => {

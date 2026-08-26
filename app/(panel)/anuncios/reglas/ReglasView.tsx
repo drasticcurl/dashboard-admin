@@ -31,7 +31,15 @@ import {
   motivoAlcanceInutil,
   motivoCondicionesImposibles,
   motivoVentanaInvalida,
+  type CondicionCoherencia,
 } from '@/lib/ads/reglas/coherencia';
+// El núcleo compartido del parseo: qué número dice un texto, sin ninguna
+// política. La política de esta pantalla la pone `numeroDeCampo`, abajo.
+import { leerNumeroEscrito, type MotivoNumero, type NumeroEscrito } from '@/lib/monto';
+// Los valores YA GUARDADOS que huelen a este bug. Es EL MISMO módulo que importa
+// `scripts/verificar-montos-reglas.ts`: un predicado y un umbral, no dos que
+// puedan discrepar. Eso es lo que hace verificable la Property 7.
+import { sospechasDeRegla, type Sospecha } from '@/lib/ads/reglas/sospecha';
 import { importarCsvUtmify } from '@/lib/ads/reglas/utmify';
 import { Badge, Banner, Card, EmptyState, Table, fmtDateTime } from '@/components/ui';
 import type { Tone } from '@/components/ui';
@@ -562,18 +570,126 @@ export function problema(
 }
 
 /**
- * Un número escrito a mano. Acepta la coma decimal.
+ * Lo que dice un campo numérico escrito a mano: nada, un número, o un texto que
+ * no nombra ningún número.
  *
- * `Number('1,3')` es NaN y `Number('')` es CERO, y las dos cosas hacían daño
- * calladas: con coma el guardado moría con un mensaje de zod en inglés, y con el
- * campo vacío la condición se guardaba como «> 0», que para una regla de pausar
- * significa «pausá todo». Devuelve NaN para el vacío justamente para que no se
- * pueda confundir con un 0 escrito a propósito («ventas <= 0» es una condición
- * real y tiene que seguir siendo posible).
+ * EL CAMBIO DE TIPO ES EL DISEÑO, NO UN EFECTO COLATERAL. Antes esto devolvía un
+ * `number` con NaN como única señal, y con eso la validación no podía distinguir
+ * «vacío» de «ilegible» de «ambiguo»: lo único que podía preguntar era
+ * `Number.isFinite` sobre el número YA CORROMPIDO, así que `1.000` llegaba a
+ * `problemaAccion` convertido en 1 y lo aprobaba (cláusula 1.8). Con los tres
+ * estados nombrados, cada call site decide sobre el TEXTO y no sobre el número
+ * que alguien eligió por él (2.9).
  */
-function numeroDeTexto(s: string): number {
-  const t = s.trim().replace(',', '.');
-  return t === '' ? Number.NaN : Number(t);
+export type CampoNumerico =
+  | { estado: 'vacio' }
+  | { estado: 'ok'; valor: number }
+  | { estado: 'error'; motivo: MotivoNumero; detalle: string };
+
+/** La rama de rechazo, que es la única que `problemaDeCampo` necesita. */
+type ErrorDeCampo = Extract<CampoNumerico, { estado: 'error' }>;
+
+/**
+ * Qué le pasa al texto, en una frase, sin nombrar ningún campo.
+ *
+ * Para `ambiguo` es la `explicacion` del núcleo TAL CUAL: esa frase no nombra
+ * ningún sustantivo («"1.000" se puede leer de dos formas: …»), así que sirve
+ * igual para un importe, para un ROI y para un límite de ejecuciones. Es la única
+ * cadena que las tres pantallas comparten palabra por palabra (2.1).
+ *
+ * Los otros tres motivos hoy no se muestran —el mensaje de un no-número se arma
+ * con el texto bruto y es el de siempre—, y están acá para que un `title` o un
+ * log no tenga que volver a mapear el motivo. `vacio` no es alcanzable desde
+ * `numeroDeCampo` (el campo en blanco corta antes, y un texto con dígitos no
+ * puede quedar vacío al limpiar el ruido) y se mapea igual para que el `switch`
+ * sea exhaustivo: si el núcleo suma un motivo, esto no compila. Mismo criterio
+ * que `errorDeLectura` en `lib/monto.ts`.
+ */
+function detalleDeLectura(n: Extract<NumeroEscrito, { ok: false }>): string {
+  switch (n.motivo) {
+    case 'ambiguo':
+      return n.explicacion;
+    case 'vacio':
+      return 'no quedó ningún número después de limpiar los espacios y los símbolos';
+    case 'caracteres':
+      return 'un número lleva sólo dígitos, coma o punto';
+    case 'ilegible':
+      return 'los separadores no forman ningún número';
+  }
+}
+
+/**
+ * Qué número dice un campo de Reglas. Usa el NÚCLEO compartido
+ * (`leerNumeroEscrito`, `lib/monto.ts`), que es lo que hace que el mismo texto se
+ * lea igual acá, en Finanzas y en el diálogo de presupuesto (2.4), y le suma la
+ * política de esta pantalla.
+ *
+ * TRES DECISIONES DE POLÍTICA, que son de acá y no del núcleo:
+ *
+ * 1. **`vacio` es SÓLO el campo en blanco** (`''` o espacios), y es un estado
+ *    propio y distinto del 0. El NaN de antes existía exactamente para eso y
+ *    ahora está nombrado: es lo que hace que el vacío conserve su mensaje (3.7),
+ *    viaje como `null` y nunca como 0 (3.10) y no se confunda con un 0 escrito a
+ *    propósito, que en una condición es legítimo (3.9). Un texto que era todo
+ *    ruido, como `'€'` —el `vacio` del núcleo—, cae en `error` (lo ataja la
+ *    decisión 2, que corta antes), igual que en el presupuesto y igual que antes:
+ *    el campo tiene algo escrito y ese algo no es un número.
+ *
+ * 2. **UN TEXTO SIN NINGÚN DÍGITO NO ES 0.** El núcleo resuelve `'.'` (y `','`,
+ *    y `'-.'`) como 0 —es la familia (f) de §Alcance del spec, declarada y no
+ *    corregida porque corregirla cambiaría el mensaje de `parsearMonto('.')`, que
+ *    la cláusula 3.13 congela—. En el presupuesto eso es inocuo porque el 0 lo
+ *    ataja `bajo_el_minimo`. ACÁ NO HAY MÍNIMO, y en una condición el 0 es
+ *    legítimo a propósito (3.9), así que «gasto > .» pasaría de bloquearse («no
+ *    es un número») a guardarse como «gasto > 0» — que en una regla de pausar
+ *    significa PAUSÁ TODO. Es el modo de falla que 3.7 vino a evitar, entrando
+ *    por otra puerta. La política se pone acá y no en el núcleo: el núcleo no
+ *    tiene política, cada pantalla pone la suya. Pinneado en
+ *    `numeroDeCampo.test.ts`.
+ *
+ * 3. **La finitud se pliega dentro de `error`**, al revés que el presupuesto: un
+ *    `ok` de Reglas trae siempre un número finito, así que ningún call site puede
+ *    olvidarse del chequeo. Se puede porque acá ninguna cláusula congela el orden
+ *    de los mensajes, y preserva el veredicto de antes: un texto de 400 dígitos
+ *    daba Infinity y ya caía en «no es un número».
+ *
+ * Exportada para los tests, con el mismo criterio que `problema`, `aplicadoA` y
+ * las tres `problema*`: es una función pura y el test de la Bug_Condition
+ * (`montoAmbiguo.test.ts`) la tiene que poder llamar directo para medir qué
+ * número dice un texto, sin pasar por la validación que la envuelve.
+ */
+export function numeroDeCampo(s: string): CampoNumerico {
+  if (s.trim() === '') return { estado: 'vacio' };
+
+  if (!/\d/.test(s)) {
+    // Decisión 2 de arriba: sin dígitos no hay número, aunque el núcleo lo
+    // resuelva como 0.
+    return { estado: 'error', motivo: 'ilegible', detalle: 'no hay ningún dígito' };
+  }
+
+  // Al núcleo se le pasa el texto SIN recortar: limpia el ruido igual, y la frase
+  // de la ambigüedad cita el original recortado, que es el que la persona ve.
+  const n = leerNumeroEscrito(s);
+  if (!n.ok) return { estado: 'error', motivo: n.motivo, detalle: detalleDeLectura(n) };
+  if (!Number.isFinite(n.valor)) {
+    // Decisión 3: 400 dígitos dan Infinity y eso no es un número que se pueda
+    // guardar en ningún campo.
+    return { estado: 'error', motivo: 'ilegible', detalle: 'el número es demasiado grande' };
+  }
+  return { estado: 'ok', valor: n.valor };
+}
+
+/**
+ * El problema de un campo que no se pudo leer, con el campo nombrado (2.6, 2.7).
+ * Único helper para las tres pestañas.
+ *
+ * DOS FORMAS Y NO UNA: la segunda es literalmente el mensaje que ya existía y que
+ * 2.7 cita, palabra por palabra, y la primera es la que necesita la frase
+ * interpolada del núcleo, que trae LAS DOS lecturas posibles porque el valor del
+ * rechazo está en que la persona elija (2.1).
+ */
+function problemaDeCampo(nombre: string, bruto: string, r: ErrorDeCampo): string {
+  return r.motivo === 'ambiguo' ? `${nombre}: ${r.detalle}` : `${nombre} no es un número: «${bruto}».`;
 }
 
 /** Lo que puede estar mal en la pestaña Alcance (y el nombre, que va arriba). */
@@ -595,14 +711,30 @@ export function problemaAlcance(
   return motivoAlcanceInutil(f.action, f.statusFilter);
 }
 
-/** Lo que puede estar mal en la pestaña Acción (todo es de presupuesto). */
+/**
+ * Lo que puede estar mal en la pestaña Acción (todo es de presupuesto).
+ *
+ * Los tres campos se leen UNA VEZ CADA UNO al principio, y los cortes de después
+ * miran `valor`, que es un número que el texto dice de verdad. Antes el corte
+ * `v <= 0` se hacía sobre lo que `Number('1.000')` había devuelto, así que la
+ * validación aprobaba 1 donde la persona había escrito mil: eso es 1.8, y con el
+ * estado nombrado no se puede volver a escribir.
+ */
 export function problemaAccion(f: FormEstado): string | null {
   if (!esPresupuesto(f.action)) return null;
-  const v = numeroDeTexto(f.actionValue);
-  if (f.actionValue.trim() !== '' && !Number.isFinite(v)) {
-    return `El valor de la acción no es un número: «${f.actionValue.trim()}».`;
+  const valor = numeroDeCampo(f.actionValue);
+  const techo = numeroDeCampo(f.budgetMax);
+  const piso = numeroDeCampo(f.budgetMin);
+
+  if (valor.estado === 'error') {
+    return problemaDeCampo('El valor de la acción', f.actionValue.trim(), valor);
   }
-  if (!Number.isFinite(v) || v <= 0) return 'Falta el valor de la acción.';
+  // El vacío y el 0 comparten mensaje, como antes: los dos son «falta el valor».
+  if (valor.estado === 'vacio' || valor.valor <= 0) return 'Falta el valor de la acción.';
+  const v = valor.valor;
+
+  // `=== ''` y no `.trim() === ''`, que es lo que decía antes: un techo con sólo
+  // espacios no dispara este corte y termina viajando como `null`.
   if (f.action === 'budget_increase' && f.budgetMax === '') return 'Falta el límite máximo (techo).';
   if (f.action === 'budget_decrease' && f.budgetMin === '') return 'Falta el límite mínimo (piso).';
   if (f.actionUnit === 'percent') {
@@ -611,18 +743,20 @@ export function problemaAccion(f: FormEstado): string | null {
     if (f.action === 'budget_decrease' && v >= 100)
       return 'Para bajar a la mitad va 50%; 250% multiplica por 2,5.';
   }
-  const max = numeroDeTexto(f.budgetMax);
-  const min = numeroDeTexto(f.budgetMin);
-  if (f.budgetMax.trim() !== '' && !Number.isFinite(max)) {
-    return `El límite máximo no es un número: «${f.budgetMax.trim()}».`;
+  if (techo.estado === 'error') {
+    return problemaDeCampo('El límite máximo', f.budgetMax.trim(), techo);
   }
-  if (f.budgetMin.trim() !== '' && !Number.isFinite(min)) {
-    return `El límite mínimo no es un número: «${f.budgetMin.trim()}».`;
+  if (piso.estado === 'error') {
+    return problemaDeCampo('El límite mínimo', f.budgetMin.trim(), piso);
   }
-  if (Number.isFinite(max) && max <= 0) return 'El límite máximo tiene que ser mayor a 0.';
-  if (Number.isFinite(min) && min <= 0) return 'El límite mínimo tiene que ser mayor a 0.';
-  if (Number.isFinite(max) && Number.isFinite(min) && max < min)
-    return `Con techo ${max} y piso ${min} no hay ningún valor que satisfaga los dos.`;
+  if (techo.estado === 'ok' && techo.valor <= 0) return 'El límite máximo tiene que ser mayor a 0.';
+  if (piso.estado === 'ok' && piso.valor <= 0) return 'El límite mínimo tiene que ser mayor a 0.';
+  if (techo.estado === 'ok' && piso.estado === 'ok' && techo.valor < piso.valor)
+    return `Con techo ${techo.valor} y piso ${piso.valor} no hay ningún valor que satisfaga los dos.`;
+  // DEFECTO SEPARADO Y PREVIO, no de este arreglo: no hay ningún corte por el tope
+  // de `numeric(14,2)` en estos tres importes. Un valor más grande lo rechaza la
+  // base con un error de Postgres. Agregar el corte acá cambiaría el veredicto de
+  // textos que hoy pasan, así que queda anotado y afuera.
   return null;
 }
 
@@ -635,23 +769,33 @@ export function problemaAccion(f: FormEstado): string | null {
  * Nada avisaba: ni el formulario, ni el API (0 es un valor legítimo), ni la
  * base. La contradicción entre condiciones vive en `lib/ads/reglas/coherencia`
  * porque el API valida con la misma función.
+ *
+ * Cada condición se lee UNA SOLA VEZ, al entrar, y `motivoCondicionesImposibles`
+ * recibe los valores YA PARSEADOS: recién se lo llama cuando todas dieron `ok`,
+ * así que deja de poder recibir un NaN (su `Number.isFinite` de entrada era el
+ * único freno, y saltear una condición en silencio es lo contrario de avisar).
  */
 export function problemaCondiciones(f: FormEstado): string | null {
+  const leidas: CondicionCoherencia[] = [];
   for (let i = 0; i < f.conditions.length; i++) {
     const c = f.conditions[i]!;
     const bruto = c.value.trim();
     const nombre = `${METRICA_LABEL[c.metric]} (condición ${i + 1})`;
-    if (bruto === '') {
+    const r = numeroDeCampo(c.value);
+    if (r.estado === 'vacio') {
       return `${nombre} no tiene valor. Un valor vacío se guardaría como 0, no como «sin límite».`;
     }
-    if (!Number.isFinite(numeroDeTexto(bruto))) {
-      return `El valor de ${nombre} no es un número: «${bruto}».`;
+    if (r.estado === 'error') {
+      return problemaDeCampo(`El valor de ${nombre}`, bruto, r);
     }
+    // DEFECTO SEPARADO Y PREVIO, no de este arreglo: NO se corta por cantidad de
+    // decimales. `ad_rule_conditions.value` es `numeric(16,4)`, así que un quinto
+    // decimal lo redondea Postgres sin avisar, y antes tampoco había nada que lo
+    // atrapara. Agregar el rechazo acá cambiaría el veredicto de textos que hoy
+    // pasan, o sea una regresión no declarada: queda anotado y afuera.
+    leidas.push({ metric: c.metric, op: c.op, value: r.valor });
   }
-  return motivoCondicionesImposibles(
-    f.conditions.map((c) => ({ metric: c.metric, op: c.op, value: numeroDeTexto(c.value) })),
-    (m) => METRICA_LABEL[m as Condicion['metric']] ?? m,
-  );
+  return motivoCondicionesImposibles(leidas, (m) => METRICA_LABEL[m as Condicion['metric']] ?? m);
 }
 
 /**
@@ -666,12 +810,24 @@ export function problemaProgramacion(f: FormEstado): string | null {
   const mv = motivoVentanaInvalida(f.windowStart, f.windowEnd);
   if (mv !== null) return mv;
 
+  // El `Number(tope)` crudo se fue: era el otro lugar donde `1.000` pasaba como
+  // 1 y `Number.isInteger(1)` lo bendecía (1.9). Ahora valida y arma el payload
+  // el MISMO parseo.
   const tope = f.maxRunsPerDay.trim();
-  if (tope !== '') {
-    const n = Number(tope);
-    if (!Number.isInteger(n) || n <= 0) {
+  const r = numeroDeCampo(f.maxRunsPerDay);
+  if (r.estado !== 'vacio') {
+    // La ambigüedad se explica; todo el resto conserva el mensaje de siempre, que
+    // es lo que 2.8 pide para `1,5`: se lee 1,5 y se rechaza por no ser entero.
+    if (r.estado === 'error' && r.motivo === 'ambiguo') {
+      return problemaDeCampo('El límite de ejecuciones diarias', tope, r);
+    }
+    if (r.estado === 'error' || !Number.isInteger(r.valor) || r.valor <= 0) {
       return 'El límite de ejecuciones diarias tiene que ser un entero mayor a 0, o vacío para no tener límite.';
     }
+    // DEFECTO SEPARADO Y PREVIO, no de este arreglo: no hay corte por el tope de
+    // `smallint` (32767). Un entero más grande lo rechaza la base con un error de
+    // Postgres. Es feo y es de antes; agregarlo acá sería una regresión no
+    // declarada sobre textos que hoy pasan.
   }
   if (!Number.isInteger(f.cooldownMinutes) || f.cooldownMinutes < 0) {
     return 'El cooldown por objeto tiene que ser 0 o más minutos.';
@@ -695,10 +851,72 @@ export function aplicadoA(
   return `${NIVEL_LABEL[r.level]} ${STATUS_LABEL[r.statusFilter]} · ${nombre}${zona}`;
 }
 
-function payloadDeForm(f: FormEstado, id?: number): Record<string, unknown> {
+/** Los nombres de las bandas, textuales del script: el mismo reporte, dos lugares. */
+const NOMBRE_BANDA: Record<Sospecha['banda'], string> = {
+  alta: 'muy probable',
+  baja: 'posible',
+};
+
+/** Lo que la celda «Acción y condición» pinta cuando la regla tiene un valor sospechoso. */
+export type AvisoSospecha = { etiqueta: string; detalle: string };
+
+/**
+ * El aviso de la celda «Acción y condición»: qué dice el badge y qué dice su
+ * tooltip, o `null` si no hay nada que señalar (2.14).
+ *
+ * PURO Y EXPORTADO PARA LOS TESTS: decidir si la fila lleva badge no necesita
+ * render. Es la parte de la Property 7 que se puede verificar sin base — la
+ * sospecha que ve la UI es la que reporta el script, porque las dos salen de
+ * `sospechasDeRegla` y `ReglaFila` satisface `ReglaAuditable` sin conversiones.
+ *
+ * EL ORDEN DE LAS CONDICIONES NO ES UN DETALLE. La etiqueta de una condición dice
+ * «(condición N)» con N = índice + 1, así que el número del badge coincide con el
+ * del reporte sólo si las dos listas están ordenadas igual, y las dos las ordena
+ * `position`. `ReglaFila.condiciones` YA viene así: `listarReglas` (`_server.ts`)
+ * las trae con `ORDER BY rule_id, position` y es la única fuente de la lista,
+ * tanto en la carga inicial (`page.tsx`) como en cada `refrescar()`
+ * (GET /api/ads/reglas, que llama a la misma función). No se reordena acá porque
+ * no se puede: `Condicion` no lleva `position` — el orden del array ES el orden.
+ * Si alguien saca ese ORDER BY, este número se corre en silencio.
+ *
+ * PURAMENTE VISUAL: no deshabilita nada, no filtra la lista y NO impide que la
+ * regla siga corriendo (2.14). Un techo de 5 EUR puesto a propósito va a mostrar
+ * el badge y eso está bien: es indistinguible de un `5.000` corrompido, así que
+ * dice «revisar» y no «error», y la corrección es de una persona (2.13).
+ */
+export function avisoDeSospecha(r: ReglaFila): AvisoSospecha | null {
+  const ss = sospechasDeRegla(r);
+  if (ss.length === 0) return null;
+  const lineas = ss.map((s) => {
+    const marca = s.extension ? ' (es un porcentaje, no un importe)' : '';
+    return (
+      `· ${s.etiqueta}: guardado ${s.valor} — si se escribió «${s.textoProbable}», ` +
+      `quería decir ${s.valorProbable} [${NOMBRE_BANDA[s.banda]}]${marca}`
+    );
+  });
+  return {
+    etiqueta: ss.length === 1 ? 'revisar 1 importe' : `revisar ${ss.length} importes`,
+    detalle: [
+      'Puede haber quedado mil veces más chico: el parseo viejo leía «1.500» como 1,5. Ya está',
+      'arreglado, pero lo guardado no se corrige solo. Revisalo a mano — la regla sigue corriendo.',
+      '',
+      ...lineas,
+    ].join('\n'),
+  };
+}
+
+/**
+ * El payload que viaja al API. Exportada para los tests: es el último punto
+ * donde un número corrompido todavía se puede observar antes de salir del
+ * cliente, así que el test de la Bug_Condition la usa para afirmar que un texto
+ * ambiguo no produce NINGÚN valor. Se llama en un solo lugar de producción
+ * (`:1912`), detrás de `disabled={!puedeGuardar}`.
+ */
+export function payloadDeForm(f: FormEstado, id?: number): Record<string, unknown> {
   const ep = esPresupuesto(f.action);
-  // Todos los números pasan por `numeroDeTexto`, el mismo que usa la validación:
-  // si el formulario acepta «1,3», el payload tiene que mandar 1.3 y no NaN.
+  // Todos los números pasan por `numeroDeCampo`, el mismo que usa la validación:
+  // si el formulario acepta «1,3», el payload manda 1.3; y si el texto era
+  // ambiguo, la validación ya bloqueó el guardado y acá no se arma ningún valor.
   return {
     id,
     name: f.name.trim(),
@@ -708,23 +926,37 @@ function payloadDeForm(f: FormEstado, id?: number): Record<string, unknown> {
     nameFilter: f.nameFilter.trim() || null,
     nameFilterMode: f.nameFilterMode,
     action: f.action,
-    actionValue: ep ? nuloSiNaN(numeroDeTexto(f.actionValue)) : null,
+    actionValue: ep ? valorONull(numeroDeCampo(f.actionValue)) : null,
     actionUnit: ep ? f.actionUnit : null,
-    budgetMax: ep ? nuloSiNaN(numeroDeTexto(f.budgetMax)) : null,
-    budgetMin: ep ? nuloSiNaN(numeroDeTexto(f.budgetMin)) : null,
+    budgetMax: ep ? valorONull(numeroDeCampo(f.budgetMax)) : null,
+    budgetMin: ep ? valorONull(numeroDeCampo(f.budgetMin)) : null,
     period: f.period,
     everyMinutes: f.everyMinutes,
     windowStart: f.windowStart || null,
     windowEnd: f.windowEnd || null,
-    maxRunsPerDay: f.maxRunsPerDay.trim() === '' ? null : Number(f.maxRunsPerDay.trim()),
+    maxRunsPerDay: valorONull(numeroDeCampo(f.maxRunsPerDay)),
     cooldownMinutes: f.cooldownMinutes,
     maxActionsPerObjectPerDay: f.maxActionsPerObjectPerDay,
-    conditions: f.conditions.map((c) => ({ metric: c.metric, op: c.op, value: numeroDeTexto(c.value) })),
+    conditions: f.conditions.map((c) => ({
+      metric: c.metric,
+      op: c.op,
+      value: valorONull(numeroDeCampo(c.value)),
+    })),
   };
 }
 
-/** NaN (campo vacío o basura) viaja como null, nunca como 0. */
-const nuloSiNaN = (n: number): number | null => (Number.isFinite(n) ? n : null);
+/**
+ * El campo vacío viaja como `null` y NUNCA como 0 (3.10): un 0 en el techo de una
+ * regla es un techo de cero euros, y en una condición es «pausá todo».
+ *
+ * El `null` del caso `error` es INALCANZABLE y se deja como `null` a propósito. El
+ * payload se arma en un solo lugar (`:1912`), detrás de `disabled={!puedeGuardar}`
+ * con `puedeGuardar = prob === null && !guardando`, así que cuando se llega acá
+ * `problema()` ya devolvió `null` y ningún campo está en `error`. Si algún día ese
+ * camino se abre, el API rechaza un `null` en un campo obligatorio de forma
+ * ruidosa, mientras que un 0 se guardaría en silencio. Es la lección de 3.7.
+ */
+const valorONull = (r: CampoNumerico): number | null => (r.estado === 'ok' ? r.valor : null);
 
 function payloadDeRegla(r: ReglaFila, over: { enabled?: boolean; dryRun?: boolean } = {}): Record<string, unknown> {
   return {
@@ -1193,7 +1425,27 @@ export function ReglasView({
                         ),
                       },
                       { key: 'aplicado', header: 'Aplicado a', render: (r) => <span className="text-neutral-300">{aplicadoA(r, cuentas)}</span> },
-                      { key: 'accion', header: 'Acción y condición', render: (r) => <span className="text-neutral-300">{accionDe(r)}</span> },
+                      {
+                        key: 'accion',
+                        header: 'Acción y condición',
+                        // 2.14: el aviso de valor sospechoso va acá, en la celda
+                        // donde el importe se muestra, y no al lado del nombre —
+                        // ahí ya hay dos badges (REAL y «sin condiciones»). El
+                        // detalle va en el `title`, como los badges del historial.
+                        render: (r) => {
+                          const aviso = avisoDeSospecha(r);
+                          return (
+                            <span className="text-neutral-300">
+                              {accionDe(r)}
+                              {aviso && (
+                                <span className="ml-2" title={aviso.detalle}>
+                                  <Badge tone="warn">{aviso.etiqueta}</Badge>
+                                </span>
+                              )}
+                            </span>
+                          );
+                        },
+                      },
                       { key: 'frecuencia', header: 'Frecuencia y período', render: (r) => <span className="text-neutral-300">{frecuencia(r)}</span> },
                       {
                         key: 'ultima',
