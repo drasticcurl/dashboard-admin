@@ -39,6 +39,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { isAuthenticated } from '@/lib/auth';
 import { q, q1 } from '@/lib/db';
 import { getMetricasAds, rangoDePeriodo } from '@/lib/queries/ads';
+import { UMBRAL_FRESCURA_DEFAULT_SEGUNDOS } from '@/lib/ads/frescura';
 import { ensureFreshAdSpend } from '@/lib/ads/live';
 import { ensureFreshJerarquia } from '@/lib/ads/liveJerarquia';
 import { asegurarAlcance } from '@/lib/ads/alcance';
@@ -297,8 +298,11 @@ export async function GET(req: NextRequest): Promise<Response> {
     maxDeltaPorTickEur: typeof topes?.delta === 'number' ? (topes.delta as number) : 300,
     // `settings.value` es jsonb y puede tener cualquier cosa: si no es un número
     // se cae al mismo 900 que seedeó la 025, no a un `NaN` que dejaría a toda la
-    // tabla marcada como vieja.
-    frescuraUmbralSegundos: typeof topes?.umbral === 'number' ? (topes.umbral as number) : 900,
+    // tabla marcada como vieja. El número vive en `lib/ads/frescura.ts`.
+    frescuraUmbralSegundos:
+      typeof topes?.umbral === 'number'
+        ? (topes.umbral as number)
+        : UMBRAL_FRESCURA_DEFAULT_SEGUNDOS,
     alcanceError,
     avisoCuenta,
   });

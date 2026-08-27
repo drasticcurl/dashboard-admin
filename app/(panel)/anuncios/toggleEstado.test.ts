@@ -1,6 +1,6 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
-import { dibujoDeEstado } from './celdas';
+import { dibujoDeEstado, type SenalEntrega } from './celdas';
 import {
   accionDeToggle,
   ejecutarToggle,
@@ -184,30 +184,52 @@ function enEspera(): { promesa: Promise<Response>; responder: (r: Response) => v
 
 /**
  * Cada valor de `status` con el que la celda dibuja un interruptor, la posición
- * en la que lo dibuja y la acción que le corresponde. Todas las filas menos la
- * primera son las que la versión anterior mandaba a pausar: su comparación era
- * contra `'PAUSED'`, así que cualquier otro valor —nulo, vacío, un estado
- * heredado o uno que este cliente no conoce— pedía pausar una fila que estaba
- * dibujada apagada.
+ * en la que lo dibuja, la acción que le corresponde y la Senal_Entrega del
+ * dibujo. Todas las filas menos la primera son las que la versión anterior
+ * mandaba a pausar: su comparación era contra `'PAUSED'`, así que cualquier otro
+ * valor —nulo, vacío, un estado heredado o uno que este cliente no conoce— pedía
+ * pausar una fila que estaba dibujada apagada.
+ *
+ * ## LA CUARTA COLUMNA, y la trampa que tiene (task 13.2)
+ *
+ * La agregó la task 13.2 de `toggle-conjuntos-entrega`, cuando `dibujoDeEstado`
+ * empezó a devolver `entrega`. La expectativa se **ENDURECE**: cada `toEqual` de
+ * abajo compara el objeto ENTERO, con el valor esperado de la señal escrito acá a
+ * mano. Pasar a `toMatchObject` habría hecho verde el archivo sin tocar nada, y
+ * habría perdido lo que este test compra: que el dibujo no tenga campos de más.
+ *
+ * **La trampa está en dos filas y hay que leerla despacio.** `ADSET_PAUSED` y
+ * `CAMPAIGN_PAUSED` aparecen en esta tabla como valores de **`status`**, no de
+ * `effective_status`. Lo que decide la señal es el efectivo, y el helper `fila()`
+ * pone `effectiveStatus: status`: por eso esas dos filas llevan
+ * `antepasado_apagado`, por el efectivo que el helper arma solo, y no porque su
+ * `status` se llame así. Si mañana alguien le cambia el default al helper, estas
+ * dos expectativas cambian con él, y eso es correcto: la señal no sale del
+ * `status` en ninguno de los dos casos.
+ *
+ * Y las dos siguen dibujándose **APAGADAS**, que es la mitad que importa: la
+ * posición sale de `status === 'ACTIVE'` y ninguno de esos dos valores lo es.
  */
-const DIRECCIONES: readonly (readonly [string | null, boolean, 'pause' | 'activate'])[] = [
-  ['ACTIVE', true, 'pause'],
-  ['PAUSED', false, 'activate'],
-  [null, false, 'activate'],
-  ['', false, 'activate'],
-  ['ADSET_PAUSED', false, 'activate'],
-  ['CAMPAIGN_PAUSED', false, 'activate'],
-  ['active', false, 'activate'], // Meta manda mayúsculas: minúscula es un valor inesperado
-  ['UN_ESTADO_QUE_NO_CONOCEMOS', false, 'activate'],
+const DIRECCIONES: readonly (readonly [string | null, boolean, 'pause' | 'activate', SenalEntrega])[] = [
+  ['ACTIVE', true, 'pause', { estado: 'sin_senal' }],
+  ['PAUSED', false, 'activate', { estado: 'sin_senal' }],
+  [null, false, 'activate', { estado: 'sin_senal' }],
+  ['', false, 'activate', { estado: 'sin_senal' }],
+  // Efectivo `ADSET_PAUSED` por el default del helper: señal del conjunto.
+  ['ADSET_PAUSED', false, 'activate', { estado: 'antepasado_apagado', antepasado: 'adset' }],
+  // Efectivo `CAMPAIGN_PAUSED` por lo mismo: señal de la campaña.
+  ['CAMPAIGN_PAUSED', false, 'activate', { estado: 'antepasado_apagado', antepasado: 'campaign' }],
+  ['active', false, 'activate', { estado: 'sin_senal' }], // Meta manda mayúsculas: minúscula es un valor inesperado
+  ['UN_ESTADO_QUE_NO_CONOCEMOS', false, 'activate', { estado: 'sin_senal' }],
 ];
 
 describe('la dirección del toggle (R2 c1, c2)', () => {
-  for (const [status, encendido, accion] of DIRECCIONES) {
+  for (const [status, encendido, accion, entrega] of DIRECCIONES) {
     it(`status ${JSON.stringify(status)} se dibuja ${encendido ? 'encendido' : 'apagado'} y pide ${accion}`, async () => {
       const f = fila(status);
 
       const dibujo = dibujoDeEstado(f);
-      expect(dibujo).toEqual({ control: 'interruptor', encendido });
+      expect(dibujo).toEqual({ control: 'interruptor', encendido, entrega });
       expect(accionDeToggle(status)).toBe(accion);
       // El núcleo de la coherencia: lo dibujado y lo pedido son inversos.
       expect(encendido).toBe(accion === 'pause');
@@ -483,10 +505,17 @@ const ESTADOS: readonly EstadoResultadoAccion[] = [
 ];
 
 /**
- * Las cuatro formas en las que una respuesta puede volver del Endpoint_Acciones,
+ * Las cinco formas en las que una respuesta puede volver del Endpoint_Acciones,
  * con los cuerpos que el route arma de verdad: un resultado por objeto, un
  * rechazo del sobre (esquema, guard, 500), un cuerpo ilegible (el 502 del proxy
- * con HTML) y la red que se cae antes de responder.
+ * con HTML), la red que se cae antes de responder y el plazo del cliente que se
+ * vence antes de que el servidor conteste.
+ *
+ * `plazo` la agregó la task 6 de `toggle-conjuntos-entrega` (Property 4,
+ * preservación de la tanda D) y **pasa contra el código SIN arreglar**: es el
+ * mismo desenlace que `red` por otra causa, porque las dos caen en el mismo
+ * `catch` de `ejecutarToggle`. Ver el docblock de `errorDePlazo` y el de la
+ * Property 2 para qué se afirma y qué queda para la task 16.
  */
 type FormaRespuesta =
   | {
@@ -506,7 +535,8 @@ type FormaRespuesta =
     }
   | { tipo: 'sobre'; httpStatus: number; error: string | null; detail: string | null }
   | { tipo: 'ilegible'; httpStatus: number }
-  | { tipo: 'red' };
+  | { tipo: 'red' }
+  | { tipo: 'plazo'; nombre: 'TimeoutError' | 'AbortError'; mensaje: string };
 
 const formaArbitraria: fc.Arbitrary<FormaRespuesta> = fc.oneof(
   {
@@ -549,7 +579,57 @@ const formaArbitraria: fc.Arbitrary<FormaRespuesta> = fc.oneof(
     arbitrary: fc.record({ tipo: fc.constant('ilegible' as const), httpStatus: fc.constantFrom(200, 502) }),
   },
   { weight: 1, arbitrary: fc.constant({ tipo: 'red' as const }) },
+  {
+    // Mismo peso que `red`: es su hermana, y el punto de la Property 4 es que el
+    // desenlace no distingue entre las dos.
+    weight: 1,
+    arbitrary: fc.record({
+      tipo: fc.constant('plazo' as const),
+      // Los dos nombres que un abort puede traer. `TimeoutError` es el de
+      // Node/undici —el que va a producir el `AbortSignal.timeout` que la task
+      // 16 le pone al `init`— y `AbortError` el de algunos navegadores, que es
+      // por dónde le llega al usuario. Los dos tienen que dar el mismo
+      // desenlace: `esAbortoPorPlazo` de la task 16.2 va a mirar este campo, así
+      // que generarlo acá es lo que hace que la property siga valiendo cuando
+      // ese `if` exista.
+      nombre: fc.constantFrom('TimeoutError' as const, 'AbortError' as const),
+      // Los mensajes que traen de verdad, y a propósito NINGUNO en castellano:
+      // son la razón por la que la task 16.2 deja de interpolarlos. El primero
+      // es el medido en este repo (ver `errorDePlazo`); los otros tres son los
+      // de Chrome, Firefox y un `AbortController` sin razón. Generados y no
+      // fijados porque lo que se afirma es el desenlace, no el texto del
+      // proveedor.
+      mensaje: fc.constantFrom(
+        'The operation was aborted due to timeout',
+        'The user aborted a request.',
+        'The operation was aborted.',
+        'signal is aborted without reason',
+      ),
+    }),
+  },
 );
+
+/**
+ * El error con el que un `fetch` rechaza cuando su `AbortSignal` se dispara:
+ * `DOMException` con `name` `TimeoutError` o `AbortError`.
+ *
+ * **Medido, no supuesto.** Con Node v24.14.0, un `fetch` contra un servidor que
+ * no contesta y `signal: AbortSignal.timeout(30)` rechaza con:
+ *
+ *     name = 'TimeoutError'   ctor = DOMException
+ *     message = 'The operation was aborted due to timeout'
+ *     e instanceof Error === true
+ *
+ * Ese `instanceof Error` es lo que importa para HOY: el `catch` de
+ * `ejecutarToggle` interpola `e.message` con
+ * `e instanceof Error ? e.message : String(e)`, y `DOMException` extiende `Error`,
+ * así que el aviso sale con el mensaje en inglés adentro. Por eso la task 16.2
+ * cambia el texto y la 16.5 lo verifica; **acá no se afirma el texto** (ver el
+ * docblock de la Property 2).
+ */
+function errorDePlazo(nombre: 'TimeoutError' | 'AbortError', mensaje: string): Error {
+  return new DOMException(mensaje, nombre);
+}
 
 /** La respuesta HTTP de una forma generada, o una promesa rota si es la red. */
 function respuestaDe(forma: FormaRespuesta): Promise<Response> {
@@ -582,6 +662,11 @@ function respuestaDe(forma: FormaRespuesta): Promise<Response> {
       );
     case 'red':
       return Promise.reject(new Error('Failed to fetch'));
+    case 'plazo':
+      // El plazo del cliente se venció antes de que el servidor conteste. Para
+      // este código es lo mismo que la red: una promesa rota. Lo que cambia es
+      // qué se le puede decir al usuario, y eso es de la task 16.
+      return Promise.reject(errorDePlazo(forma.nombre, forma.mensaje));
   }
 }
 
@@ -593,6 +678,12 @@ function respuestaDe(forma: FormaRespuesta): Promise<Response> {
  * `confirmado` es el único desenlace en el que la escritura quedó, con
  * advertencia o sin ella: la advertencia habla de si el objeto va a entregar, no
  * de si Meta aceptó el cambio.
+ *
+ * `plazo` cae del lado de «no confirmado» por el mismo `forma.tipo !==
+ * 'resultado'` que `red` y `ilegible`, y ésa es la clasificación correcta y no un
+ * descuido: el cliente que abandona el pedido **no sabe** si Meta lo aplicó, así
+ * que la fila tiene que volver. Lo que no se puede afirmar —y esta función no
+ * afirma— es que el cambio NO ocurrió: eso lo dice el texto del aviso, y es 2.6.
  */
 function confirmoElCambio(forma: FormaRespuesta): boolean {
   return forma.tipo === 'resultado' && forma.estado === 'confirmado';
@@ -659,7 +750,20 @@ describe('Property 1: Coherencia entre lo que se dibuja y lo que se pide', () =>
         // Sigue siendo un interruptor (ni ACTIVE ni PAUSED son no toggleables) y
         // quedó del otro lado: sin esto el control sería de una sola dirección,
         // que es el bug reportado.
-        expect(dibujoDespues).toEqual({ control: 'interruptor', encendido: !dibujo.encendido });
+        //
+        // `entrega: dibujo.entrega` endurece la aserción en lugar de aflojarla
+        // (task 13.2), y afirma algo con contenido: la señal es la MISMA antes y
+        // después de que el `status` se dio vuelta, porque el `effective_status`
+        // de la fila no cambió. Es la ortogonalidad de 2.10 leída en el otro
+        // sentido —la posición cambió, la señal no— y sale de una observación
+        // independiente (el dibujo de antes) y no de volver a llamar a
+        // `senalDeEntrega`, que sería preguntarle la respuesta a la función que
+        // se está probando.
+        expect(dibujoDespues).toEqual({
+          control: 'interruptor',
+          encendido: !dibujo.encendido,
+          entrega: dibujo.entrega,
+        });
         expect(accionDeToggle(despues)).not.toBe(accion);
       }),
       { numRuns: 300 },
@@ -671,12 +775,42 @@ describe('Property 1: Coherencia entre lo que se dibuja y lo que se pide', () =>
 //
 // **Validates: Requirements 2.3, 2.6**
 describe('Property 2: No hay éxito silencioso', () => {
+  /**
+   * ## La forma `plazo`, agregada por la task 6 de `toggle-conjuntos-entrega`
+   *
+   * Esta property es también la **Property 4 (preservación) de la tanda D**, y
+   * pasa contra el código SIN arreglar. El oráculo no hubo que inventarlo: la
+   * forma `red` ya estaba acá y su desenlace observado es reversión + aviso que
+   * no afirma que el cambio no ocurrió. El plazo es **el mismo desenlace por otra
+   * causa**, porque las dos rechazan la promesa del `pedir` y caen en el mismo
+   * `catch` de `ejecutarToggle`, que ya hace las tres cosas: revierte con la
+   * guarda condicional, avisa, y libera el id en el `finally`.
+   *
+   * Que esto ya pase antes del arreglo es lo que hace que su fallo después
+   * signifique algo. La task 16 no agrega comportamiento a este camino: le cambia
+   * **el texto** al aviso y le pone el `signal` al `init`.
+   *
+   * **Lo que esta property NO afirma, a propósito:** que el texto del aborto
+   * nombre el plazo. Hoy el aviso interpola `e.message` y dice
+   * `The operation was aborted due to timeout` —inglés, y sin decir cuánto se
+   * esperó—. Eso lo cambia la task 16.2 y lo verifica la 16.5. Si acá se afirmara
+   * el texto de hoy, este test se pondría rojo en la 16.2 por un cambio
+   * deliberado, y un test de preservación que se rompe cuando el arreglo entra no
+   * preserva: estorba. Lo que sí se afirma es lo que vale en los dos mundos: la
+   * fila vuelve, el id se libera y el aviso no está vacío.
+   */
   it('para toda respuesta sin confirmar, la fila vuelve a su valor y hay un aviso no vacío', async () => {
     await fc.assert(
       fc.asyncProperty(filaArbitraria, formaArbitraria, async (f, forma) => {
         const { registro, statusDe, entorno } = tabla([f], () => respuestaDe(forma));
 
         await ejecutarToggle(f, entorno);
+
+        // El `finally` libera el id para TODO desenlace, incluidos los dos que
+        // rompen la promesa (`red` y `plazo`): sin esto la fila queda muerta
+        // hasta recargar la página, que es lo que 3.11 preserva. Va antes del
+        // corte por `confirmoElCambio` porque no depende del desenlace.
+        expect(entorno.enVuelo.has(f.objectId), `enVuelo con ${JSON.stringify(forma)}`).toBe(false);
 
         if (confirmoElCambio(forma)) {
           // El único desenlace que deja la fila cambiada, con advertencia o sin
@@ -743,5 +877,151 @@ describe('Property 2: No hay éxito silencioso', () => {
       }),
       { numRuns: 300 },
     );
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Task 6 de `toggle-conjuntos-entrega` — Property 4 (Preservation): el plazo
+// vencido es indeterminado y nunca un fallo. TODO ESTO PASA HOY, sin arreglo.
+// ═════════════════════════════════════════════════════════════════════════════
+
+/**
+ * ## Qué agrega esta sección y qué ya estaba
+ *
+ * La property de arriba (Property 2 de este archivo, que es también la Property 4
+ * del spec nuevo) ya cubre la forma `plazo` cuantificada sobre `filaArbitraria`.
+ * Lo de acá abajo son los casos concretos: reproducibles sin semilla, y con el
+ * desenlace OBSERVADO escrito al lado, que es lo que un baseline de preservación
+ * tiene que dejar por escrito.
+ *
+ * ## El baseline de la tanda D corrido en esta task (2026-08-27), sin editar nada
+ *
+ * Los casos de este archivo que fijan 3.2, 3.3, 3.4 y 3.11 ya existían y siguen
+ * verdes; **la task 6 no los tocó**. Están nombrados acá para que la task 16
+ * sepa cuáles mirar si algo se pone rojo:
+ *
+ * | Preservación | Test que ya lo fija | Estado |
+ * |---|---|---|
+ * | 3.2 revierte a `statusPrevio`, no a PAUSED/ACTIVE | «la fila vuelve a `null`, no a PAUSED» | ✓ |
+ * | 3.2 sólo si todavía muestra lo pintado | «la reversión no pisa un valor más nuevo…» | ✓ |
+ * | 3.3 se decide con `aplicado`, no con la nulidad del aviso | Property 2, «la fila vuelve si y sólo si el cambio no quedó» | ✓ |
+ * | 3.4 `confirmado` con advertencia no revierte y refresca | «un confirmado CON advertencia… (R6.4)» | ✓ |
+ * | 3.11 dos clicks, un pedido | «dos clicks seguidos sobre la misma fila producen UN solo pedido» | ✓ |
+ * | 3.11 dos filas a la vez | «dos filas distintas a la vez son legítimas: dos pedidos» | ✓ |
+ * | 3.11 el id se libera al fallar | «la guarda se libera también cuando el pedido falla» | ✓ |
+ *
+ * Lo que ninguno de esos cubría es **esta causa**: hasta hoy el único desenlace
+ * roto era `red`. Los tres tests de abajo la agregan, y el de la guarda es el
+ * único que ejercita un pedido que se vence **estando en vuelo**, que es la
+ * secuencia real del plazo y no un `throw` inmediato.
+ *
+ * ## Lo que la task 16 va a cambiar de este camino, y por qué acá no se afirma
+ *
+ * El `catch` no cambia: revierte, avisa y libera. Cambia el TEXTO
+ * (`textoDeFalloDeToggle`, task 16.2) y el `init` gana
+ * `signal: AbortSignal.timeout(plazoClienteEstadoMs(1))` (16.1/16.3). Lo que hoy
+ * dice el aviso, textual y medido:
+ *
+ *     tono: 'error'
+ *     texto: 'El cambio de estado no se pudo completar: The operation was aborted
+ *             due to timeout. La fila quedó como estaba; si el pedido llegó a
+ *             Meta, el resultado se define cuando corra la reconciliación.'
+ *
+ * O sea: la primera oración interpola el mensaje del proveedor en inglés y no
+ * nombra el plazo. Eso es 2.6 y lo arregla la 16.2. Acá se afirma sólo la segunda
+ * oración —la de la reconciliación, que el diseño declara **textual en las dos
+ * ramas** (§D3)— y el tono. Nada más: un test de preservación que se rompe cuando
+ * entra el arreglo que lo acompaña no preserva, estorba.
+ */
+
+/** Un pedido que queda en vuelo y termina roto: la secuencia real de un plazo. */
+function enEsperaQueSeVence(): { promesa: Promise<Response>; vencer: (e: unknown) => void } {
+  let vencer!: (e: unknown) => void;
+  const promesa = new Promise<Response>((_, rechazar) => {
+    vencer = rechazar;
+  });
+  return { promesa, vencer };
+}
+
+const NOMBRES_DE_ABORTO = ['TimeoutError', 'AbortError'] as const;
+
+describe('el plazo vencido del toggle (Property 4, preservación de la tanda D)', () => {
+  for (const nombre of NOMBRES_DE_ABORTO) {
+    it(`un abort ${nombre} revierte al statusPrevio, avisa sin afirmar el fallo y no refresca`, async () => {
+      // `status` nulo a propósito: es la fila del bug original y la que hace ver
+      // que se restaura el valor previo y no PAUSED/ACTIVE (3.2). El pintado
+      // optimista la había dejado en ACTIVE.
+      const f = fila(null);
+      const { registro, statusDe, entorno } = tabla([f], async () => {
+        throw errorDePlazo(nombre, 'The operation was aborted due to timeout');
+      });
+
+      await ejecutarToggle(f, entorno);
+
+      expect(statusDe('s1')).toBeNull();
+      // El id vuelve a estar libre: el plazo vencido no deja la fila muerta.
+      expect(entorno.enVuelo.size).toBe(0);
+      expect(registro.avisos).toHaveLength(1);
+      expect(registro.avisos[0]!.tono).toBe('error');
+      expect(registro.avisos[0]!.texto.trim().length).toBeGreaterThan(0);
+      // 2.6: no se afirma que el cambio no ocurrió. La oración es textual en las
+      // dos ramas del texto que la task 16.2 va a escribir, así que esta
+      // aserción vale en los dos mundos.
+      expect(registro.avisos[0]!.texto).toContain('La fila quedó como estaba');
+      expect(registro.avisos[0]!.texto).toContain('reconciliación');
+      // Nada cambió en la base que se pueda releer, y un refetch sólo podría
+      // deshacer la reversión (3.4 por el otro lado: el refetch es del camino
+      // aplicado).
+      expect(registro.refrescos).toBe(0);
+    });
+  }
+
+  it('la reversión del plazo no pisa un valor más nuevo que llegó mientras el pedido estaba en vuelo', async () => {
+    // La otra mitad de 3.2, para esta causa: `revertir` toca la fila SÓLO si
+    // todavía muestra lo que pintamos. Con un plazo la ventana es más larga que
+    // con la red —el pedido estuvo colgado hasta que venció—, así que es más
+    // probable que entretanto llegue una respuesta del endpoint de datos.
+    const espera = enEsperaQueSeVence();
+    const f = fila('ACTIVE');
+    const { registro, statusDe, entorno } = tabla([f], () => espera.promesa);
+
+    const enCurso = ejecutarToggle(f, entorno); // pinta PAUSED
+    expect(statusDe('s1')).toBe('PAUSED');
+
+    registro.filas = filasConEstado(registro.filas, 's1', 'ARCHIVED');
+    espera.vencer(errorDePlazo('TimeoutError', 'The operation was aborted due to timeout'));
+    await enCurso;
+
+    // Devolverla a 'ACTIVE' sería llevarla a un pasado.
+    expect(statusDe('s1')).toBe('ARCHIVED');
+    expect(registro.avisos).toHaveLength(1);
+  });
+
+  it('mientras el pedido corre hacia su plazo la guarda sigue valiendo, y al vencer la fila queda accionable (3.11)', async () => {
+    const espera = enEsperaQueSeVence();
+    const f = fila('PAUSED');
+    const otra = fila('ACTIVE', { objectId: 's2' });
+    const { registro, statusDe, entorno } = tabla([f, otra], () => espera.promesa);
+
+    const primero = ejecutarToggle(f, entorno);
+    await ejecutarToggle(f, entorno); // el segundo click se descarta
+    expect(registro.pedidos).toHaveLength(1);
+
+    // Y una fila distinta sigue pudiendo tocarse a la vez: la guarda es por id.
+    const segundaEnCurso = ejecutarToggle(otra, entorno);
+    expect(registro.pedidos).toHaveLength(2);
+
+    espera.vencer(errorDePlazo('TimeoutError', 'The operation was aborted due to timeout'));
+    await Promise.all([primero, segundaEnCurso]);
+
+    expect(entorno.enVuelo.size).toBe(0);
+    // Las dos filas volvieron a su valor previo, cada una al suyo.
+    expect(statusDe('s1')).toBe('PAUSED');
+    expect(statusDe('s2')).toBe('ACTIVE');
+
+    // El `finally` la devolvió al ruedo: un plazo vencido no es un bloqueo
+    // permanente, y el usuario tiene que poder volver a intentar.
+    await ejecutarToggle(f, entorno);
+    expect(registro.pedidos).toHaveLength(3);
   });
 });

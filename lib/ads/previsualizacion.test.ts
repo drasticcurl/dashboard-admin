@@ -299,12 +299,6 @@ describe('padre apagado (R6.4)', () => {
     expect(p.filas[0]!.advertencia).toBeNull();
   });
 
-  it('pausar NO lleva la advertencia: el objeto queda donde el usuario pidió', () => {
-    const f = fila('x1', 'adset', { status: 'ACTIVE', effectiveStatus: 'CAMPAIGN_PAUSED' });
-    const p = calcularPrevisualizacion('pause', 'adset', [f], ['x1'], padres('PAUSED'), TOPES);
-    expect(p.filas[0]!.advertencia).toBeNull();
-  });
-
   it('una campaña no tiene padre: nunca advierte', () => {
     const f = fila('x1', 'campaign', { status: 'PAUSED', effectiveStatus: 'PAUSED' });
     const p = calcularPrevisualizacion('activate', 'campaign', [f], ['x1'], padres('PAUSED'), TOPES);
@@ -337,6 +331,187 @@ describe('padre apagado (R6.4)', () => {
   it('un estado no escribible no gana la advertencia: la fila no se manda', () => {
     const f = fila('x1', 'adset', { status: 'ARCHIVED', effectiveStatus: 'ARCHIVED' });
     const p = calcularPrevisualizacion('activate', 'adset', [f], ['x1'], padres('PAUSED'), TOPES);
+    expect(p.filas[0]!.motivo).toBe('campo_no_aplica');
+    expect(p.filas[0]!.advertencia).toBeNull();
+  });
+});
+
+/**
+ * El aviso al PAUSAR, task 12 de `toggle-conjuntos-entrega` (1.12, 2.11).
+ *
+ * ## Qué defecto cierra
+ *
+ * Hasta acá `advertenciaPadreApagado` se sumaba sólo para `activate`, así que el
+ * usuario que apagaba uno de los **92 conjuntos `ACTIVE / CAMPAIGN_PAUSED`** de la
+ * cuenta no leía nada: el aviso de que ese conjunto no entregaba llegaba en el
+ * SEGUNDO click, cuando lo volvía a prender. 2.11 lo mueve al momento del click.
+ *
+ * ## Por qué es OTRO texto y no el mismo
+ *
+ * Al activar, «no entrega» es una advertencia sobre el futuro —«queda activo pero
+ * no entrega hasta que se active la campaña»—. Al pausar es una aclaración sobre
+ * lo que se está apagando, y va en pasado: el conjunto ya no entregaba, así que
+ * pausarlo no cambia la entrega. Reusar el texto de activar acá diría algo falso
+ * («queda activo») sobre una fila que se está apagando.
+ *
+ * ## El `status === 'ACTIVE'` es la mitad de la decisión
+ *
+ * El aviso se suma sólo cuando el `pause` escribe de verdad. Pausar algo que ya
+ * está `PAUSED` llega con `motivo: 'ya_esta_en_ese_estado'` y la aclaración no
+ * agrega nada. Con eso el aviso aparece sobre los 92 y no sobre los 67, que es la
+ * diferencia entre decir algo útil y hacer ruido en la operación de lote más
+ * común. La asimetría con `activate` —que sí se suma sobre
+ * `ya_esta_en_ese_estado`— tiene su propio motivo y está afirmada arriba.
+ */
+describe('el aviso al pausar algo que ya no entregaba (1.12, 2.11)', () => {
+  const padres = (campania: string | null, conjunto: string | null = null) => ({
+    padres: new Map([['x1', { campania, conjunto }]]),
+  });
+
+  /**
+   * Los cuatro textos de `activate`, LITERALES y comparados con `toBe`.
+   *
+   * 3.5 los congela carácter por carácter, así que acá no salen del productor:
+   * un test que le pregunta la respuesta a la función que está probando no
+   * detecta que la función cambió de respuesta. Es el único bloque del archivo
+   * que los escribe a mano y es a propósito.
+   */
+  const ACTIVATE = {
+    adsetCampania:
+      'la campaña está pausada: el conjunto queda activo pero no entrega hasta que se active la campaña',
+    adConjunto:
+      'el conjunto está pausado: el anuncio queda activo pero no entrega hasta que se active el conjunto',
+    adCampania:
+      'la campaña está pausada: el anuncio queda activo pero no entrega hasta que se active la campaña',
+    adAmbos:
+      'el conjunto y la campaña están pausados: el anuncio queda activo pero no entrega hasta que se activen los dos',
+  } as const;
+
+  /** Los textos nuevos de `pause`, también literales. */
+  const PAUSE = {
+    adsetCampania:
+      'la campaña está pausada: el conjunto ya no estaba entregando, así que pausarlo no cambia la entrega',
+    adConjunto:
+      'el conjunto está pausado: el anuncio ya no estaba entregando, así que pausarlo no cambia la entrega',
+    adCampania:
+      'la campaña está pausada: el anuncio ya no estaba entregando, así que pausarlo no cambia la entrega',
+    adAmbos:
+      'el conjunto y la campaña están pausados: el anuncio ya no estaba entregando, así que pausarlo no cambia la entrega',
+  } as const;
+
+  it('pausar uno de los 92 lo dice en el momento del click, en pasado y nombrando la campaña', () => {
+    // El caso reportado: `ACTIVE / CAMPAIGN_PAUSED` bajo campaña pausada. La
+    // escritura ocurre —el objeto pasa a PAUSED— y lo que hay que aclarar es que
+    // la entrega no cambia, porque ya era cero.
+    const f = fila('x1', 'adset', { status: 'ACTIVE', effectiveStatus: 'CAMPAIGN_PAUSED' });
+    const p = calcularPrevisualizacion('pause', 'adset', [f], ['x1'], padres('PAUSED'), TOPES);
+    const r = p.filas[0]!;
+
+    expect(r.advertencia).toBe(PAUSE.adsetCampania);
+    // Nombra al antepasado: el link de la navegación de 2.12 sale de ahí.
+    expect(r.advertencia).toContain('la campaña está pausada');
+    // Y no promete nada del futuro, que es lo que separa este texto del de
+    // activar: no dice «queda activo» ni «hasta que se active».
+    expect(r.advertencia).not.toContain('hasta que');
+    expect(r.advertencia).not.toContain('queda activo');
+    // Sigue siendo advertencia y no bloqueo, igual que la de activar (3.5).
+    expect(r.ejecutable).toBe(true);
+    expect(r.motivo).toBeNull();
+    expect(r.despues).toBe('PAUSED');
+  });
+
+  it('los tres textos de anuncio, en la forma del pasado', () => {
+    const f = fila('x1', 'ad', { status: 'ACTIVE', effectiveStatus: 'CAMPAIGN_PAUSED' });
+
+    const soloConjunto = calcularPrevisualizacion('pause', 'ad', [f], ['x1'], padres('ACTIVE', 'PAUSED'), TOPES);
+    expect(soloConjunto.filas[0]!.advertencia).toBe(PAUSE.adConjunto);
+
+    const soloCampania = calcularPrevisualizacion('pause', 'ad', [f], ['x1'], padres('PAUSED', 'ACTIVE'), TOPES);
+    expect(soloCampania.filas[0]!.advertencia).toBe(PAUSE.adCampania);
+
+    const ambos = calcularPrevisualizacion('pause', 'ad', [f], ['x1'], padres('PAUSED', 'PAUSED'), TOPES);
+    expect(ambos.filas[0]!.advertencia).toBe(PAUSE.adAmbos);
+    expect(ambos.filas[0]!.ejecutable).toBe(true);
+  });
+
+  it('un `pause` sobre una fila que YA está PAUSED no trae aviso: la aclaración no agrega nada', () => {
+    // Los 67. `motivo: 'ya_esta_en_ese_estado'`, no se escribe nada, y el objeto
+    // no entregaba antes ni después: decirlo sería ruido sobre la operación de
+    // lote más común.
+    const f = fila('x1', 'adset', { status: 'PAUSED', effectiveStatus: 'PAUSED' });
+    const p = calcularPrevisualizacion('pause', 'adset', [f], ['x1'], padres('PAUSED'), TOPES);
+
+    expect(p.filas[0]!.motivo).toBe('ya_esta_en_ese_estado');
+    expect(p.filas[0]!.advertencia).toBeNull();
+  });
+
+  it('la asimetría con `activate` se conserva: activar SÍ avisa sobre `ya_esta_en_ese_estado`', () => {
+    // El mismo par de filas, la misma campaña pausada, y las dos acciones. La
+    // diferencia no es un descuido: «ya está activo y sigue sin entregar» ES el
+    // síntoma reportado, y «ya está pausado y sigue sin entregar» no le dice nada
+    // a nadie.
+    const yaActivo = fila('x1', 'adset', { status: 'ACTIVE', effectiveStatus: 'CAMPAIGN_PAUSED' });
+    const pActivar = calcularPrevisualizacion('activate', 'adset', [yaActivo], ['x1'], padres('PAUSED'), TOPES);
+    expect(pActivar.filas[0]!.motivo).toBe('ya_esta_en_ese_estado');
+    expect(pActivar.filas[0]!.advertencia).toBe(ACTIVATE.adsetCampania);
+
+    const yaPausado = fila('x1', 'adset', { status: 'PAUSED', effectiveStatus: 'PAUSED' });
+    const pPausar = calcularPrevisualizacion('pause', 'adset', [yaPausado], ['x1'], padres('PAUSED'), TOPES);
+    expect(pPausar.filas[0]!.motivo).toBe('ya_esta_en_ese_estado');
+    expect(pPausar.filas[0]!.advertencia).toBeNull();
+  });
+
+  it('los cuatro textos de `activate` no cambiaron, carácter por carácter (3.5)', () => {
+    const adset = fila('x1', 'adset', { status: 'PAUSED', effectiveStatus: 'PAUSED' });
+    expect(
+      calcularPrevisualizacion('activate', 'adset', [adset], ['x1'], padres('PAUSED'), TOPES).filas[0]!.advertencia,
+    ).toBe(ACTIVATE.adsetCampania);
+
+    const ad = fila('x1', 'ad', { status: 'PAUSED', effectiveStatus: 'PAUSED' });
+    expect(
+      calcularPrevisualizacion('activate', 'ad', [ad], ['x1'], padres('ACTIVE', 'PAUSED'), TOPES).filas[0]!.advertencia,
+    ).toBe(ACTIVATE.adConjunto);
+    expect(
+      calcularPrevisualizacion('activate', 'ad', [ad], ['x1'], padres('PAUSED', 'ACTIVE'), TOPES).filas[0]!.advertencia,
+    ).toBe(ACTIVATE.adCampania);
+    expect(
+      calcularPrevisualizacion('activate', 'ad', [ad], ['x1'], padres('PAUSED', 'PAUSED'), TOPES).filas[0]!.advertencia,
+    ).toBe(ACTIVATE.adAmbos);
+  });
+
+  it('a nivel campaña `pause` sigue devolviendo null: una campaña no tiene padre', () => {
+    // La guarda de `nivel === 'campaign'` está antes de mirar la acción, y tiene
+    // que seguir estándolo: pausar una campaña no puede ganar un aviso sobre un
+    // antepasado que no existe.
+    const f = fila('x1', 'campaign', { status: 'ACTIVE', effectiveStatus: 'ACTIVE' });
+    const p = calcularPrevisualizacion('pause', 'campaign', [f], ['x1'], padres('PAUSED'), TOPES);
+    expect(p.filas[0]!.advertencia).toBeNull();
+  });
+
+  it('con la campaña activa, pausar no advierte nada', () => {
+    // El camino normal: se apaga algo que sí estaba entregando. No hay ninguna
+    // distancia entre lo que el panel confirma y lo que pasa en Meta.
+    const f = fila('x1', 'adset', { status: 'ACTIVE', effectiveStatus: 'ACTIVE' });
+    const p = calcularPrevisualizacion('pause', 'adset', [f], ['x1'], padres('ACTIVE'), TOPES);
+    expect(p.filas[0]!.advertencia).toBeNull();
+  });
+
+  it('un padre desconocido tampoco advierte al pausar: null es "no se sabe"', () => {
+    const f = fila('x1', 'adset', { status: 'ACTIVE', effectiveStatus: 'CAMPAIGN_PAUSED' });
+    expect(
+      calcularPrevisualizacion('pause', 'adset', [f], ['x1'], padres(null), TOPES).filas[0]!.advertencia,
+    ).toBeNull();
+    expect(
+      calcularPrevisualizacion('pause', 'adset', [f], ['x1'], padres(''), TOPES).filas[0]!.advertencia,
+    ).toBeNull();
+    // Y sin el mapa de padres tampoco: el `effectiveStatus` del propio objeto no
+    // alcanza para saberlo, ni para activar ni para pausar.
+    expect(calcularPrevisualizacion('pause', 'adset', [f], ['x1'], {}, TOPES).filas[0]!.advertencia).toBeNull();
+  });
+
+  it('un estado no escribible no gana el aviso al pausar: la fila no se manda', () => {
+    const f = fila('x1', 'adset', { status: 'ARCHIVED', effectiveStatus: 'ARCHIVED' });
+    const p = calcularPrevisualizacion('pause', 'adset', [f], ['x1'], padres('PAUSED'), TOPES);
     expect(p.filas[0]!.motivo).toBe('campo_no_aplica');
     expect(p.filas[0]!.advertencia).toBeNull();
   });

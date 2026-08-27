@@ -283,7 +283,11 @@ describe('regla 2: la Omisión nombra la antigüedad del dato (R6 c1)', () => {
 // mismo productor que los pone en la respuesta. Si esa frase cambia, estos casos
 // siguen valiendo y ninguno queda verificando una cadena que ya nadie manda.
 describe('la advertencia de padre apagado y objeto desaparecido (R6.4, R3.4)', () => {
-  const ADV_CAMPANIA = advertenciaPadreApagado('adset', { campania: 'PAUSED', conjunto: null })!;
+  // `'activate'` explícito: desde la task 12 de `toggle-conjuntos-entrega` el
+  // productor tiene dos variantes —`pause` dice lo mismo en pasado— y el
+  // traductor tiene que seguir sabiendo qué hacer con la de activar, que es la
+  // del caso reportado en la auditoría.
+  const ADV_CAMPANIA = advertenciaPadreApagado('adset', { campania: 'PAUSED', conjunto: null }, 'activate')!;
   const ADV_DESAPARECIDO = 'objeto desaparecido: Meta ya no lo devuelve y la escritura puede fallar';
 
   it('un confirmado con advertencia deja de ser silencio: dice que se aplicó Y que no entrega', () => {
@@ -823,11 +827,11 @@ const MENSAJES_DEL_SERVIDOR = [
  * bloque de la task 15, no una propiedad.
  */
 const ADVERTENCIAS = [
-  advertenciaPadreApagado('adset', { campania: 'PAUSED', conjunto: null })!,
-  advertenciaPadreApagado('ad', { campania: 'ACTIVE', conjunto: 'PAUSED' })!,
-  advertenciaPadreApagado('ad', { campania: 'PAUSED', conjunto: 'PAUSED' })!,
+  advertenciaPadreApagado('adset', { campania: 'PAUSED', conjunto: null }, 'activate')!,
+  advertenciaPadreApagado('ad', { campania: 'ACTIVE', conjunto: 'PAUSED' }, 'activate')!,
+  advertenciaPadreApagado('ad', { campania: 'PAUSED', conjunto: 'PAUSED' }, 'activate')!,
   'objeto desaparecido: Meta ya no lo devuelve y la escritura puede fallar',
-  `${advertenciaPadreApagado('adset', { campania: 'PAUSED', conjunto: null })!} · objeto desaparecido: Meta ya no lo devuelve y la escritura puede fallar`,
+  `${advertenciaPadreApagado('adset', { campania: 'PAUSED', conjunto: null }, 'activate')!} · objeto desaparecido: Meta ya no lo devuelve y la escritura puede fallar`,
 ] as const;
 
 /** Ids con forma de id de Meta y sin el dígito 2, así ningún tramo suyo puede ser un 2xx. */

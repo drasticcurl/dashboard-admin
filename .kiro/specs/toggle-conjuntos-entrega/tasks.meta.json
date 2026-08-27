@@ -1,0 +1,515 @@
+{
+  "pbtResults": {
+    "1. Escribir el test de exploración de C₁ — el umbral sin margen": {
+      "status": "passed",
+      "failingExample": "Property failed after 1 tests\n{ seed: 1445730022, path: \"0:16:1\", endOnFailure: true }\nCounterexample: [[908,89,909,\"isoOffset\"]]\nShrunk 2 time(s)\nCaused by: AssertionError: umbral=908 período=900 duración=89 edad=909 forma=isoOffset: expected 'vieja' to be null\n\nContraejemplos concretos (sin semilla):\n- synced_at de hace 905 s, umbral 900, período 900 → AssertionError: expected 'vieja' to be null\n- synced_at de hace 1350 s (umbral + margen), umbral 900 → AssertionError: expected 'vieja' to be null\n\nLa mitad de 2.2 pasa desde el principio, como el diseño predice: 1810 s y 1351 s devuelven 'vieja'.",
+      "lastRunTimestamp": 1787824940536
+    },
+    "2. Escribir el test de exploración de C₂ — el POST sin plazo": {
+      "status": "passed",
+      "failingExample": "Los cuatro casos fallan (4 failed | 0 passed).\n\nCaso (a):\n- AssertionError: expected undefined to be an instance of AbortSignal   ← init.signal de ejecutarToggle\n- AssertionError: un POST sin plazo deja el toggle colgado: la fila queda pintada con un valor que nadie confirmó y el id no sale nunca de enVuelo: expected 'colgado' not to be 'colgado' // Object.is equality\n  (las aserciones de estado previas PASAN: fila pintada en ACTIVE, enVuelo.has('s1') === true, avisos [], refrescos 0, y el segundo click descartado con un solo pedido)\n\nCaso (b):\n- AssertionError: plazo del cliente 60000 ms contra un peor caso de 64000 ms: expected 60000 to be greater than 64000\n- Property failed after 1 tests\n  { seed: -1144831109, path: \"0:0\", endOnFailure: true }\n  Counterexample: [1]\n  Caused by: AssertionError: n=1: plazo 60000 ms contra un peor caso de 64000 ms: expected 60000 to be greater than 64000\n\nLos tres números salen del código, no de literales: PRESUPUESTO_RELECTURA_MS=4000 importado de lib/ads/acciones, y 30000 + 30000 leídos de los AbortSignal.timeout de `enviar` y `pedir` en lib/ads/meta.ts. El 60000 sale de la rama que no es duplicate del AbortSignal.timeout del lote en GestorAnuncios.tsx.",
+      "lastRunTimestamp": 1787825244683
+    },
+    "3. Escribir el test de exploración de C₃ — el control sin entrega": {
+      "status": "passed",
+      "failingExample": "Property 5 (Bug_Condition) falla como el diseño predice. 5 tests rojos en app/(panel)/anuncios/senalEntrega.test.ts, todos por CAMPO AUSENTE:\n\nACTIVE / CAMPAIGN_PAUSED: devuelto hoy {\"control\":\"interruptor\",\"encendido\":true}, sin ningún campo de entrega: expected { control: 'interruptor', …(1) } to have property \"entrega\"\n\nACTIVE / ADSET_PAUSED: devuelto hoy {\"control\":\"interruptor\",\"encendido\":true}, sin ningún campo de entrega: expected { control: 'interruptor', …(1) } to have property \"entrega\"\n\nPAUSED / CAMPAIGN_PAUSED: devuelto hoy {\"control\":\"interruptor\",\"encendido\":false}, sin ningún campo de entrega: expected { control: 'interruptor', …(1) } to have property \"entrega\"\n\nPENDING_BILLING_INFO: el campo de entrega no existe, así que ni siquiera se puede afirmar que la señal esté ausente A PROPÓSITO: expected undefined to deeply equal { estado: 'sin_senal' }\n\nProperty failed after 3 tests\n{ seed: -1649821117, path: \"2:0\", endOnFailure: true }\nCounterexample: [{\"objectId\":\"s1\",\"level\":\"campaign\",\"accountId\":\"act_1\",\"status\":\"ACTIVE\",\"effectiveStatus\":null}]\nShrunk 1 time(s)\nstatus=\"ACTIVE\" effectiveStatus=null: el dibujo no trae ningún campo de entrega. Devuelto: {\"control\":\"interruptor\",\"encendido\":true}: expected undefined not to be undefined\n\nCONDICIÓN DE CORTE: no se disparó. dibujoDeEstado es la de celdas.tsx:427. La mitad de encendido === (status === 'ACTIVE') pasa hoy, como corresponde.",
+      "lastRunTimestamp": 1787827358806
+    },
+    "4. Escribir el test de exploración de C₄ — la relectura en el camino crítico": {
+      "status": "passed",
+      "failingExample": "Property 7 (Bug_Condition) falla como el diseño predice. Los DOS casos rojos en app/api/ads/acciones/route.diferido.test.ts:\n\n(a) la respuesta esperó a que `fetchObjeto` volviera: 250 ms después de que la relectura arrancó, el POST todavía no había respondido. Los 30 s del AbortSignal de `pedir` están dentro del tiempo del usuario.: expected 'timer' to be 'respuesta' // Object.is equality\n\n(b) la base devuelve status=\"ACTIVE\" después de un desenlace `confirmado` de `pause`: la escritura ocurrió en Meta y la fila local no la tiene, así que un refetch inmediato del cliente devuelve la posición vieja (1.19): expected 'ACTIVE' to be 'PAUSED' // Object.is equality\n\nNINGUNA CONDICIÓN DE CORTE se disparó. refrescarJerarquia está en el await de route.ts:576, y nada más escribe el status. Las guardas del armado (toHaveBeenCalledTimes(1) + toHaveBeenCalledWith(id,'campaign')) pasan, o sea que la única llamada a fetchObjeto del request es la de la relectura y no la del preflight.\n\nCorrido 3 veces seguidas: mismo resultado, sin flakiness.\n\nExperimento inverso, corrido una vez y revertido (route.ts quedó SIN modificar): con el await de route.ts:576 cambiado por void → Tests 1 failed | 1 passed (2). (a) pasa, o sea que mide el await y no su propio plumbing; (b) sigue fallando, o sea que los dos casos son independientes y diferir sin la Escritura_Confirmada_Local metería la regresión de 1.19.",
+      "lastRunTimestamp": 1787827372414
+    },
+    "5. Preservación de la tanda A, y los dos casos de 3.15 que hoy no tienen test": {
+      "status": "passed",
+      "lastRunTimestamp": 1787827815645
+    },
+    "6. Preservación de la tanda D — la forma `plazo` del generador": {
+      "status": "passed",
+      "lastRunTimestamp": 1787828173453
+    },
+    "11.4 Verificar que la exploración de C₁ ahora pasa": {
+      "status": "passed",
+      "lastRunTimestamp": 1787832632680
+    },
+    "11.5 Verificar que la preservación de A sigue pasando": {
+      "status": "passed",
+      "lastRunTimestamp": 1787832637555
+    }
+  },
+  "executionHistory": {
+    "1. Escribir el test de exploración de C₁ — el umbral sin margen": [
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787836589586
+      },
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787836603486
+      }
+    ],
+    "2. Escribir el test de exploración de C₂ — el POST sin plazo": [
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787836589654
+      },
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787836607550
+      }
+    ],
+    "3. Escribir el test de exploración de C₃ — el control sin entrega": [
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787836589702
+      },
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787836611346
+      }
+    ],
+    "4. Escribir el test de exploración de C₄ — la relectura en el camino crítico": [
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787836589749
+      },
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787836617010
+      }
+    ],
+    "5. Preservación de la tanda A, y los dos casos de 3.15 que hoy no tienen test": [
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787836589820
+      },
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787836621543
+      }
+    ],
+    "6. Preservación de la tanda D — la forma `plazo` del generador": [
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787836589864
+      },
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787836625296
+      }
+    ],
+    "7. Preservación de la tanda B — la ortogonalidad, y el inventario de los `toEqual` que van a romper": [
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787836589922
+      },
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787836629293
+      }
+    ],
+    "8. Preservación de la tanda C — el baseline del route": [
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787836589982
+      },
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787836633347
+      }
+    ],
+    "9. El default 900 deja de estar copiado en cuatro archivos": [
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787836590023
+      },
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787836636952
+      }
+    ],
+    "10. Los dos `AbortSignal.timeout(30_000)` de Meta pasan a tener nombre": [
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787836590075
+      },
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787836640918
+      }
+    ],
+    "11.1 `lib/ads/frescura.ts`: el período, el margen y el umbral de relectura": [
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787836590160
+      },
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787836645102
+      }
+    ],
+    "11.2 El test que lee `deploy/cron.panel` — la verificación ejecutable de 2.3": [
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787836590283
+      },
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787836648971
+      }
+    ],
+    "11.3 `causaDeRelectura`: la comparación pasa por `umbralDeRelectura`": [
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787836590323
+      },
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787836653360
+      }
+    ],
+    "11.4 Verificar que la exploración de C₁ ahora pasa": [
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787836590389
+      },
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787836657302
+      }
+    ],
+    "11.5 Verificar que la preservación de A sigue pasando": [
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787836590446
+      },
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787836661024
+      }
+    ],
+    "12. Tanda B1 — el aviso al pausar (sólo servidor, cero cambios de cliente)": [
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787836590485
+      },
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787836666343
+      }
+    ],
+    "13.1 `SenalEntrega`, `senalDeEntrega` y el campo `entrega` en la unión": [
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787836590536
+      },
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787836671184
+      }
+    ],
+    "13.2 Endurecer las expectativas de `toggleEstado.test.ts`": [
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787836590584
+      },
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787836675065
+      }
+    ],
+    "13.3 `ToggleEstado`: el dibujo, la accesibilidad y el link": [
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787836590625
+      },
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787836679041
+      }
+    ],
+    "13.4 `subirACampania`, la cascada inicial y el texto del chip": [
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787836590680
+      },
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787836683088
+      }
+    ],
+    "13.5 Verificar que la exploración de C₃ ahora pasa": [
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787836590737
+      },
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787836686846
+      }
+    ],
+    "13.6 Verificar que la preservación de B sigue pasando": [
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787836590785
+      },
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787836691359
+      }
+    ],
+    "14.1 `escribirStatusConfirmado` — un `UPDATE`, cero llamadas a Meta": [
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787836590862
+      },
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787836708938
+      },
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787838004934
+      }
+    ],
+    "14.2 El diferimiento, con el helper que lo hace testeable": [
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787836590990
+      },
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787838009058
+      }
+    ],
+    "14.3 La señal de «en curso» (2.15)": [
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787836591126
+      },
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787838013410
+      }
+    ],
+    "14.4 Verificar que la exploración de C₄ ahora pasa": [
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787836591166
+      },
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787838018126
+      }
+    ],
+    "14.5 Verificar que la preservación de C sigue pasando": [
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787836591210
+      },
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787838022327
+      }
+    ],
+    "15. GUARDA DEL ACOPLAMIENTO C↔D — el término del refresco vive en el módulo de plazos y un test lo prueba": [
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787836591246
+      },
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787838027644
+      },
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787838549604
+      }
+    ],
+    "16.1 `peorCasoEstadoMs` y `plazoClienteEstadoMs`": [
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787836591290
+      },
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787838554132
+      },
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787839413045
+      }
+    ],
+    "16.2 `ejecutarToggle` lleva el `signal`, y el texto del vencimiento": [
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787836591339
+      },
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787839417904
+      }
+    ],
+    "16.3 El plazo del lote": [
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787836591383
+      },
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787839422652
+      }
+    ],
+    "16.4 Verificar que la exploración de C₂ ahora pasa": [
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787836591422
+      },
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787839427284
+      }
+    ],
+    "16.5 Verificar que la preservación de D sigue pasando": [
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787836591459
+      },
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787839431506
+      }
+    ],
+    "17. Checkpoint — que todo pase": [
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787836591501
+      },
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787839436715
+      },
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787840065905
+      }
+    ],
+    "18. Registrar el cambio en `registro.md`": [
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787836591544
+      },
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787840070834
+      },
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787840819432
+      }
+    ],
+    "11. Tanda A — el margen del umbral de frescura": [
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787836661164
+      }
+    ],
+    "13. Tanda B2 — el tercer estado y la navegación (sólo cliente)": [
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787836691425
+      }
+    ],
+    "14. Tanda C — la escritura confirmada local y el refresco diferido": [
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787838022404
+      }
+    ],
+    "16. Tanda D — los plazos del POST de acciones": [
+      {
+        "executionId": "924ed4c2-9abb-4fc9-960f-7b57efb90a49",
+        "chatSessionId": "sess_8ece72c7-2ccb-4b17-a549-4ea8b56b30c7",
+        "timestamp": 1787839431551
+      }
+    ]
+  }
+}

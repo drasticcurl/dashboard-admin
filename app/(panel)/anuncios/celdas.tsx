@@ -420,8 +420,54 @@ export function RatioTone({ v, umbral }: { v: number | null; umbral: number }): 
  * `GestorAnuncios.tsx`. Que las dos salgan de la misma expresión es todo el
  * punto: la fila que se dibuja apagada pide activar.
  */
+/**
+ * Lo que `effective_status` permite AFIRMAR sobre la entrega de una fila que
+ * dibuja interruptor (Senal_Entrega de `toggle-conjuntos-entrega`, task 13.1).
+ *
+ * **NINGUNO DE LOS DOS CASOS SE LLAMA `entrega`, y eso no es cosmética.**
+ * `sin_senal` significa «Meta no dice que un antepasado lo tenga sin entregar»,
+ * que NO es lo mismo que «entrega»: un `PENDING_BILLING_INFO` tampoco entrega y
+ * cae acá. Nombrarlo `entrega` afirmaría algo que este dato no alcanza para
+ * afirmar, y el próximo que lea el tipo escribiría una condición sobre esa
+ * afirmación falsa.
+ *
+ * El alcance es el de la decisión B2 del diseño y está fijado por
+ * `senalEntrega.test.ts`: sólo los dos efectivos con los que Meta dice que el
+ * padre está apagado. Es el defecto de 1.10 —los 92 conjuntos `ACTIVE /
+ * CAMPAIGN_PAUSED` de la cuenta— y nada más. Para un problema de facturación no
+ * hay fila de antepasado a la que llevar al usuario, que es la mitad del valor
+ * del tercer estado (2.12).
+ */
+export type SenalEntrega =
+  | { estado: 'sin_senal' }
+  | { estado: 'antepasado_apagado'; antepasado: 'campaign' | 'adset' };
+
+/**
+ * La Senal_Entrega de un `effective_status`.
+ *
+ * **No mira `status`, y la firma es la que lo dice**: recibe un `effectiveStatus`
+ * y nada más. Ésa es la ortogonalidad que 2.10 pide —la posición sale de `status`
+ * y la señal de `effective_status`— y la única función que ve las dos cosas es
+ * `dibujoDeEstado`, que las junta sin mezclarlas.
+ *
+ * Pura y exportada por la misma razón que `dibujoDeEstado`: la Property 5 la
+ * cuantifica sobre todo valor de `effective_status`, incluidos `null`, `''` y los
+ * que este cliente no conoce.
+ */
+export function senalDeEntrega(effectiveStatus: string | null): SenalEntrega {
+  if (effectiveStatus === 'CAMPAIGN_PAUSED') return { estado: 'antepasado_apagado', antepasado: 'campaign' };
+  if (effectiveStatus === 'ADSET_PAUSED') return { estado: 'antepasado_apagado', antepasado: 'adset' };
+  return { estado: 'sin_senal' };
+}
+
+/**
+ * `entrega` vive SÓLO en la rama `interruptor`, por la misma razón por la que
+ * `encendido` vive sólo ahí: es un estado DEL INTERRUPTOR. La rama `badge` no lo
+ * lleva, así que «togglear una fila que dibuja un badge» sigue siendo imposible
+ * por tipo y no por cuidado del llamador (3.10).
+ */
 export type DibujoEstado =
-  | { control: 'interruptor'; encendido: boolean }
+  | { control: 'interruptor'; encendido: boolean; entrega: SenalEntrega }
   | { control: 'badge'; texto: string };
 
 export function dibujoDeEstado(
@@ -440,7 +486,14 @@ export function dibujoDeEstado(
     // sobre el contenido del Set.
     return { control: 'badge', texto: textoDeEstado(fila.effectiveStatus) ?? textoDeEstado(fila.status) ?? '?' };
   }
-  return { control: 'interruptor', encendido: fila.status === 'ACTIVE' };
+  return {
+    control: 'interruptor',
+    // LA MISMA comparación de siempre, intacta: es la que invierte
+    // `accionDeToggle` y la que hace que la fila dibujada apagada pida activar.
+    // El tercer estado se suma al lado, no se mete acá (2.10, 3.6).
+    encendido: fila.status === 'ACTIVE',
+    entrega: senalDeEntrega(fila.effectiveStatus),
+  };
 }
 
 /** El estado si dice algo. `''` es ausencia de estado, no un estado. */
@@ -448,36 +501,179 @@ function textoDeEstado(s: string | null): string | null {
   return s !== null && s !== '' ? s : null;
 }
 
+/** Cómo se nombra al antepasado apagado, en el orden en que Meta lo dice. */
+const ANTEPASADO_TEXTO: Record<'campaign' | 'adset', string> = {
+  campaign: 'la campaña está pausada',
+  adset: 'el conjunto está pausado',
+};
+
+/**
+ * El interruptor de estado, con el tercer estado de 2.9 y la navegación de 2.12.
+ *
+ * ## LA POSICIÓN NO SE TOCA
+ *
+ * `translate-x-4` y el fondo de encendido siguen saliendo de `dibujo.encendido`,
+ * que sigue siendo `status === 'ACTIVE'`. Los 92 conjuntos `ACTIVE /
+ * CAMPAIGN_PAUSED` se siguen dibujando ENCENDIDOS, y eso es correcto: su `status`
+ * ES `ACTIVE` y el click va a mandar `pause`. Dibujarlos apagados rompería la
+ * invariante que sostiene al control —la fila dibujada apagada pide `activate`— y
+ * los dejaría muertos en una dirección, porque el preflight omitiría ese
+ * `activate` como `ya_esta_en_ese_estado`. El diseño lo descartó en 2.9 y
+ * `senalEntrega.test.ts` lo hace imposible de reintroducir por accidente.
+ *
+ * Lo que cambia con `antepasado_apagado` son tres cosas y ninguna es la posición:
+ * el **tono de la pista** (`bg-good-500` → `bg-warn-500`), el **nombre accesible**
+ * y el **`title`**. Más el link, que es un elemento nuevo al lado.
+ *
+ * El tono reemplaza al verde y sólo al verde: la pista apagada
+ * (`bg-overlay/12`) se queda como está. Una fila `PAUSED / CAMPAIGN_PAUSED` con
+ * el interruptor apagado no está afirmando nada falso, así que no hay nada que
+ * corregirle al color; igual gana la señal y el link, porque «esta fila no
+ * entrega y ahí está por qué» le sirve lo mismo.
+ *
+ * ## `aria-checked` SIGUE SIENDO BOOLEANO
+ *
+ * Y sigue saliendo de `encendido`. Se evaluó `aria-checked="mixed"`, que ARIA 1.2
+ * admite en `role="switch"`, y **se descartó**: `mixed` significa «parcialmente
+ * encendido», y acá el interruptor está COMPLETAMENTE encendido —el `status` ES
+ * `ACTIVE`—; lo que está apagado es el padre. Decirlo con `mixed` sería mentirle
+ * al lector de pantalla sobre el estado del control que va a accionar.
+ *
+ * El tercer estado va en el nombre accesible y en un `aria-describedby` que
+ * apunta al texto que nombra al antepasado y lo enlaza. **Consecuencia
+ * declarada**: para un usuario de lector de pantalla el control se sigue
+ * anunciando como un switch encendido, y el «no entrega» llega por la
+ * descripción. Es lo correcto, porque el switch refleja el `status` que va a
+ * invertir.
+ *
+ * ## EL LINK: navegación y no cascada
+ *
+ * Lleva a la fila de la campaña, donde su propio interruptor hace la escritura.
+ * No hay ninguna acción en cascada: activar una campaña cambia la entrega —y el
+ * gasto— de todos los conjuntos que tiene debajo, y hoy no hay ninguna previa que
+ * muestre ese alcance antes de tocar 92 objetos.
+ *
+ * **Sólo aparece para `antepasado: 'campaign'`, y el hueco queda declarado.** Es
+ * el caso de los 92 y el único para el que hay un destino: los datos son
+ * `effective_status` + `campaignId`, los dos en la fila, y
+ * `level=campaign&campaignIds=<id>` filtra a esa campaña sin una línea de SQL
+ * nueva. Para `antepasado: 'adset'` —un anuncio bajo un conjunto pausado— la
+ * señal se dibuja igual pero sin link: el nivel de conjuntos se filtra por
+ * `campaignIds`, así que llevar ahí mostraría TODOS los conjuntos de la campaña y
+ * el usuario tendría que buscar el suyo en una tabla paginada y ordenada por
+ * gasto. Eso es exactamente la alternativa que el diseño descartó («cambiar de
+ * nivel y sólo resaltar sin filtrar»), y hacerla acá sería reintroducirla.
+ */
 export function ToggleEstado({
   fila,
   onToggle,
+  onIrACampania,
+  enCurso = false,
 }: {
   fila: MetricasObjeto;
   onToggle: (f: MetricasObjeto) => void;
+  /**
+   * Sube al nivel campaña con la campaña de esta fila como única cascada.
+   * Opcional: sin él la señal se dibuja igual, sólo que sin link.
+   */
+  onIrACampania?: (f: MetricasObjeto) => void;
+  /**
+   * Hay un cambio de estado de ESTA fila en vuelo (2.15, task 14.3).
+   *
+   * Hasta acá el único indicio de que el pedido estaba corriendo era el Pintado
+   * Optimista, que es **indistinguible de un cambio ya confirmado**: el
+   * interruptor se movía igual que si Meta hubiera contestado. Con el POST
+   * pudiendo tardar decenas de segundos, eso deja al usuario sin saber si tiene
+   * que esperar o si el cambio ya está.
+   *
+   * Default `false` para que un llamador que no lo pase dibuje lo de antes: la
+   * señal es información extra y no un contrato nuevo de esta celda.
+   */
+  enCurso?: boolean;
 }): JSX.Element {
   const dibujo = dibujoDeEstado(fila);
   if (dibujo.control === 'badge') {
     return <Badge tone="warn">{dibujo.texto}</Badge>;
   }
   const activo = dibujo.encendido;
+  const senal = dibujo.entrega;
+  // `porQue !== null` es LA condición del tercer estado, y es una sola: el tono, el
+  // nombre accesible, el `title` y la descripción salen de la misma expresión. Dos
+  // booleanos para el mismo hecho es cómo un control termina con el tono de
+  // advertencia y el nombre del camino normal.
+  const porQue = senal.estado === 'antepasado_apagado' ? ANTEPASADO_TEXTO[senal.antepasado] : null;
+  // El link necesita una campaña distinta de la propia fila: a nivel campaña,
+  // `campaignId` es el `objectId` y el link se apuntaría a sí mismo.
+  const irACampania =
+    senal.estado === 'antepasado_apagado' && senal.antepasado === 'campaign' && fila.level !== 'campaign'
+      ? onIrACampania
+      : undefined;
+  const idDescripcion = `entrega-${fila.objectId}`;
+
   return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={activo}
-      aria-label={`${fila.objectName ?? fila.objectId}: ${activo ? 'pausar' : 'activar'}`}
-      onClick={() => onToggle(fila)}
-      className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-good-500/50 ${
-        activo ? 'bg-good-500' : 'bg-overlay/12'
-      }`}
-      title={activo ? 'Pausar' : 'Activar'}
-    >
-      <span
-        className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
-          activo ? 'translate-x-4' : 'translate-x-0.5'
+    <span className="inline-flex items-center gap-1.5">
+      <button
+        type="button"
+        role="switch"
+        aria-checked={activo}
+        // 2.15: el pedido está en vuelo. `aria-busy` y no `aria-disabled`: el
+        // control sigue siendo accionable —la guarda de doble disparo vive en el
+        // `Set` del ref de `GestorAnuncios`, que descarta el segundo click sin
+        // depender de que el DOM lo impida— y deshabilitarlo mientras tiene el
+        // foco se lo saca al usuario en medio de la espera.
+        aria-busy={enCurso || undefined}
+        aria-label={`${fila.objectName ?? fila.objectId}: ${activo ? 'pausar' : 'activar'}${
+          porQue === null ? '' : ' (no entrega)'
         }`}
-      />
-    </button>
+        aria-describedby={porQue === null ? undefined : idDescripcion}
+        onClick={() => onToggle(fila)}
+        className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-good-500/50 ${
+          activo ? (porQue === null ? 'bg-good-500' : 'bg-warn-500') : 'bg-overlay/12'
+        }${enCurso ? ' opacity-50' : ''}`}
+        // El `title` del pedido en vuelo PISA a los otros dos, y es a propósito:
+        // mientras el cambio no está confirmado, «Pausar» o «Activar» describe
+        // una acción que ya se pidió, y el tercer estado («no entrega») habla de
+        // un `effective_status` que es justamente lo que puede estar cambiando.
+        title={
+          enCurso
+            ? 'Cambiando el estado…'
+            : porQue === null
+              ? activo
+                ? 'Pausar'
+                : 'Activar'
+              : `${activo ? 'Pausar' : 'Activar'} — ${porQue}: no entrega`
+        }
+      >
+        <span
+          className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+            activo ? 'translate-x-4' : 'translate-x-0.5'
+          }`}
+        />
+      </button>
+      {porQue !== null && (
+        // El objetivo del `aria-describedby`: su contenido de texto nombra al
+        // antepasado. Lo visible se queda corto porque la celda es angosta, y el
+        // resto va en `sr-only` para que la descripción esté completa sin
+        // desarmar la columna.
+        <span id={idDescripcion} className="inline-flex items-center text-[10px] font-semibold text-warn-300">
+          {irACampania ? (
+            <button
+              type="button"
+              onClick={() => irACampania(fila)}
+              className="rounded underline decoration-dotted underline-offset-2 hover:text-warn-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-warn-500/60"
+              title={`${porQue}: esta fila no entrega. Ir a la campaña.`}
+            >
+              no entrega
+              <span className="sr-only">: {porQue}. Ir a la campaña.</span>
+            </button>
+          ) : (
+            <span title={`${porQue}: esta fila no entrega`}>
+              no entrega<span className="sr-only">: {porQue}</span>
+            </span>
+          )}
+        </span>
+      )}
+    </span>
   );
 }
 

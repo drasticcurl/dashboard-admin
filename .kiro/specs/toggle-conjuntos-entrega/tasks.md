@@ -175,7 +175,7 @@ Sin dependencias de entrada: **1**, **2**, **3**, **4**, **9**, **10** y **12**.
 
 ### Fase 0 — Los cuatro contraejemplos, contra el código SIN arreglar
 
-- [ ] 1. Escribir el test de exploración de C₁ — el umbral sin margen
+- [x] 1. Escribir el test de exploración de C₁ — el umbral sin margen
   - **Property 1: Bug Condition** — Umbral con margen contra el período del cron
   - **CRÍTICO: este test se escribe ANTES del arreglo y TIENE QUE FALLAR.** El fallo es el entregable: confirma que la causa es la del diseño (§Hypothesized Root Cause, punto 1) y no otra.
   - **NO arreglar el test ni el código cuando falle.** El test codifica el comportamiento esperado; la tarea 11.4 lo vuelve a correr y ahí sí tiene que pasar.
@@ -190,7 +190,7 @@ Sin dependencias de entrada: **1**, **2**, **3**, **4**, **9**, **10** y **12**.
   - **CONDICIÓN DE CORTE:** si la mitad de 2.1 **no** falla, el umbral efectivo no es el que se cree. **Parar, no escribir el arreglo**, y revisar si la base tiene otro valor de `ads_frescura_umbral_segundos` antes de volver al diseño.
   - _Requirements: 1.1, 1.2, 1.3, 2.1, 2.2_
 
-- [ ] 2. Escribir el test de exploración de C₂ — el POST sin plazo
+- [x] 2. Escribir el test de exploración de C₂ — el POST sin plazo
   - **Property 3: Bug Condition** — El plazo del cliente cubre el peor caso del servidor
   - **CRÍTICO: se escribe ANTES del arreglo y TIENE QUE FALLAR.** No arreglar nada cuando falle; la tarea 16.4 lo vuelve a correr.
   - Archivo propuesto: `app/(panel)/anuncios/togglePlazo.test.ts`. Reusa el `tabla()` y el `fila()` de `toggleEstado.test.ts` (copiarlos o extraerlos; no hace falta tocar ese archivo en esta tarea).
@@ -203,7 +203,7 @@ Sin dependencias de entrada: **1**, **2**, **3**, **4**, **9**, **10** y **12**.
   - **CONDICIÓN DE CORTE:** si (a) no falla, el `pedir` de `GestorAnuncios.tsx:1152` no es el `fetch(url, init)` pelado que se leyó. Si (b) no falla, alguno de los tres timeouts no es el que se leyó. En los dos casos: **parar y volver al diseño**.
   - _Requirements: 1.6, 1.7, 1.8, 1.9, 2.5, 2.7_
 
-- [ ] 3. Escribir el test de exploración de C₃ — el control sin entrega
+- [x] 3. Escribir el test de exploración de C₃ — el control sin entrega
   - **Property 5: Bug Condition** — El control distingue la entrega sin cambiar de posición
   - **CRÍTICO: se escribe ANTES del arreglo y TIENE QUE FALLAR.** La tarea 13.5 lo vuelve a correr.
   - Archivo propuesto: `app/(panel)/anuncios/senalEntrega.test.ts`. Puro: sólo `dibujoDeEstado`, que ya está exportada.
@@ -215,7 +215,7 @@ Sin dependencias de entrada: **1**, **2**, **3**, **4**, **9**, **10** y **12**.
   - **CONDICIÓN DE CORTE:** si no falla, `dibujoDeEstado` no es la de `celdas.tsx:427`. **Parar y volver al diseño.**
   - _Requirements: 1.10, 1.13, 1.14, 2.9, 2.10_
 
-- [ ] 4. Escribir el test de exploración de C₄ — la relectura en el camino crítico
+- [x] 4. Escribir el test de exploración de C₄ — la relectura en el camino crítico
   - **Property 7: Bug Condition** — La respuesta no espera la relectura, y el refetch no retrocede
   - **CRÍTICO: se escribe ANTES del arreglo y TIENE QUE FALLAR.** La tarea 14.4 lo vuelve a correr, y la tarea 15 lo usa como guarda del acoplamiento C↔D.
   - Archivo propuesto: `app/api/ads/acciones/route.diferido.test.ts`. Necesita base: `describe.skipIf(!dbAvailable)`, con el mismo armado que `route.frescura.test.ts` (mock de `lib/auth`, mock de `lib/ads/meta` con `enviar`, `fetchObjeto` y `fetchMinimoPresupuesto`, cuenta sembrada con sufijo único, nivel campaña porque es el único que se ejercita de punta a punta).
@@ -227,7 +227,7 @@ Sin dependencias de entrada: **1**, **2**, **3**, **4**, **9**, **10** y **12**.
 
 ### Fase 1 — Los baselines de preservación, también contra el código SIN arreglar
 
-- [ ] 5. Preservación de la tanda A, y los dos casos de 3.15 que hoy no tienen test
+- [x] 5. Preservación de la tanda A, y los dos casos de 3.15 que hoy no tienen test
   - **Property 2: Preservation** — «No sé de cuándo es este dato» sigue releyendo
   - **IMPORTANTE: metodología de observación primero.** Se corre el código SIN arreglar sobre los inputs de ¬C₁, se anota lo que devuelve y el test afirma eso.
   - **Los seis casos que ya existen y tienen que seguir pasando SIN una línea de cambio**, en `lib/ads/acciones.relectura.test.ts`: el Objeto_Desaparecido con dato fresco, el `fetchObjeto` que tira, el que no devuelve el objeto, el tope de `TOPE_RELECTURA = 10`, el backoff por cuota activo y el presupuesto de 4 s agotado. Correrlos ahora y anotar que pasan: es el baseline.
@@ -238,7 +238,7 @@ Sin dependencias de entrada: **1**, **2**, **3**, **4**, **9**, **10** y **12**.
   - **RESULTADO ESPERADO: todo PASA contra el código sin arreglar.** Los dos casos nuevos pasan hoy porque las ramas ya cortocircuitan antes de la comparación; eso es exactamente lo que hace que 3.15 se preserve **por la forma del código y no por cuidado**, y es lo que esta tarea deja fijado antes de tocarlo.
   - _Requirements: 3.15, 3.16_
 
-- [ ] 6. Preservación de la tanda D — la forma `plazo` del generador
+- [x] 6. Preservación de la tanda D — la forma `plazo` del generador
   - **Property 4: Preservation** — El plazo vencido es indeterminado y nunca un fallo
   - **IMPORTANTE: metodología de observación primero**, y acá el oráculo ya existe: la forma `red` de `formaArbitraria` (`toggleEstado.test.ts:511`) es un `pedir` que rechaza, y el desenlace observado hoy es reversión + aviso que no afirma que el cambio no ocurrió. La forma `plazo` es el **mismo desenlace por otra causa**.
   - Agregar `{ tipo: 'plazo' }` al generador, al lado de `red`: un `pedir` que rechaza con un error de `name: 'TimeoutError'` (Node/undici) y, como segundo caso, `name: 'AbortError'` (algunos navegadores).
@@ -249,7 +249,7 @@ Sin dependencias de entrada: **1**, **2**, **3**, **4**, **9**, **10** y **12**.
   - **Lo que esta tarea NO afirma todavía**: que el texto del aborto nombre el plazo. Eso lo agrega la 16.2 y lo verifica la 16.5, porque hoy el aviso interpola `e.message` y diría `The operation was aborted due to timeout`.
   - _Requirements: 2.6, 3.1, 3.2, 3.3, 3.4, 3.11_
 
-- [ ] 7. Preservación de la tanda B — la ortogonalidad, y el inventario de los `toEqual` que van a romper
+- [x] 7. Preservación de la tanda B — la ortogonalidad, y el inventario de los `toEqual` que van a romper
   - **Property 6: Preservation** — Coherencia y accionabilidad del interruptor
   - **IMPORTANTE: metodología de observación primero.** La mitad de esta property ya existe y pasa: es la Property 1 de `toggleEstado.test.ts`. Lo que esta tarea agrega es la mitad que el tercer estado hace necesaria.
   - **La mitad nueva, en `app/(panel)/anuncios/senalEntrega.test.ts`**: para todo `status` y todo par de `effectiveStatus` que **los dos** dibujen interruptor, `dibujoDeEstado(f).encendido` **no cambia** al variar `effectiveStatus`. El cuantificador importa y hay que escribirlo así: `effectiveStatus` **sí** decide interruptor vs badge (`NO_TOGGLEABLE` lo mira), así que la ortogonalidad se afirma **dentro** de la rama del interruptor y no fuera.
@@ -262,7 +262,7 @@ Sin dependencias de entrada: **1**, **2**, **3**, **4**, **9**, **10** y **12**.
   - **RESULTADO ESPERADO: PASA contra el código sin arreglar**, incluida la property de ortogonalidad nueva (hoy es trivialmente verdadera porque `encendido` no mira `effective_status`; después del arreglo sigue teniendo que ser verdadera, y eso es lo que se está protegiendo).
   - _Requirements: 3.6, 3.7, 3.10, 3.17_
 
-- [ ] 8. Preservación de la tanda C — el baseline del route
+- [x] 8. Preservación de la tanda C — el baseline del route
   - **Property 8: Preservation** — El pintado, la reversión y la marca de desaparición
   - **IMPORTANTE: metodología de observación primero, y acá es correr lo que ya hay sin editarlo.**
   - Correr y anotar que pasan, **sin tocar una línea**: `route.frescura.test.ts` (los dos casos: la relectura que trae la fila limpia la marca y adelanta `synced_at`; la que no trae nada deja la marca y el `synced_at` viejo intactos) y `route.discrepancia.test.ts`.
@@ -277,7 +277,7 @@ Van aparte porque **se verifican distinto**: acá la verificación es «el valor
 cambia y ningún test se edita». Un cambio de comportamiento se verifica con un
 test nuevo; un refactor mecánico se verifica con los que ya están.
 
-- [ ] 9. El default 900 deja de estar copiado en cuatro archivos
+- [x] 9. El default 900 deja de estar copiado en cuatro archivos
   - Crear `lib/ads/frescura.ts` con **una sola constante por ahora**: `UMBRAL_FRESCURA_DEFAULT_SEGUNDOS = 900`, con el comentario de que repite el seed de la migración 025. Módulo puro, sin imports: lo van a importar un módulo de servidor, dos endpoints y dos archivos de cliente.
   - Reemplazar las cuatro copias, que hoy son literales sueltos: `lib/ads/acciones.ts:557` (dentro de `topesDeSettings`), `app/api/data/ads/route.ts:301`, `app/(panel)/anuncios/page.tsx:223` y `app/(panel)/anuncios/GestorAnuncios.tsx:112` (`UMBRAL_FRESCURA_DEFAULT`).
   - **El seed de `db/migrations/025_ads_frescura.sql:144` NO se toca.** Es SQL y no puede importar nada; queda como quinta copia y eso está declarado, no olvidado. Lo que compra este cambio es que la próxima vez sean dos lugares en vez de cinco.
@@ -285,7 +285,7 @@ test nuevo; un refactor mecánico se verifica con los que ya están.
   - **Los tres `UMBRAL = 900` de los tests se quedan como están.** Son el valor esperado, no la fuente: un test que importa la constante que está probando no prueba nada.
   - _Requirements: 1.4, 2.3_
 
-- [ ] 10. Los dos `AbortSignal.timeout(30_000)` de Meta pasan a tener nombre
+- [x] 10. Los dos `AbortSignal.timeout(30_000)` de Meta pasan a tener nombre
   - Crear `lib/ads/plazos.ts` con **las constantes solamente** (las dos funciones las agregan la 15 y la 16.1): `PLAZO_META_ESCRITURA_MS = 30_000` (el de `enviar`), `PLAZO_META_LECTURA_MS = 30_000` (el de `pedir`, que es el que usa `fetchObjeto`), `PRESUPUESTO_RELECTURA_MS = 4_000` y `HOLGURA_CLIENTE_MS = 10_000`.
   - **Módulo puro, sin un solo import de servidor**: lo importan `lib/ads/meta.ts` (server) y `app/(panel)/anuncios/GestorAnuncios.tsx` (client). Si alguna vez importa `pg` o `next/headers`, el bundle del cliente se rompe.
   - `lib/ads/meta.ts:291` (`enviar`) y `:247` (`pedir`) pasan a nombrar las constantes. **`meta.ts:519` no se toca**: ése ya recibe un `timeoutMs` por parámetro.
@@ -296,14 +296,14 @@ test nuevo; un refactor mecánico se verifica con los que ya están.
 
 ### Fase 3 — Las cuatro tandas
 
-- [ ] 11. Tanda A — el margen del umbral de frescura
+- [x] 11. Tanda A — el margen del umbral de frescura
   - Las especificaciones que las sub-tareas tienen que satisfacer, todas del diseño:
   - _Bug_Condition: `esC1_UmbralSinMargen(X)` de §Bug Details — `pause`/`activate`, `desaparecido_at` nulo, `synced_at` legible, y `edad > umbral AND edad <= período + duraciónDeLaCorrida`_
   - _Expected_Behavior: Property 1 — las dos cotas del margen: mayor que la duración de la corrida, y **menor que el período**_
   - _Preservation: §Preservation Requirements, tanda A — los tres casos de 3.15, `relecturaSelectiva` sin tocar, `frescuraDeFila` sin tocar, el default sigue siendo 900_
   - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 2.1, 2.2, 2.3, 2.4, 3.15, 3.16_
 
-  - [ ] 11.1 `lib/ads/frescura.ts`: el período, el margen y el umbral de relectura
+  - [x] 11.1 `lib/ads/frescura.ts`: el período, el margen y el umbral de relectura
     - Sumar al módulo que creó la tarea 9: `PERIODO_SYNC_JERARQUIA_SEGUNDOS = 900`, declarada **como espejo de `deploy/cron.panel:113`** en el comentario. Que sea espejo y no fuente es inevitable: la fuente es el crontab del host.
     - `margenDeRelectura(periodoSegundos)` devuelve `periodoSegundos / 2`, con las dos cotas escritas en el comentario: la inferior tiene que absorber la duración de la corrida más el jitter, y la superior tiene que ser **menor que el período**, o una corrida perdida (edad ≈ 2 × período) dejaría de disparar la relectura y se perdería 2.2, que es la razón por la que la relectura existe.
     - `umbralDeRelectura(umbralSegundos, periodoSegundos)` devuelve la **suma**.
@@ -312,7 +312,7 @@ test nuevo; un refactor mecánico se verifica con los que ya están.
     - Tests en `lib/ads/frescura.test.ts`: el par del mundo real (900/900 → margen 450, umbral 1350) y los degenerados: período 0 (margen 0, umbral = umbral), umbral 0, umbral menor que el período, y un período impar (margen fraccionario: decidir y fijar por test que no se redondea, o que se redondea, pero que esté escrito).
     - _Requirements: 2.1, 2.2, 2.4_
 
-  - [ ] 11.2 El test que lee `deploy/cron.panel` — la verificación ejecutable de 2.3
+  - [x] 11.2 El test que lee `deploy/cron.panel` — la verificación ejecutable de 2.3
     - Archivo propuesto: `lib/ads/frescura.cron.test.ts`. Un `readFileSync` en un test de entorno node, **sin red y sin CLI**. Ningún test del repo lee todavía `deploy/`: esto sienta un precedente y conviene que quede solo en su archivo.
     - Buscar la línea de `scripts/sync-ads-jerarquia.ts` en `deploy/cron.panel`, traducir su schedule a segundos (`*/15` → 900) y compararlo con `PERIODO_SYNC_JERARQUIA_SEGUNDOS`.
     - **El caso de que la línea NO exista también tiene que fallar**, y con un mensaje que diga qué se buscó: un test que pasa porque no encontró nada es peor que no tenerlo.
@@ -320,7 +320,7 @@ test nuevo; un refactor mecánico se verifica con los que ya están.
     - **Lo que este test NO cubre, declarado en su comentario**: que el crontab instalado en el host sea `deploy/cron.panel`. Compara contra el archivo del repo, no contra `crontab -l`. El propio `deploy/cron.panel` ya advierte ese hueco.
     - _Requirements: 1.4, 2.3_
 
-  - [ ] 11.3 `causaDeRelectura`: la comparación pasa por `umbralDeRelectura`
+  - [x] 11.3 `causaDeRelectura`: la comparación pasa por `umbralDeRelectura`
     - Una línea, en `lib/ads/acciones.ts:842`: `edad > umbralSegundos` pasa a `edad > umbralDeRelectura(umbralSegundos, PERIODO_SYNC_JERARQUIA_SEGUNDOS)`.
     - **La rama de `desaparecidoAt` queda arriba y sin tocar, y el `edad === null` sigue cortocircuitando antes de la comparación.** 3.15 se preserva por la forma del código, no por cuidado del que edita: si alguien mueve una de esas dos ramas debajo de la comparación, la tarea 5 lo agarra.
     - **`relecturaSelectiva` no se toca**: sigue secuencial, con tope 10, con el presupuesto de 4 s para el lote entero, sin bloquear la acción cuando falla y dejando anotado por qué no se pudo revalidar (3.16).
@@ -328,20 +328,20 @@ test nuevo; un refactor mecánico se verifica con los que ya están.
     - **El valor de `settings` no se cambia.** Sigue siendo 900.
     - _Requirements: 2.1, 2.2, 3.15, 3.16_
 
-  - [ ] 11.4 Verificar que la exploración de C₁ ahora pasa
+  - [x] 11.4 Verificar que la exploración de C₁ ahora pasa
     - **Property 1: Expected Behavior** — Umbral con margen contra el período del cron
     - **IMPORTANTE: volver a correr EL MISMO test de la tarea 1. No escribir un test nuevo.**
     - **RESULTADO ESPERADO: PASA**, las dos mitades: la de 2.1 (que fallaba) y la de 2.2 (que ya pasaba y tiene que seguir pasando, porque es la cota superior del margen).
     - _Requirements: 2.1, 2.2, 2.4_
 
-  - [ ] 11.5 Verificar que la preservación de A sigue pasando
+  - [x] 11.5 Verificar que la preservación de A sigue pasando
     - **Property 2: Preservation** — «No sé de cuándo es este dato» sigue releyendo
     - **IMPORTANTE: volver a correr LOS MISMOS tests de la tarea 5.**
     - Los seis casos de `acciones.relectura.test.ts` pasan **sin una línea editada** (`git diff --stat` en 0 sobre ese archivo). Los tres de 3.15, cuantificados sobre el margen, siguen devolviendo la misma causa.
     - **RESULTADO ESPERADO: PASAN.** Si alguno falla, es una regresión del arreglo: la respuesta por defecto es corregir `causaDeRelectura`, no el test.
     - _Requirements: 3.15, 3.16_
 
-- [ ] 12. Tanda B1 — el aviso al pausar (sólo servidor, cero cambios de cliente)
+- [x] 12. Tanda B1 — el aviso al pausar (sólo servidor, cero cambios de cliente)
   - **Ships sola y no depende de nada.** Es el corte más chico de la tanda B: `lib/ads/previsualizacion.ts` y sus tests.
   - `advertenciaPadreApagado` gana la variante de `pause`, con **otro texto** porque dice otra cosa: al activar, «no entrega» es una advertencia sobre el futuro; al pausar, es una aclaración sobre lo que se está apagando.
     - `pause`, conjunto (nuevo): «la campaña está pausada: el conjunto ya no estaba entregando, así que pausarlo no cambia la entrega». Nombra al antepasado —lo necesita el link de B4—, dice el hecho y no promete nada del futuro.
@@ -357,13 +357,13 @@ test nuevo; un refactor mecánico se verifica con los que ya están.
   - _Preservation: 3.5 — los textos de `activate` intactos, sigue siendo advertencia y no bloqueo_
   - _Requirements: 1.12, 2.11, 3.5_
 
-- [ ] 13. Tanda B2 — el tercer estado y la navegación (sólo cliente)
+- [x] 13. Tanda B2 — el tercer estado y la navegación (sólo cliente)
   - _Bug_Condition: `esC3_ControlSinEntrega(X)` de §Bug Details — la fila dibuja interruptor, `encendido = true`, y `effectiveStatus IN ['CAMPAIGN_PAUSED','ADSET_PAUSED']`_
   - _Expected_Behavior: Property 5 — la Senal_Entrega nombra al antepasado y `encendido` sigue siendo exactamente `status === 'ACTIVE'`_
   - _Preservation: Property 6 y §Preservation Requirements, tanda B — la misma comparación, las dos direcciones, el badge que no lleva `encendido`, el badge de `TablaAds.tsx:254` intacto_
   - _Requirements: 1.10, 1.11, 1.13, 1.14, 1.15, 2.9, 2.10, 2.12, 3.6, 3.7, 3.10, 3.17_
 
-  - [ ] 13.1 `SenalEntrega`, `senalDeEntrega` y el campo `entrega` en la unión
+  - [x] 13.1 `SenalEntrega`, `senalDeEntrega` y el campo `entrega` en la unión
     - En `app/(panel)/anuncios/celdas.tsx`: `SenalEntrega` como unión discriminada de dos casos (`sin_senal` y `antepasado_apagado` con `antepasado: 'campaign' | 'adset'`), y `DibujoEstado` gana `entrega` **sólo en la rama `interruptor`**.
     - **La rama `badge` no lo lleva**, por la misma razón por la que no lleva `encendido`: «togglear una fila que dibuja un badge» tiene que seguir siendo imposible por tipo y no por cuidado del llamador (3.10).
     - `senalDeEntrega(effectiveStatus)` es pura, exportada y **no mira `status`**. Ésa es la ortogonalidad que 2.10 pide, dicha en la firma: la posición sale de `status`, la señal sale de `effective_status`, y la única función que ve las dos cosas es `dibujoDeEstado`, que las junta sin mezclarlas.
@@ -372,14 +372,14 @@ test nuevo; un refactor mecánico se verifica con los que ya están.
     - Tests en `senalEntrega.test.ts`: los dos efectivos que devuelven señal, `null`, `''`, y `PENDING_BILLING_INFO` → `sin_senal` (la decisión de alcance B2 queda fijada por un test y no por un comentario).
     - _Requirements: 2.9, 2.10, 3.6, 3.10_
 
-  - [ ] 13.2 Endurecer las expectativas de `toggleEstado.test.ts`
+  - [x] 13.2 Endurecer las expectativas de `toggleEstado.test.ts`
     - Los tres lugares están inventariados en la tarea 7 con su línea. Extender cada `toEqual` con **el valor esperado de `entrega`** para ese caso.
     - **`toMatchObject` está PROHIBIDO.** Aflojaría la aserción y dejaría de fijar que no hay campos de más, que es la mitad del valor de ese test. Lo mismo vale para cualquier otra forma de no mirar el objeto completo (`expect.objectContaining`, borrar el campo antes de comparar, comparar `dibujo.encendido` en vez de `dibujo`).
     - Mirar caso por caso qué `effectiveStatus` arma el helper `fila()`: en la tabla `DIRECCIONES`, `ADSET_PAUSED` y `CAMPAIGN_PAUSED` aparecen como valores de **`status`**, no de efectivo, así que su `entrega` esperada depende de lo que el helper ponga por default y no de su nombre.
     - **Si algún test de ese archivo falla y no es uno de los tres inventariados, es una regresión de esta tanda y se arregla el código, no el test.**
     - _Requirements: 3.6, 3.7, 3.10_
 
-  - [ ] 13.3 `ToggleEstado`: el dibujo, la accesibilidad y el link
+  - [x] 13.3 `ToggleEstado`: el dibujo, la accesibilidad y el link
     - **La posición no se toca**: `translate-x-4` y el fondo de encendido siguen saliendo de `encendido`. Lo que cambia con `antepasado_apagado` es el **tono de la pista** (de `bg-good-500` a `bg-warn-500`, que ya existe en `tailwind.config.ts`), el nombre accesible y el `title`.
     - **`aria-checked` sigue siendo booleano y sigue saliendo de `encendido`.** `aria-checked="mixed"` **se descartó con motivo y no se rediscute**: `mixed` significa «parcialmente encendido», y acá el interruptor está completamente encendido —el `status` ES `ACTIVE`—; lo apagado es el padre. Decirlo con `mixed` sería mentirle al lector de pantalla sobre el estado del control que va a accionar.
     - El tercer estado va en el **nombre accesible** (`aria-label`, que ya se arma con el nombre del objeto y la acción) y en un **`aria-describedby`** que apunta al texto que nombra la campaña y la enlaza.
@@ -388,7 +388,7 @@ test nuevo; un refactor mecánico se verifica con los que ya están.
     - `TablaAds.tsx` pasa el callback de navegación a `ToggleEstado`. **El badge de `TablaAds.tsx:254` no se toca** (3.17): el tercer estado se suma, no lo reemplaza.
     - _Requirements: 2.9, 2.12, 3.17_
 
-  - [ ] 13.4 `subirACampania`, la cascada inicial y el texto del chip
+  - [x] 13.4 `subirACampania`, la cascada inicial y el texto del chip
     - `subirACampania` en `GestorAnuncios.tsx`, **espejo de `bajarNivel` (`:959`)**: pone el nivel de arriba con el `campaignId` de la fila como única cascada, escribe la URL y **no pasa por la máquina de estados de `seleccion.ts`**. El precedente es `bajarNivel`, que tampoco pasa: `seleccion.ts` no tiene evento para subir y agregarlo es más cambio que las dos líneas de acá.
     - **Verificado antes de elegirlo, y por eso no hay SQL nuevo**: el filtro de cascada de `lib/queries/ads.ts` es `o."campaignId" = ANY($campaignIds)` en el `WHERE` de afuera, y a nivel campaña el `SELECT` emite `c.campaign_id AS "campaignId"`. `level=campaign&campaignIds=<id>` ya filtra a esa campaña.
     - `page.tsx:131`: la cascada inicial se arma también para `nivel === 'campaign'`. **Sin esto el filtro se pierde al recargar o al compartir el link**, porque `construirUrl` lo toma del estado y no de la URL.
@@ -398,26 +398,26 @@ test nuevo; un refactor mecánico se verifica con los que ya están.
     - Tests en `navegacionCampania.test.ts`: la URL que arma `subirACampania` para una fila de conjunto, y que `page.tsx` reconstruye la cascada a partir de esa URL (**la ida y vuelta**, que es lo que 2.12 necesita para que el link sea compartible). Más el caso de texto del chip.
     - _Requirements: 1.15, 2.12_
 
-  - [ ] 13.5 Verificar que la exploración de C₃ ahora pasa
+  - [x] 13.5 Verificar que la exploración de C₃ ahora pasa
     - **Property 5: Expected Behavior** — El control distingue la entrega sin cambiar de posición
     - **IMPORTANTE: volver a correr EL MISMO test de la tarea 3. No escribir un test nuevo.**
     - **RESULTADO ESPERADO: PASA**, incluido el caso de `PENDING_BILLING_INFO` → `sin_senal`.
     - _Requirements: 2.9, 2.10, 2.12_
 
-  - [ ] 13.6 Verificar que la preservación de B sigue pasando
+  - [x] 13.6 Verificar que la preservación de B sigue pasando
     - **Property 6: Preservation** — Coherencia y accionabilidad del interruptor
     - **IMPORTANTE: volver a correr LOS MISMOS tests de la tarea 7**, con los `toEqual` endurecidos de la 13.2 y **sin** haber aflojado ninguno.
     - La property de ortogonalidad tiene que seguir pasando: `encendido` no cambia al variar `effective_status` entre dos valores que los dos dibujen interruptor. **Ahora sí es una afirmación con contenido**, porque el dibujo ya mira `effective_status` para otra cosa.
     - **RESULTADO ESPERADO: PASAN.**
     - _Requirements: 3.6, 3.7, 3.10, 3.17_
 
-- [ ] 14. Tanda C — la escritura confirmada local y el refresco diferido
+- [x] 14. Tanda C — la escritura confirmada local y el refresco diferido
   - _Bug_Condition: `esC4_RelecturaEnCaminoCritico(X)` de §Bug Details — `pause`/`activate` confirmado y la respuesta esperando a `refrescarJerarquia`_
   - _Expected_Behavior: Property 7 — la respuesta sale sin esperar a `fetchObjeto`, y la base ya tiene el `status` confirmado cuando sale_
   - _Preservation: Property 8 y §Preservation Requirements, tanda C — `refrescarJerarquia` sigue existiendo y corriendo con el mismo `UPDATE` y el mismo `catch {}`; lo único que cambia es CUÁNDO_
   - _Requirements: 1.16, 1.17, 1.18, 1.19, 2.13, 2.14, 2.15, 3.9, 3.12, 3.13_
 
-  - [ ] 14.1 `escribirStatusConfirmado` — un `UPDATE`, cero llamadas a Meta
+  - [x] 14.1 `escribirStatusConfirmado` — un `UPDATE`, cero llamadas a Meta
     - En `app/api/ads/acciones/route.ts`, en la rama `r.estado === 'confirmado'`, después de `cerrarAccion(id, 'confirmado')`: un `UPDATE` de **una sola columna** con `campos.status`.
     - **Se usa `campos.status` y no `after`** para que no haya una segunda derivación del mismo hecho: `campos` es literalmente lo que salió en el POST y lo que Meta confirmó.
     - **QUÉ NO ESCRIBE, y cada uno tiene su motivo (decisión C2):**
@@ -429,7 +429,7 @@ test nuevo; un refactor mecánico se verifica con los que ya están.
     - **Las dos salidas descartadas, que no se rediscuten**: devolver el estado nuevo en la respuesta (el cliente **ya** tiene ese valor: es el que pintó, y sería un segundo lugar clasificando el mismo hecho, que es la forma del bug original); y aceptar el refetch viejo con una guarda del estilo de `conservarPintadoEnVuelo` (esa guarda sólo actúa mientras el id está en `enVuelo`, y el `refrescar()` dispara el GET **después** de que el `finally` lo sacó del set; mantenerlo adentro hasta que la lectura vuelva alargaría el tiempo en que la fila descarta clicks, o sea convertir un dato viejo en un control temporalmente muerto).
     - _Requirements: 2.14, 1.19_
 
-  - [ ] 14.2 El diferimiento, con el helper que lo hace testeable
+  - [x] 14.2 El diferimiento, con el helper que lo hace testeable
     - `refrescarJerarquia(d.level, objeto.objectId)` deja de tener `await` y pasa por un helper de diferimiento **fire-and-forget**.
     - **Por qué es legítimo acá y no lo sería en una lambda, y por eso queda escrito:** `refrescarJerarquia` ya no rechaza nunca (su `catch {}` se come todo), así que no puede dejar un rejection sin manejar; y el panel corre en un proceso Node de vida larga bajo PM2, no en una función serverless que se apaga cuando la respuesta sale. El trabajo diferido efectivamente corre.
     - El helper lleva un registro de promesas en vuelo a nivel de módulo y expone `esperarRefrescosPendientes()` para los tests. **Sin eso, `route.frescura.test.ts` pasaría a depender del timing y se volvería flaky**, que es la forma más cara de romper una suite.
@@ -438,7 +438,7 @@ test nuevo; un refactor mecánico se verifica con los que ya están.
     - **Consecuencia declarada:** R4.7 pedía limpiar `desaparecido_at` «sin el atraso del cron» y sigue cumpliéndose, con el atraso del refresco diferido en lugar de cero. Segundos, no 15 minutos. Es un debilitamiento acotado y declarado, y preserva la regla en lugar de aflojarla.
     - _Requirements: 2.13, 3.9_
 
-  - [ ] 14.3 La señal de «en curso» (2.15)
+  - [x] 14.3 La señal de «en curso» (2.15)
     - Mientras el id está en vuelo, el interruptor se dibuja con `aria-busy="true"`, atenuado y con `title` de «cambiando el estado…». Hoy el único indicio es el pintado optimista, que es **indistinguible de un cambio ya confirmado**.
     - **Dos estructuras con dos trabajos, y el reparto es la decisión:**
       - el `Set` del `useRef` (`GestorAnuncios.tsx:1135`) sigue siendo **la guarda** (3.11) y tiene que ser síncrono: dos clicks en el mismo tick no pueden pasar los dos, y un `setState` es asíncrono;
@@ -447,21 +447,21 @@ test nuevo; un refactor mecánico se verifica con los que ya están.
     - El set baja a `TablaAds` y de ahí a `ToggleEstado`, que es donde ya llegan `fila` y `onToggle`.
     - _Requirements: 2.15, 3.11_
 
-  - [ ] 14.4 Verificar que la exploración de C₄ ahora pasa
+  - [x] 14.4 Verificar que la exploración de C₄ ahora pasa
     - **Property 7: Expected Behavior** — La respuesta no espera la relectura, y el refetch no retrocede
     - **IMPORTANTE: volver a correr EL MISMO test de la tarea 4. No escribir un test nuevo.**
     - **RESULTADO ESPERADO: PASAN los dos casos.** El (a): la respuesta llega antes de resolver el deferred. El (b): con `fetchObjeto` devolviendo `null`, la base ya tiene el `status` confirmado cuando la respuesta sale.
     - Agregar los dos casos de integración que el diseño pide y que sólo existen después del arreglo: la relectura diferida que **trae** la fila deja `desaparecido_at` en NULL y adelanta `synced_at` después de `esperarRefrescosPendientes()`; la que **no** la trae deja la marca (la regla evidenciaria de C3).
     - _Requirements: 2.13, 2.14_
 
-  - [ ] 14.5 Verificar que la preservación de C sigue pasando
+  - [x] 14.5 Verificar que la preservación de C sigue pasando
     - **Property 8: Preservation** — El pintado, la reversión y la marca de desaparición
     - **IMPORTANTE: volver a correr LOS MISMOS tests de la tarea 8.**
     - `route.discrepancia.test.ts` pasa **sin editarse**. `route.frescura.test.ts` pasa con el `await esperarRefrescosPendientes()` de la 14.2 y **sin ninguna aserción cambiada**: en particular el caso 2 sigue afirmando que `marca` y `sync` quedan intactos, que es lo que prueba que la escritura local no escribió de más.
     - **RESULTADO ESPERADO: PASAN.**
     - _Requirements: 3.9, 3.12, 3.13_
 
-- [ ] 15. GUARDA DEL ACOPLAMIENTO C↔D — el término del refresco vive en el módulo de plazos y un test lo prueba
+- [x] 15. GUARDA DEL ACOPLAMIENTO C↔D — el término del refresco vive en el módulo de plazos y un test lo prueba
   - **Esta tarea existe porque el acoplamiento C↔D es la trampa de este plan, y la guarda no puede ser la memoria de nadie.** No es una nota al pie de la tanda D: es la tarea sin la cual la 16 no arranca.
   - **El hecho:** el plazo del cliente tiene que ser mayor que el peor caso del servidor (2.7), y ese peor caso **cambia cuando C entra**. Con el refresco en el camino crítico son `4 s + 30 s + 30 s = ~64 s` por objeto; sin él, `~34 s`.
   - **Los tres escenarios, y el tercero está PROHIBIDO:**
@@ -476,14 +476,14 @@ test nuevo; un refactor mecánico se verifica con los que ya están.
   - **La cota es sobre las llamadas a Meta y no sobre el request entero**, y eso también va en el comentario: el preflight, las consultas a la base y `abrirAccion`/`cerrarAccion` no tienen deadline, así que el request puede pasarse de la cota si Postgres se arrastra. `HOLGURA_CLIENTE_MS = 10_000` es lo que se le reserva a eso y **es una estimación**, no una medición: no hay filas de producción con tiempos reales. Por eso 2.6 existe y no es opcional.
   - _Requirements: 2.7, 2.8, 2.13_
 
-- [ ] 16. Tanda D — los plazos del POST de acciones
+- [x] 16. Tanda D — los plazos del POST de acciones
   - **No arranca sin la tarea 15 en verde.**
   - _Bug_Condition: `esC2_PostSinPlazo(X)` de §Bug Details — la fila sin plazo, y el lote con `plazoCliente <= peorCasoServidor(n)`_
   - _Expected_Behavior: Property 3 — `Plazo_Cliente(n) > Peor_Caso_Servidor(n)` para todo `n >= 1`, en los dos mundos del refresco_
   - _Preservation: Property 4 y §Preservation Requirements, tanda D — el plazo vencido es indeterminado, la reversión con su guarda condicional, `duplicate` en 300 s_
   - _Requirements: 1.6, 1.7, 1.8, 1.9, 2.5, 2.6, 2.7, 2.8, 3.1, 3.2, 3.3, 3.4, 3.11, 3.14_
 
-  - [ ] 16.1 `peorCasoEstadoMs` y `plazoClienteEstadoMs`
+  - [x] 16.1 `peorCasoEstadoMs` y `plazoClienteEstadoMs`
     - En `lib/ads/plazos.ts`, sobre las constantes que creó la tarea 10 y el flag que creó la 15.
     - `peorCasoEstadoMs(n) = PRESUPUESTO_RELECTURA_MS + n × (PLAZO_META_ESCRITURA_MS + (refrescoEnCaminoCritico() ? PLAZO_META_LECTURA_MS : 0))`.
     - **`PRESUPUESTO_RELECTURA_MS` va FUERA del `n ×`, y ésta es una de las dos correcciones al material de entrada**: su presupuesto es del **lote entero** y no por objeto (`limite` se calcula una vez antes del loop en `relecturaSelectiva`). Para un objeto da lo mismo —64 s de las dos formas—, pero para 20 la diferencia es `4 + 20 × 60 = 1204 s` contra `20 × 64 = 1280 s`, y es el número que el plazo del lote usa.
@@ -492,7 +492,7 @@ test nuevo; un refactor mecánico se verifica con los que ya están.
     - **La consecuencia declarada, que va al comentario del módulo y a la tarea 18:** el plazo crece linealmente con `n` y para un lote grande llega a decenas de minutos. Eso **no es un objetivo de UX: es un piso que impone 2.7.** Un plazo menor que el peor caso convierte pedidos que estaban por confirmarse en desenlaces indeterminados, y 2.7 dice explícitamente que eso es peor que la espera. Se evaluó ponerle un techo —los mismos 300 s de `duplicate`— y **se descartó**: con 300 s, todo lote de más de 5 objetos volvería a violar 2.7.
     - _Requirements: 2.7, 2.8_
 
-  - [ ] 16.2 `ejecutarToggle` lleva el `signal`, y el texto del vencimiento
+  - [x] 16.2 `ejecutarToggle` lleva el `signal`, y el texto del vencimiento
     - **El plazo entra en `ejecutarToggle` y NO en el `pedir` del componente.** Es la función que sabe que manda un objeto y es la que está testeada sin render: si el plazo lo pusiera el `pedir: (url, init) => fetch(url, init)` de `GestorAnuncios.tsx:1152`, el número quedaría en la parte del archivo que ningún test puede tocar. El `init` lleva `signal: AbortSignal.timeout(plazoClienteEstadoMs(1))` y el `pedir` del componente lo pasa tal cual.
     - **El desenlace del vencimiento no necesita código nuevo**: un abort cae en el `catch` que ya existe, que ya revierte con la guarda condicional, ya avisa y ya libera el id en el `finally`. Lo único que cambia es el texto, y por dos razones: hoy el aviso interpola `e.message`, que para un `AbortSignal.timeout` es `The operation was aborted due to timeout` —una frase en inglés en un aviso en castellano, que además no dice cuánto se esperó—; y el vencimiento del plazo y un error de red son dos hechos distintos para el usuario aunque el desenlace sea el mismo.
     - `textoDeFalloDeToggle(error, plazoMs)`: función pura y exportada, el mismo patrón que `accionDeToggle` y `statusOptimista`. Dos ramas, y **la segunda oración es TEXTUAL en las dos**: «La fila quedó como estaba; si el pedido llegó a Meta, el resultado se define cuando corra la reconciliación». Es la que 2.6 pide y la que el test de red ya verifica buscando la palabra «reconciliación».
@@ -501,21 +501,21 @@ test nuevo; un refactor mecánico se verifica con los que ya están.
     - Tests en `togglePlazo.test.ts`: que el `init` trae un `AbortSignal` y que el plazo es el que dice `plazoClienteEstadoMs(1)`; la rama del plazo nombra el plazo; la rama del error interpola el mensaje; **las dos** terminan con la oración de la reconciliación.
     - _Requirements: 2.5, 2.6, 3.1, 3.2_
 
-  - [ ] 16.3 El plazo del lote
+  - [x] 16.3 El plazo del lote
     - `GestorAnuncios.tsx:1312`: `AbortSignal.timeout(accion === 'duplicate' ? 300_000 : 60_000)` pasa a usar `plazoClienteEstadoMs(ids.length)` **para `pause`/`activate`**.
     - **`duplicate` sigue en 300 s, sin cambio** (3.14), con sus filas fantasma en ≤2 s y su vaciado completo al responder.
     - **`budget_set`, `rename` y `schedule` quedan en 60 s**, y es una decisión de alcance escrita en el diseño (§Alcance, punto 2): tienen la misma clase de problema, pero 1.9 y 2.5–2.8 hablan de `pause`/`activate`, y extenderlo pide medir el peor caso de cada una. **Anotarlo en la tarea 18 como pendiente con dueño conocido, no dejarlo implícito en un `if`.**
     - **El `catch` del lote no se toca**: ya conserva la ambigüedad («los resultados sin confirmar se definen cuando corra la reconciliación») y ya vacía las filas en proceso. **`TOPES_ABORTO = 10_000` (`:191`) tampoco**: es el presupuesto de una lectura, no de una escritura (3.13).
     - _Requirements: 1.9, 2.5, 2.7, 3.13, 3.14_
 
-  - [ ] 16.4 Verificar que la exploración de C₂ ahora pasa
+  - [x] 16.4 Verificar que la exploración de C₂ ahora pasa
     - **Property 3: Expected Behavior** — El plazo del cliente cubre el peor caso del servidor
     - **IMPORTANTE: volver a correr EL MISMO test de la tarea 2. No escribir un test nuevo.**
     - **RESULTADO ESPERADO: PASAN los dos casos.** El (a): el `init` trae `signal`. El (b): la desigualdad se cumple con los números que el código declara.
     - **Lo que sigue sin test y hay que decirlo**: el vencimiento contra el reloj real. Ningún test de esta suite puede esperar 44 s, y `AbortSignal.timeout` no respeta los fake timers de vitest. Lo verificado es que el `signal` sale con el plazo correcto y que un rechazo con nombre de timeout produce el desenlace correcto.
     - _Requirements: 2.5, 2.7, 2.8_
 
-  - [ ] 16.5 Verificar que la preservación de D sigue pasando
+  - [x] 16.5 Verificar que la preservación de D sigue pasando
     - **Property 4: Preservation** — El plazo vencido es indeterminado y nunca un fallo
     - **IMPORTANTE: volver a correr LOS MISMOS tests de la tarea 6.**
     - Las formas `plazo` y `red` del generador siguen clasificándose como no confirmadas; la reversión sigue restaurando `statusPrevio` con la guarda condicional; se sigue decidiendo con `aplicado`; `duplicate` sigue en 300 s.
@@ -525,7 +525,7 @@ test nuevo; un refactor mecánico se verifica con los que ya están.
 
 ### Fase 4 — Cierre
 
-- [ ] 17. Checkpoint — que todo pase
+- [x] 17. Checkpoint — que todo pase
   - `npx tsc --noEmit`: **limpio, sin una sola línea de salida.**
   - `npm test` (que es `vitest --run`): **en verde, 0 fallos.** El baseline era **86 archivos y 1041 tests** en el commit `e3e7e8b`. Este plan agrega archivos y casos y no borra ninguno, así que **los dos números tienen que ser MAYORES**. Si el conteo bajó, algo se borró o quedó en `skip` y hay que encontrar qué antes de seguir.
   - **La suite necesita Postgres arriba en `127.0.0.1:5433`.** Con la base apagada fallan **~79 tests que no tienen nada que ver con este cambio**: aparecen como errores de `createScheduledPayment` en `lib/queries/finance.ts` y el error real es `connect ECONNREFUSED 127.0.0.1:5433`. Ya pasó una vez y está anotado en `registro.md` (entrada del 2026-08-24). **Antes de investigar un fallo en masa, verificar que la base está viva.** Los tests de las tandas C y D que pegan a la base son `describe.skipIf(!dbAvailable)`: con la base apagada se saltean en silencio, o sea que **una corrida sin Postgres no verifica la tanda C**.
@@ -537,7 +537,7 @@ test nuevo; un refactor mecánico se verifica con los que ya están.
   - Preguntar si aparece algo que no está previsto en el diseño, en lugar de decidir sobre la marcha.
   - _Requirements: 2.3, 2.8, 3.15, 3.16_
 
-- [ ] 18. Registrar el cambio en `registro.md`
+- [x] 18. Registrar el cambio en `registro.md`
   - **Es una tarea, no un opcional.** La regla del proyecto (`.kiro/steering/registro.md`) obliga a anotar el cambio en **la misma tanda de trabajo**: el motivo se olvida en horas y es lo único que ese archivo aporta.
   - Va **después** del checkpoint y no antes por una razón concreta: la entrada tiene que decir **qué se corrió**, y eso son los números de la tarea 17.
   - Entrada nueva arriba, con la fecha y el hash del commit. Las tres preguntas de la regla, en orden: qué pasaba, por qué se resolvió así, qué se verificó. Una sección por tanda si se shippean por separado; en ese caso cada entrada dice qué tanda entró y qué quedó afuera.

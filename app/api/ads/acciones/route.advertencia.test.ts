@@ -85,6 +85,18 @@ const S_SE_ACTIVA = oid(3);
 const S_FALLA = oid(4);
 /** PAUSED bajo la campaña ACTIVA: no hay nada que advertir. */
 const S_SIN_AVISO = oid(5);
+/**
+ * Los dos de la task 12 de `toggle-conjuntos-entrega` (2.11), y van aparte de los
+ * cuatro de arriba a propósito: el `pause` de uno de ellos ESCRIBE, así que el
+ * `refrescarJerarquia` del route le deja `status = 'PAUSED'` en la base. Reusar
+ * `S_YA_ACTIVO` haría que el orden de los `it` de este archivo decidiera si el
+ * caso de la omisión sigue valiendo, que es la forma más barata de tener una
+ * suite frágil.
+ */
+/** ACTIVE / CAMPAIGN_PAUSED bajo la campaña pausada: uno de los 92. Pausarlo escribe. */
+const S_PAUSA_ACTIVO = oid(6);
+/** PAUSED bajo la campaña pausada: uno de los 67. Pausarlo se omite. */
+const S_PAUSA_PAUSADO = oid(7);
 
 type ResultadoHttp = {
   estado: string;
@@ -104,11 +116,14 @@ const pedir = (body: Record<string, unknown>): Promise<Response> =>
 
 /** El pedido de activación de UN conjunto, con el cuerpo ya deserializado: es lo
  *  que después se le pasa al traductor, sin volver a escribirlo a mano. */
-async function activar(adsetId: string): Promise<{ cuerpo: CuerpoAcciones; r: ResultadoHttp }> {
+async function accionar(
+  accion: 'activate' | 'pause',
+  adsetId: string,
+): Promise<{ cuerpo: CuerpoAcciones; r: ResultadoHttp }> {
   const resp = await pedir({
     level: 'adset',
     accountId: CUENTA,
-    action: 'activate',
+    action: accion,
     objectIds: [adsetId],
   });
   expect(resp.status).toBe(200);
@@ -117,6 +132,13 @@ async function activar(adsetId: string): Promise<{ cuerpo: CuerpoAcciones; r: Re
   if (!r) throw new Error(`la respuesta no trajo resultado para ${adsetId}`);
   return { cuerpo, r };
 }
+
+const activar = (adsetId: string): Promise<{ cuerpo: CuerpoAcciones; r: ResultadoHttp }> =>
+  accionar('activate', adsetId);
+
+/** El espejo de `activar` para la task 12 de `toggle-conjuntos-entrega` (2.11). */
+const pausar = (adsetId: string): Promise<{ cuerpo: CuerpoAcciones; r: ResultadoHttp }> =>
+  accionar('pause', adsetId);
 
 async function sembrar(): Promise<void> {
   await q(
@@ -146,8 +168,13 @@ async function sembrar(): Promise<void> {
        ($1, $5, $7, 'Conjunto ya activo',    'ACTIVE', 'CAMPAIGN_PAUSED', 'EUR', 500, now(), NULL),
        ($2, $5, $7, 'Conjunto que se activa','PAUSED', 'PAUSED',          'EUR', 500, now(), NULL),
        ($3, $5, $7, 'Conjunto que falla',    'PAUSED', 'PAUSED',          'EUR', 500, now(), NULL),
-       ($4, $6, $7, 'Conjunto sin aviso',    'PAUSED', 'PAUSED',          'EUR', 500, now(), NULL)`,
-    [S_YA_ACTIVO, S_SE_ACTIVA, S_FALLA, S_SIN_AVISO, CAMP_APAGADA, CAMP_PRENDIDA, CUENTA],
+       ($4, $6, $7, 'Conjunto sin aviso',    'PAUSED', 'PAUSED',          'EUR', 500, now(), NULL),
+       ($8, $5, $7, 'Conjunto que se pausa', 'ACTIVE', 'CAMPAIGN_PAUSED', 'EUR', 500, now(), NULL),
+       ($9, $5, $7, 'Conjunto ya pausado',   'PAUSED', 'PAUSED',          'EUR', 500, now(), NULL)`,
+    [
+      S_YA_ACTIVO, S_SE_ACTIVA, S_FALLA, S_SIN_AVISO, CAMP_APAGADA, CAMP_PRENDIDA, CUENTA,
+      S_PAUSA_ACTIVO, S_PAUSA_PAUSADO,
+    ],
   );
 }
 
@@ -252,5 +279,68 @@ describe.skipIf(!dbAvailable)('la advertencia de padre pausado viaja al cliente 
     // La regla 1 intacta: un confirmado que sí va a entregar no tiene nada que
     // decir, y agregarle un aviso sería ruido en el camino normal.
     expect(mensajeDeResultado(200, cuerpo)).toBeNull();
+  });
+});
+
+/**
+ * El aviso al PAUSAR viaja igual, task 12 de `toggle-conjuntos-entrega` (2.11).
+ *
+ * QUÉ AGREGA ESTE BLOQUE SOBRE `previsualizacion.test.ts`. Lo mismo que el de
+ * arriba: allá se prueba que `calcularPrevisualizacion` PONE el texto; acá que el
+ * route lo copia al resultado y que llega al cuerpo HTTP. La diferencia con el
+ * bloque de activar es que el filtro nuevo mira `fila.status`, o sea un dato que
+ * sale de la BASE, así que la única forma de verificarlo de punta a punta es con
+ * dos filas sembradas distintas y el mismo pedido.
+ *
+ * Los dos casos son exactamente el reparto del bugfix: uno de los **92**
+ * (`ACTIVE / CAMPAIGN_PAUSED`, la escritura ocurre) y uno de los **67**
+ * (`PAUSED / PAUSED`, la escritura se omite).
+ */
+describe.skipIf(!dbAvailable)('el aviso al pausar viaja al cliente (task 12, 2.11)', () => {
+  const PAUSE_CAMPANIA =
+    'la campaña está pausada: el conjunto ya no estaba entregando, así que pausarlo no cambia la entrega';
+
+  it('pausar un conjunto ACTIVE con la campaña pausada trae el texto nuevo', async () => {
+    mockEnviar.mockResolvedValue({ estado: 'confirmado' });
+    mockFetchObjeto.mockResolvedValue({
+      objectId: S_PAUSA_ACTIVO,
+      name: 'Conjunto que se pausa',
+      status: 'PAUSED',
+      effectiveStatus: 'PAUSED',
+      dailyBudget: 500,
+      lifetimeBudget: null,
+    });
+
+    const { cuerpo, r } = await pausar(S_PAUSA_ACTIVO);
+
+    // La escritura es real y con los mismos valores de siempre (3.8).
+    expect(mockEnviar).toHaveBeenCalledWith(S_PAUSA_ACTIVO, { status: 'PAUSED' });
+    expect(r.estado).toBe('confirmado');
+    expect(r.motivo).toBeUndefined();
+    // El texto NUEVO, entero: es la aclaración en pasado y no la advertencia
+    // sobre el futuro.
+    expect(r.advertencia).toBe(PAUSE_CAMPANIA);
+
+    // Y el viaje completo hasta el aviso tonal, que es donde el usuario lo lee:
+    // se aplicó, y la aclaración no lo convierte en un fallo.
+    const aviso = mensajeDeResultado(200, cuerpo);
+    expect(aviso).not.toBeNull();
+    expect(aviso!.tono).toBe('aviso');
+    expect(aviso!.aplicado).toBe(true);
+    expect(aviso!.texto).toContain('ya no estaba entregando');
+  });
+
+  it('pausar un conjunto que ya está PAUSED no lo trae, y el traductor se calla', async () => {
+    const { cuerpo, r } = await pausar(S_PAUSA_PAUSADO);
+
+    // Se omite: no hay escritura y por lo tanto no hay nada que aclarar.
+    expect(r.estado).toBe('omitido');
+    expect(r.motivo).toBe('ya_esta_en_ese_estado');
+    expect(mockEnviar).not.toHaveBeenCalled();
+    expect(r.advertencia).toBeNull();
+    // Sin advertencia el traductor vuelve a no tener nada que decir sobre una
+    // omisión, que es el comportamiento de siempre para esta rama.
+    const aviso = mensajeDeResultado(200, cuerpo);
+    expect(aviso?.texto ?? '').not.toContain('no estaba entregando');
   });
 });

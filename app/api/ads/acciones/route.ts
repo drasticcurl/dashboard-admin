@@ -58,6 +58,11 @@ import {
 import { traducirError, type Corte } from '@/lib/ads/errores';
 import type { MotivoOmisionLote } from '@/lib/ads/previsualizacion';
 import { duplicar, type PedidoCopia } from '@/lib/ads/copias';
+// El Refresco_Diferido vive en un módulo hermano y no acá porque un `route.ts` no
+// puede exportar nada fuera de los métodos HTTP y las opciones de segmento: el
+// validador de `.next/types` lo rechaza y `npx tsc --noEmit` también. El motivo
+// completo, con el error textual, está en `_diferir.ts`.
+import { diferir } from './_diferir';
 import { nombresDeCopias } from '@/lib/ads/nombres';
 import { aplicarRenombre, LARGO_MAX_NOMBRE, type ModoRenombre } from '@/lib/ads/nombres';
 import { sincronizarJerarquia } from '@/lib/ads/jerarquia';
@@ -573,7 +578,19 @@ export async function POST(req: NextRequest): Promise<Response> {
 
     if (r.estado === 'confirmado') {
       await cerrarAccion(id, 'confirmado');
-      await refrescarJerarquia(d.level, objeto.objectId);
+      // Escritura_Confirmada_Local (task 14.1): el MISMO valor que salió en el
+      // POST y que Meta acaba de confirmar, escrito sin ir a Meta.
+      //
+      // Va con `campos.status` y NO con `after` para que no haya una segunda
+      // derivación del mismo hecho: `campos` es literalmente el cuerpo del POST.
+      // `after` es su versión para la auditoría y hoy coincide, pero son dos
+      // lugares y este código no tiene por qué elegir entre ellos.
+      await escribirStatusConfirmado(d.level, objeto.objectId, campos.status);
+      // Refresco_Diferido (task 14.2): se dispara y NO se espera. Antes había un
+      // `await` acá, o sea un GET a Meta con su propio timeout de 30 s adentro
+      // del tiempo que el usuario pasa mirando un interruptor que ya cambió de
+      // posición, para traer un dato que la respuesta no necesita.
+      diferir(refrescarJerarquia(d.level, objeto.objectId));
       // La advertencia va también acá, y es el desenlace en el que más importa:
       // R6.4 pide distinguir «no entrega» de «la acción falló», y el caso
       // reportado es una escritura que Meta CONFIRMÓ sobre un objeto que igual no
@@ -998,6 +1015,80 @@ function preparar(
 }
 
 /**
+ * Escribe en la fila local el `status` que Meta acaba de confirmar: UNA columna,
+ * cero llamadas a Meta (task 14.1 de `toggle-conjuntos-entrega`, R2.14, R1.19).
+ *
+ * Existe porque `refrescarJerarquia` dejó de estar en el camino crítico y era el
+ * ÚNICO escritor del `status` confirmado. Sin esto, diferir la relectura mete la
+ * regresión de 1.19: el refetch inmediato del cliente devuelve la posición vieja
+ * y el interruptor vuelve para atrás por un instante, que es el síntoma que este
+ * spec vino a arreglar. No es una suposición sobre Meta: `enviar` devolvió
+ * `confirmado`, o sea que Meta aceptó `status = campos.status`.
+ *
+ * ## QUÉ NO ESCRIBE, Y EL MOTIVO DE CADA UNO (decisión C2 del diseño)
+ *
+ * `refrescarJerarquia` escribe cinco cosas en su UPDATE. Ésta escribe una.
+ *
+ * - **`effective_status`: no. No lo sabemos.** Pausar un conjunto cambia también
+ *   el efectivo de sus anuncios, y activar uno bajo una campaña pausada lo deja
+ *   en `CAMPAIGN_PAUSED`. Derivarlo exigiría reimplementar la resolución de Meta,
+ *   que este repo ya documentó dos veces como sutil (el estado propio gana sobre
+ *   el del padre). Queda con el valor anterior hasta que el Refresco_Diferido o
+ *   el cron lo actualicen.
+ * - **Presupuestos: no.** La acción de estado no los toca.
+ * - **`synced_at`: no.** Ponerlo en `now()` afirmaría que la fila ENTERA está
+ *   fresca —incluidos el `effective_status` que no actualizamos y los
+ *   presupuestos— cuando lo único confirmado es un campo. Es la misma frescura
+ *   falsa que la tanda A arregla del otro lado.
+ * - **`desaparecido_at`: no.** La sigue limpiando SÓLO la relectura, por la regla
+ *   evidenciaria que `refrescarJerarquia` documenta abajo: una escritura
+ *   confirmada MÁS una relectura que trajo la fila es evidencia directa de que el
+ *   objeto existe. La escritura sola es la mitad de esa evidencia.
+ *
+ * ## LAS DOS CONSECUENCIAS VISIBLES, DECLARADAS
+ *
+ * 1. Después de pausar uno de los conjuntos `ACTIVE`/`CAMPAIGN_PAUSED`, la fila
+ *    queda `status = PAUSED` con `effective_status = CAMPAIGN_PAUSED` hasta que
+ *    el Refresco_Diferido vuelva (segundos). En esa ventana el badge dice
+ *    «campaña pausada» sobre una fila cuyo propio estado es `PAUSED`: es un dato
+ *    atrasado, no una afirmación falsa sobre la entrega —no entrega de las dos
+ *    formas—.
+ * 2. La fila puede seguir viéndose «vieja» en la Marca_Frescura inmediatamente
+ *    después de una acción, porque `synced_at` no se adelanta. Es honesto: nadie
+ *    confirmó la fila entera contra Meta.
+ *
+ * ## LAS DOS SALIDAS DESCARTADAS, PARA QUE NO SE REDISCUTAN
+ *
+ * - *Devolver el estado nuevo en la respuesta.* El cliente YA tiene ese valor: es
+ *   el que pintó optimistamente. Sería un segundo lugar clasificando el mismo
+ *   hecho, que es la forma del bug original.
+ * - *Aceptar el refetch viejo con una guarda del estilo de
+ *   `conservarPintadoEnVuelo`.* Esa guarda sólo actúa mientras el id está en
+ *   `enVuelo`, y el `refrescar()` del cliente dispara el GET DESPUÉS de que el
+ *   `finally` lo sacó del set. Mantenerlo adentro hasta que la lectura vuelva
+ *   alargaría el tiempo en que la fila descarta clicks: convertiría un dato viejo
+ *   en un control temporalmente muerto.
+ *
+ * El `status` llega como `string | undefined` porque este bucle también corre
+ * `budget_set`, cuyos `campos` no traen `status`. Sin cambio de estado no hay
+ * nada confirmado que escribir y la función no hace nada: el `if` está acá y no
+ * en el llamador para que la regla «sólo se escribe lo que Meta confirmó» viva en
+ * un solo lugar.
+ */
+async function escribirStatusConfirmado(
+  level: NivelAds,
+  objectId: string,
+  status: string | undefined,
+): Promise<void> {
+  if (status === undefined) return;
+  // Sin la rama por nivel que sí tiene `refrescarJerarquia` acá abajo: ésa existe
+  // porque `ads` no tiene las columnas de presupuesto, y esta escritura no las
+  // toca. `status` está en las tres tablas.
+  const t = TABLA_NIVEL[level];
+  await q(`UPDATE ${t.tabla} SET status = $2 WHERE ${t.pk} = $1`, [objectId, status]);
+}
+
+/**
  * Relee el objeto en Meta y refresca la fila de la jerarquía (T17 §9.9).
  *
  * Limpia además `desaparecido_at` (T16, R3.6, R4.7). La marca significa "Meta
@@ -1020,6 +1111,20 @@ function preparar(
  * La limpieza va en el mismo UPDATE que el resto de las columnas y sin guarda
  * por el valor previo, a diferencia del sync: acá la fila se reescribe igual y
  * es una sola, así que no hay tuplas muertas que ahorrar.
+ *
+ * Desde la task 14.2 de `toggle-conjuntos-entrega` esta función **corre diferida**
+ * (`diferir(...)`, sin `await`) y su cuerpo no cambió ni una línea. Lo único que
+ * cambió es CUÁNDO: ya no está en el camino crítico de la respuesta. Dos cosas que
+ * eso mueve y quedan escritas acá porque es donde se leen:
+ *
+ * - El `status` confirmado ya NO depende de esta función:
+ *   `escribirStatusConfirmado` lo escribe antes de que la respuesta salga. Ésta
+ *   sigue siendo la única que escribe `effective_status`, los presupuestos,
+ *   `synced_at` y `desaparecido_at`.
+ * - R4.7 pedía limpiar `desaparecido_at` «sin el atraso del cron» y se sigue
+ *   cumpliendo, con el atraso del diferido en lugar de cero: **segundos, no 15
+ *   minutos**. Es un debilitamiento acotado y declarado, y preserva la regla en
+ *   lugar de aflojarla.
  */
 async function refrescarJerarquia(level: NivelAds, objectId: string): Promise<void> {
   try {

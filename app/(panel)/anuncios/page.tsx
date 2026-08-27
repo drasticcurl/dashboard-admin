@@ -23,7 +23,9 @@
 
 import { q, q1 } from '@/lib/db';
 import { getMetricasAds } from '@/lib/queries/ads';
+import { UMBRAL_FRESCURA_DEFAULT_SEGUNDOS } from '@/lib/ads/frescura';
 import { ensureFreshAdSpend } from '@/lib/ads/live';
+import { cascadaDeSearchParams } from './cascadaUrl';
 import type { FrescuraJerarquia } from '@/lib/ads/liveJerarquia';
 import { today } from '@/lib/day';
 import type { NivelAds, PeriodoAds } from '@/lib/ads/tipos';
@@ -41,15 +43,8 @@ function single(v: string | string[] | undefined): string | undefined {
   return typeof v === 'string' ? v : undefined;
 }
 
-function lista(v: string | string[] | undefined): string[] {
-  if (typeof v === 'string') return [v];
-  if (Array.isArray(v)) return v;
-  return [];
-}
-
 const NIVELES: NivelAds[] = ['campaign', 'adset', 'ad'];
 const PERIODOS: PeriodoAds[] = ['today', 'yesterday', '7d', '7d_excl_today'];
-const MAX_CASCADA = 50;
 
 export type CuentaAds = {
   accountId: string;
@@ -59,18 +54,6 @@ export type CuentaAds = {
   /** El funnel al que se le imputa el gasto (`ad_accounts.funnel_id`). */
   funnelSlug: string | null;
   funnelName: string | null;
-};
-
-const LIMPIAR_IDS = (ids: string[]): string[] => {
-  const vistos = new Set<string>();
-  const out: string[] = [];
-  for (const id of ids) {
-    if (out.length >= MAX_CASCADA) break;
-    if (!/^\d{1,20}$/.test(id) || vistos.has(id)) continue;
-    vistos.add(id);
-    out.push(id);
-  }
-  return out;
 };
 
 export default async function AnunciosPage({ searchParams }: { searchParams: SearchParams }) {
@@ -128,8 +111,12 @@ export default async function AnunciosPage({ searchParams }: { searchParams: Sea
   const ocultarPadreApagado = single(searchParams.padreApagado) === '0';
 
   // ── Filtro_Cascada de la URL (R8 c7, c13): la tabla abre ya filtrada ──
-  const campaignIds = nivel === 'adset' || nivel === 'ad' ? LIMPIAR_IDS(lista(searchParams.campaignIds)) : [];
-  const adsetIds = nivel === 'ad' ? LIMPIAR_IDS(lista(searchParams.adsetIds)) : [];
+  //
+  // El SQL no cambia con la task 13.4: `o."campaignId" = ANY($campaignIds)` se
+  // aplica en el `WHERE` de afuera y a nivel campaña el `SELECT` emite
+  // `c.campaign_id AS "campaignId"`, así que `level=campaign&campaignIds=<id>` ya
+  // filtra a esa campaña sin una línea nueva.
+  const { campaignIds, adsetIds } = cascadaDeSearchParams(searchParams, nivel);
 
   let data;
   try {
@@ -219,11 +206,16 @@ export default async function AnunciosPage({ searchParams }: { searchParams: Sea
   }
 
   // `settings.value` es jsonb: si no hay número, el default es el mismo 900 que
-  // seedeó la 025.
-  const frescuraUmbralSegundos = typeof ajustes?.umbral === 'number' ? ajustes.umbral : 900;
+  // seedeó la 025, y vive en `lib/ads/frescura.ts`.
+  const frescuraUmbralSegundos =
+    typeof ajustes?.umbral === 'number' ? ajustes.umbral : UMBRAL_FRESCURA_DEFAULT_SEGUNDOS;
 
   // ── Nombres de los ids de la cascada, para el ChipCascada (R8 c4) ──
-  const idsCascada = nivel === 'adset' || nivel === 'ad' ? campaignIds : [];
+  //
+  // Incluye el nivel campaña por la task 13.4: sin el nombre, el chip de «La
+  // campaña "X"» mostraría el id de 20 dígitos, que es justo lo que el link vino a
+  // evitar (el usuario no reconoce una campaña por su id).
+  const idsCascada = campaignIds;
   const nombresCascada: Record<string, string> = {};
   if (idsCascada.length > 0) {
     const filas = await q<{ id: string; name: string | null }>(

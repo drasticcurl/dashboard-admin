@@ -32,6 +32,7 @@
  * las ventas por ID exacto, no por nombre.
  */
 
+import { PLAZO_META_ESCRITURA_MS, PLAZO_META_LECTURA_MS } from './plazos';
 import type {
   DsaConjunto,
   MetaAd,
@@ -231,7 +232,9 @@ type MetaErrorBody = {
 };
 
 /**
- * Timeout explícito: sin esto, una llamada colgada deja el cron trabado.
+ * Timeout explícito: sin esto, una llamada colgada deja el cron trabado. El
+ * número vive en `lib/ads/plazos.ts` porque el peor caso de un click lo cuenta:
+ * copiarlo acá haría que la cuenta y la llamada pudieran discrepar.
  *
  * El `cache: 'no-store'` no es decoración: dentro del runtime de Next, `fetch`
  * cachea los GET por defecto, y como esta función es el ÚNICO camino de lectura
@@ -244,7 +247,7 @@ async function pedir<T>(url: string, accountId?: string): Promise<T> {
   const res = await fetch(url, {
     cache: 'no-store',
     headers: { Authorization: `Bearer ${token()}` },
-    signal: AbortSignal.timeout(30_000),
+    signal: AbortSignal.timeout(PLAZO_META_LECTURA_MS),
   });
   contador.total += 1;
   if (accountId) contador.porCuenta[accountId] = (contador.porCuenta[accountId] ?? 0) + 1;
@@ -274,6 +277,10 @@ async function pedir<T>(url: string, accountId?: string): Promise<T> {
  * poder distinguir "Meta dijo no" (fallido) de "no se sabe" (indeterminado),
  * porque reintentar a ciegas es cómo una subida de presupuesto se aplica dos
  * veces (§6c del plan).
+ *
+ * El deadline sale de `lib/ads/plazos.ts` y no de un literal: es el término más
+ * grande del peor caso de un click, y el plazo que el cliente le da a ese click
+ * se calcula a partir de él.
  */
 export async function enviar(
   objectId: string,
@@ -288,7 +295,7 @@ export async function enviar(
         'Content-Type': 'application/x-www-form-urlencoded',
       },
       body: new URLSearchParams(campos),
-      signal: AbortSignal.timeout(30_000),
+      signal: AbortSignal.timeout(PLAZO_META_ESCRITURA_MS),
     });
   } catch (e) {
     // AbortError del timeout o error de red (ECONNRESET, etc.): el pedido pudo

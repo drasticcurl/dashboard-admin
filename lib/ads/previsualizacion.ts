@@ -178,8 +178,8 @@ function padreApagado(status: string | null): boolean {
 }
 
 /**
- * La advertencia de R6.4: qué decir cuando se activa un objeto cuyo antepasado
- * está apagado. null = no hay nada que advertir.
+ * La advertencia de R6.4: qué decir cuando se escribe el estado de un objeto
+ * cuyo antepasado está apagado. null = no hay nada que advertir.
  *
  * POR QUÉ NO ALCANZA `effectiveStatus`. Parece que sí —`CAMPAIGN_PAUSED` y
  * `ADSET_PAUSED` son exactamente Meta diciendo que el padre está apagado— pero
@@ -191,35 +191,55 @@ function padreApagado(status: string | null): boolean {
  * Derivar el padre del `effective_status` dejaría la advertencia muda
  * exactamente en el caso que la task vino a cubrir.
  *
- * QUÉ TIENE QUE DECIR. Las tres cosas que el panel hoy no distingue, porque
- * confirmó un cambio que era real y a la vez inútil: que el cambio se aplicó
- * («queda activo»), que el objeto igual no va a entregar («no entrega») y qué
- * hacer al respecto («hasta que se active la campaña»). Es una advertencia y no
- * un bloqueo: activar un conjunto con la campaña pausada es legítimo cuando se
- * está preparando algo para prender después.
+ * QUÉ TIENE QUE DECIR AL ACTIVAR. Las tres cosas que el panel no distinguía,
+ * porque confirmó un cambio que era real y a la vez inútil: que el cambio se
+ * aplicó («queda activo»), que el objeto igual no va a entregar («no entrega») y
+ * qué hacer al respecto («hasta que se active la campaña»). Es una advertencia y
+ * no un bloqueo: activar un conjunto con la campaña pausada es legítimo cuando
+ * se está preparando algo para prender después.
+ *
+ * QUÉ TIENE QUE DECIR AL PAUSAR (2.11 de `toggle-conjuntos-entrega`). **Otro
+ * texto, porque dice otra cosa.** Al activar, «no entrega» es una advertencia
+ * sobre el FUTURO; al pausar es una aclaración sobre lo que se está apagando, en
+ * PASADO: el objeto ya no entregaba, así que apagarlo no cambia la entrega. No
+ * promete nada del futuro porque no hay nada que prometer, y nombra igual al
+ * antepasado —la navegación de 2.12 lo necesita para saber a qué fila llevar—.
+ *
+ * `accion` es explícita y sin default a propósito: el llamador tiene que elegir
+ * qué está diciendo. Un default dejaría que la variante equivocada saliera en
+ * silencio, y la diferencia entre los dos textos es justamente el tiempo verbal
+ * de un hecho que el usuario va a leer para decidir.
  */
 export function advertenciaPadreApagado(
   nivel: NivelAds,
   padres: EstadoPadres | undefined,
+  accion: 'pause' | 'activate',
 ): string | null {
   if (nivel === 'campaign' || !padres) return null; // una campaña no tiene padre
   const campania = padreApagado(padres.campania);
   if (nivel === 'adset') {
-    return campania
+    if (!campania) return null;
+    return accion === 'activate'
       ? 'la campaña está pausada: el conjunto queda activo pero no entrega hasta que se active la campaña'
-      : null;
+      : 'la campaña está pausada: el conjunto ya no estaba entregando, así que pausarlo no cambia la entrega';
   }
   // Nivel anuncio: lo apaga cualquiera de los dos antepasados, y el mensaje
   // nombra al que hay que ir a prender. Si son los dos, los dos.
   const conjunto = padreApagado(padres.conjunto);
   if (conjunto && campania) {
-    return 'el conjunto y la campaña están pausados: el anuncio queda activo pero no entrega hasta que se activen los dos';
+    return accion === 'activate'
+      ? 'el conjunto y la campaña están pausados: el anuncio queda activo pero no entrega hasta que se activen los dos'
+      : 'el conjunto y la campaña están pausados: el anuncio ya no estaba entregando, así que pausarlo no cambia la entrega';
   }
   if (conjunto) {
-    return 'el conjunto está pausado: el anuncio queda activo pero no entrega hasta que se active el conjunto';
+    return accion === 'activate'
+      ? 'el conjunto está pausado: el anuncio queda activo pero no entrega hasta que se active el conjunto'
+      : 'el conjunto está pausado: el anuncio ya no estaba entregando, así que pausarlo no cambia la entrega';
   }
   if (campania) {
-    return 'la campaña está pausada: el anuncio queda activo pero no entrega hasta que se active la campaña';
+    return accion === 'activate'
+      ? 'la campaña está pausada: el anuncio queda activo pero no entrega hasta que se active la campaña'
+      : 'la campaña está pausada: el anuncio ya no estaba entregando, así que pausarlo no cambia la entrega';
   }
   return null;
 }
@@ -401,18 +421,34 @@ function calcularFilaPorAccion(
         base.ejecutable = false;
       } else {
         if (fila.status === destino) base.motivo = 'ya_esta_en_ese_estado';
-        // R6.4, sólo para `activate`. `pause` no lo lleva: pausar algo que ya no
-        // entregaba deja al objeto exactamente donde el usuario pidió, así que
-        // no hay ninguna distancia entre lo que el panel confirma y lo que pasa
-        // en Meta. La advertencia existe para cerrar esa distancia, y en `pause`
-        // sería ruido sobre la operación de lote más común.
+        // R6.4 para `activate`, y 2.11 de `toggle-conjuntos-entrega` para
+        // `pause`. Los dos textos los elige `advertenciaPadreApagado`; lo que se
+        // decide acá es CUÁNDO se dice, y las dos mitades de la condición tienen
+        // motivos distintos.
         //
-        // Se suma también cuando el motivo es `ya_esta_en_ese_estado`: el objeto
-        // ya está ACTIVE y sigue sin entregar, que es la otra mitad del mismo
-        // "parece que lo habilita pero realmente no lo hace". El usuario pidió
-        // activar; la respuesta que necesita es la misma se escriba o se omita.
-        if (accion === 'activate') {
-          sumarAdvertencia(base, advertenciaPadreApagado(nivel, params.padres?.get(fila.objectId)));
+        // `activate` se suma SIEMPRE, incluso cuando el motivo es
+        // `ya_esta_en_ese_estado`: «ya está activo y sigue sin entregar» ES el
+        // síntoma reportado —"parece que lo habilita pero realmente no lo
+        // hace"—. El usuario pidió activar; la respuesta que necesita es la
+        // misma se escriba o se omita.
+        //
+        // `pause` se suma SÓLO sobre una fila `ACTIVE`, o sea sólo cuando la
+        // escritura hace algo. Pausar algo que ya está `PAUSED` llega con
+        // `motivo: 'ya_esta_en_ese_estado'` y la aclaración no agrega nada: el
+        // objeto no cambia y no entregaba antes ni después. Con esta mitad el
+        // aviso nuevo aparece sobre los 92 conjuntos `ACTIVE / CAMPAIGN_PAUSED`
+        // y no sobre los 67 que ya están pausados, así que el «ruido sobre la
+        // operación de lote más común» que temía la versión anterior queda
+        // acotado a las filas que efectivamente se están apagando.
+        //
+        // La asimetría entre las dos mitades es deliberada y no un descuido: son
+        // dos preguntas distintas, y cada una tiene su motivo escrito arriba.
+        const avisaPadreApagado = accion === 'activate' || fila.status === 'ACTIVE';
+        if (avisaPadreApagado) {
+          sumarAdvertencia(
+            base,
+            advertenciaPadreApagado(nivel, params.padres?.get(fila.objectId), accion),
+          );
         }
       }
       return base;

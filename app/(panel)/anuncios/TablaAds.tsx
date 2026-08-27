@@ -91,6 +91,24 @@ export type PropsTablaAds = {
   onBajarNivel: (fila: MetricasObjeto) => void;
   onEditarPresupuesto: (fila: MetricasObjeto, eur: number) => void;
   onToggleEstado: (fila: MetricasObjeto) => void;
+  /**
+   * Sube al nivel campaña con la campaña de la fila como única cascada (2.12 de
+   * `toggle-conjuntos-entrega`). Lo usa el link del tercer estado del
+   * interruptor, para las filas cuyo `effective_status` dice `CAMPAIGN_PAUSED`.
+   *
+   * Es NAVEGACIÓN y no cascada de escritura: la campaña se activa con su propio
+   * interruptor en su propia fila.
+   */
+  onIrACampania: (fila: MetricasObjeto) => void;
+  /**
+   * Los ids con un cambio de estado en vuelo (2.15 de `toggle-conjuntos-entrega`,
+   * task 14.3). Sólo se DIBUJA con esto: la guarda de doble disparo es el `Set`
+   * del ref de `GestorAnuncios`, que tiene que ser síncrono.
+   *
+   * Opcional para que la tabla se pueda dibujar sin él; sin el set, ninguna fila
+   * se ve en curso, que es exactamente lo que se veía antes de esta task.
+   */
+  togglesEnCurso?: ReadonlySet<string>;
   /** Edición del nombre de UNA fila: abre el renombrado en modo exacto (R12 c1). */
   onRenombrarFila: (fila: MetricasObjeto) => void;
   /**
@@ -261,7 +279,14 @@ export function TablaAds(props: PropsTablaAds): JSX.Element {
       );
     }
     if (c.clave === 'estado') {
-      return <ToggleEstado fila={fila} onToggle={props.onToggleEstado} />;
+      return (
+        <ToggleEstado
+          fila={fila}
+          onToggle={props.onToggleEstado}
+          onIrACampania={props.onIrACampania}
+          enCurso={props.togglesEnCurso?.has(fila.objectId) ?? false}
+        />
+      );
     }
     if (c.clave === 'presupuesto') {
       return (

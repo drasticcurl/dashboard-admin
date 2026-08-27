@@ -42,7 +42,13 @@
  */
 
 import { q, q1 } from '../db';
+import {
+  PERIODO_SYNC_JERARQUIA_SEGUNDOS,
+  UMBRAL_FRESCURA_DEFAULT_SEGUNDOS,
+  umbralDeRelectura,
+} from './frescura';
 import { fetchMinimoPresupuesto, fetchObjeto } from './meta';
+import { PRESUPUESTO_RELECTURA_MS } from './plazos';
 import { TZ_DEFAULT } from './zona';
 import type { AccionAds, MetaObjetoLeido, MetricasObjeto, NivelAds } from './tipos';
 import { calcularPrevisualizacion, type ParametrosAccion, type Previsualizacion } from './previsualizacion';
@@ -101,19 +107,18 @@ export type ObjetoPreflight = {
 export const TOPE_RELECTURA = 10;
 
 /**
- * Presupuesto de tiempo de TODA la relectura, en milisegundos.
+ * Presupuesto de tiempo de TODA la relectura, en milisegundos. El tope de arriba
+ * acota la CANTIDAD de llamadas; esto acota la espera, que es lo que el usuario
+ * siente. El número y su justificación viven en `lib/ads/plazos.ts`, junto a los
+ * dos deadlines de Meta, porque los tres son términos de la misma suma: el peor
+ * caso de un click, contra el que se compara el plazo del cliente.
  *
- * El tope de arriba acota la cantidad de llamadas; esto acota la espera, que es
- * lo que el usuario siente. 4 s alcanzan para unas 10 lecturas a la latencia
- * habitual de la Graph API y, cuando la latencia se va, cortan a los 4 s en
- * lugar de a los 10 × 30 s del timeout propio de `pedir` (que es el presupuesto
- * de un cron, no el de alguien esperando que un interruptor conteste).
- *
- * Cada llamada se corre contra el REMANENTE del presupuesto, no contra el total:
- * una sola llamada colgada se come su parte y las siguientes ya no se intentan,
- * en lugar de multiplicar la espera por la cantidad de candidatos.
+ * **Se RE-EXPORTA desde acá a propósito.** `acciones.relectura.test.ts` y
+ * `togglePlazo.test.ts` lo importan de `lib/ads/acciones` y uno de los dos lo
+ * interpola en el texto de «presupuesto agotado»: cambiarles el path del import
+ * sería editar dos tests por un cambio que no mueve ningún valor.
  */
-export const PRESUPUESTO_RELECTURA_MS = 4_000;
+export { PRESUPUESTO_RELECTURA_MS };
 
 /**
  * Qué pasó con la relectura de un objeto. Sólo los dos primeros decidieron con
@@ -525,6 +530,9 @@ const eur = (n: number): string => `€${dosDecimales.format(n)}`;
  * 900 de la 025): `settings.value` es jsonb y puede tener cualquier cosa, y un
  * `NaN` acá dejaría a todos los objetos por encima del umbral y convertiría cada
  * click en una relectura contra Meta.
+ *
+ * El del umbral sale de `UMBRAL_FRESCURA_DEFAULT_SEGUNDOS` y no de un literal:
+ * es el mismo número que leen `/api/data/ads`, `page.tsx` y `GestorAnuncios.tsx`.
  */
 export async function topesDeSettings(): Promise<{
   techoEur: number;
@@ -540,7 +548,9 @@ export async function topesDeSettings(): Promise<{
     techoEur: typeof r?.max === 'number' ? (r.max as number) : 200,
     topeLoteEur: typeof r?.delta === 'number' ? (r.delta as number) : 300,
     umbralFrescuraSegundos:
-      typeof r?.umbral === 'number' && r.umbral >= 0 ? (r.umbral as number) : 900,
+      typeof r?.umbral === 'number' && r.umbral >= 0
+        ? (r.umbral as number)
+        : UMBRAL_FRESCURA_DEFAULT_SEGUNDOS,
   };
 }
 
@@ -831,15 +841,41 @@ function edadEnSegundos(syncedAt: string | null, ahora: Date): number | null {
  *
  * Un `synced_at` nulo o ilegible cuenta como viejo: "no sé de cuándo es este
  * dato" no es una razón para confiar en él.
+ *
+ * LA COMPARACIÓN NO ES CONTRA `umbralSegundos` PELADO, y ésa es la corrección del
+ * bug 1: el umbral de `settings` vale 900 y el cron de la jerarquía corre cada 900
+ * s, así que sin margen la edad de una fila SANA cruzaba el umbral por la sola
+ * varianza de la corrida y metía una lectura a Meta en el camino crítico de cada
+ * click. `umbralDeRelectura` le SUMA la mitad del período (el signo importa y está
+ * explicado allá): el borde pasa de 900 a 1350 s. Lo que se conserva es el caso
+ * para el que la relectura existe —una corrida perdida deja la edad en ≈1800 s y
+ * sigue releyendo—, porque el margen es menor que el período.
+ *
+ * **El orden de estas tres líneas es lo que preserva 3.15, no el cuidado de quien
+ * edita**: la marca de desaparición devuelve antes de mirar la edad, y el
+ * `edad === null` —`synced_at` nulo o ilegible— cortocircuita antes de la
+ * comparación, así que ninguno de los tres mira el margen. Moverlos debajo de la
+ * comparación pone en rojo los tres casos de `acciones.margen.test.ts`.
+ *
+ * El otro consumidor del mismo valor de `settings`, `frescuraDeFila` de
+ * `celdas.tsx`, NO lleva margen a propósito: pregunta otra cosa (si el dato se le
+ * tiene que ver viejo a una persona) y su borde es un compromiso de producto.
+ *
+ * Exportada para la Property 1 de `toggle-conjuntos-entrega` (task 1), con el
+ * mismo criterio con el que ya están exportadas `dibujoDeEstado`,
+ * `frescuraDeFila` y `accionDeToggle`: la decisión tiene que poder verificarse
+ * para TODO par (umbral, edad) y la única otra entrada sería `relecturaSelectiva`,
+ * que es privada, pega a la base y mockea `fetchObjeto` — o sea que la property
+ * quedaría atada a un integration test. El `export` no cambia comportamiento.
  */
-function causaDeRelectura(
+export function causaDeRelectura(
   o: ObjetoPreflight,
   umbralSegundos: number,
   ahora: Date,
 ): 'vieja' | 'desaparecida' | null {
   if (o.desaparecidoAt !== null) return 'desaparecida';
   const edad = edadEnSegundos(o.syncedAt, ahora);
-  if (edad === null || edad > umbralSegundos) return 'vieja';
+  if (edad === null || edad > umbralDeRelectura(umbralSegundos, PERIODO_SYNC_JERARQUIA_SEGUNDOS)) return 'vieja';
   return null;
 }
 

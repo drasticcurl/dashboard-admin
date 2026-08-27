@@ -5,6 +5,7 @@ import { q, q1 } from '../../../../lib/db';
 import { POST } from './route';
 import { enviar, fetchObjeto } from '../../../../lib/ads/meta';
 import { isAuthenticated } from '../../../../lib/auth';
+import { esperarRefrescosPendientes } from './_diferir';
 
 /**
  * Task 16 de frescura-y-acciones-anuncios (R3.6, R4.7): `refrescarJerarquia`
@@ -25,6 +26,20 @@ import { isAuthenticated } from '../../../../lib/auth';
  * no tiene esa columna, así que un pause/activate a nivel `ad` corta en el
  * preflight antes de llegar acá. La rama `ad` de `refrescarJerarquia` escribe la
  * misma columna con el mismo literal.
+ *
+ * ## EL ÚNICO CAMBIO DE LA TASK 14.2: `await esperarRefrescosPendientes()`
+ *
+ * Desde la tanda C de `toggle-conjuntos-entrega`, `refrescarJerarquia` corre
+ * DIFERIDA: la respuesta sale sin esperarla. Este archivo mira la base después de
+ * la respuesta, así que sin la espera estaría corriendo una carrera contra el
+ * refresco —y se corrió: pasó igual, o sea que la habría ganado casi siempre y
+ * habría fallado en la máquina cargada del día—. Con `esperarRefrescosPendientes`
+ * la espera es exacta y no hay ninguna gracia de reloj que invalidar.
+ *
+ * **Ninguna aserción de este archivo cambió**, y eso es lo que verifica la task
+ * 14.5: en particular el caso 2 sigue afirmando que `marca` y `sync` quedan
+ * intactos, que es lo que prueba que la Escritura_Confirmada_Local escribió
+ * `status` y nada más.
  */
 
 if (typeof process.loadEnvFile === 'function' && existsSync(path.join(process.cwd(), '.env'))) {
@@ -150,6 +165,7 @@ describe.skipIf(!dbAvailable)('refrescarJerarquia y la marca de desaparición (T
     const cuerpo = (await resp.json()) as { resultados: { estado: string }[] };
     expect(cuerpo.resultados[0]?.estado).toBe('confirmado');
 
+    await esperarRefrescosPendientes();
     const despues = await fila(CAMP_VUELVE);
     expect(despues?.marca).toBeNull();
     expect(despues?.status).toBe('ACTIVE'); // lo que devolvió la relectura
@@ -175,6 +191,7 @@ describe.skipIf(!dbAvailable)('refrescarJerarquia y la marca de desaparición (T
     const cuerpo = (await resp.json()) as { resultados: { estado: string }[] };
     expect(cuerpo.resultados[0]?.estado).toBe('confirmado');
 
+    await esperarRefrescosPendientes();
     const despues = await fila(CAMP_AUSENTE);
     expect(despues?.marca).toBe(antes?.marca);
     expect(despues?.sync).toBe(antes?.sync);

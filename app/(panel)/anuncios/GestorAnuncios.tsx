@@ -22,8 +22,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { UMBRAL_FRESCURA_DEFAULT_SEGUNDOS } from '@/lib/ads/frescura';
 import type { FrescuraAds } from '@/lib/ads/live';
 import type { FrescuraJerarquia } from '@/lib/ads/liveJerarquia';
+import { plazoClienteEstadoMs } from '@/lib/ads/plazos';
 import { textoEdad, usePollingGasto } from '@/lib/ads/polling';
 import type {
   AccionAds,
@@ -57,9 +59,9 @@ import {
   type Cascada,
   type EstadoSeleccion,
   type EventoSeleccion,
-  MAX_CASCADA,
   MAX_SELECCION,
 } from '@/lib/ads/seleccion';
+import { cascadaDeCampania, cascadaInicial, paramsDeNivel } from './cascadaUrl';
 import {
   calcularPrevisualizacion,
   type ParametrosAccion,
@@ -101,15 +103,6 @@ type Respuesta = ResultadoMetricas & {
   alcanceError?: string | null;
   sinCuentas?: boolean;
 };
-
-/**
- * El default del umbral de frescura, igual al que seedea la migración 025.
- *
- * Sólo se usa si la respuesta no lo trae: el primer render lo recibe como prop
- * del server component, así que el valor real de `settings` ya está antes de
- * que corra el primer fetch del cliente.
- */
-const UMBRAL_FRESCURA_DEFAULT = 900;
 
 const NIVEL_LABEL: Record<NivelAds, string> = {
   campaign: 'Campañas',
@@ -288,6 +281,127 @@ export function accionDeToggle(status: string | null): 'pause' | 'activate' {
 export function statusOptimista(accion: 'pause' | 'activate'): 'PAUSED' | 'ACTIVE' {
   return accion === 'pause' ? 'PAUSED' : 'ACTIVE';
 }
+
+/**
+ * La oración con la que termina TODO aviso de un toggle que no confirmó,
+ * **textual en las dos ramas** de `textoDeFalloDeToggle` (task 16.2, R2.6).
+ *
+ * Es una constante y no dos literales copiados porque es lo único que el aviso
+ * puede afirmar cuando el desenlace es indeterminado, y porque es la oración que
+ * los tests de las dos causas —la red en `toggleEstado.test.ts`, el plazo acá—
+ * buscan por la palabra «reconciliación».
+ *
+ * **Lo que NO dice, y no puede decir: que el cambio no ocurrió.** Un POST cortado
+ * pudo haberse aplicado en Meta igual (R3.1), así que el aviso dice qué pasó con
+ * la FILA —que quedó como estaba— y deja el desenlace del PEDIDO abierto. Es el
+ * mismo criterio con el que `enviar` clasifica su propio timeout como
+ * `indeterminado` en lugar de como fallo.
+ */
+const CIERRE_INDETERMINADO =
+  'La fila quedó como estaba; si el pedido llegó a Meta, el resultado se define ' +
+  'cuando corra la reconciliación.';
+
+/**
+ * ¿Este error es el plazo del cliente que se venció, y no otra cosa?
+ *
+ * Mira `error.name`, que es donde el `DOMException` de un `AbortSignal` lo pone:
+ * `TimeoutError` cuando el signal salió de `AbortSignal.timeout` en Node/undici
+ * —el caso de este código— y `AbortError` en algunos navegadores. Los dos nombres
+ * están medidos y anotados en el docblock de `errorDePlazo` de
+ * `toggleEstado.test.ts`.
+ *
+ * **Cuando no reconoce nada devuelve `false`, y eso cae al segundo texto a
+ * propósito: decir menos, no afirmar más.** El segundo texto interpola el mensaje
+ * del error, que para un error desconocido es más informativo que una frase sobre
+ * un plazo que puede no haber sido la causa. La rama del plazo afirma algo
+ * concreto —«esperamos 44 s»— y sólo se usa cuando eso es verdad.
+ */
+export function esAbortoPorPlazo(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false;
+  const nombre = (error as { name?: unknown }).name;
+  return nombre === 'TimeoutError' || nombre === 'AbortError';
+}
+
+/**
+ * El texto del aviso cuando un toggle no confirma (task 16.2).
+ *
+ * Pura y exportada, el mismo patrón que `accionDeToggle` y `statusOptimista`: el
+ * texto de un aviso que tiene que cumplir R2.6 y R3.1 se verifica sin render o no
+ * se verifica.
+ *
+ * Dos ramas, porque el vencimiento del plazo y un error de red son dos hechos
+ * distintos para el usuario aunque el desenlace sea el mismo. Antes de esta
+ * función había una sola y el `catch` interpolaba `e.message`, que para un
+ * `AbortSignal.timeout` es `The operation was aborted due to timeout`: una frase
+ * en inglés dentro de un aviso en castellano, que además no dice cuánto se
+ * esperó.
+ *
+ * **Las dos terminan con `CIERRE_INDETERMINADO`, textual.** Ninguna afirma que el
+ * cambio no ocurrió.
+ *
+ * @param plazoMs el plazo que se le dio al pedido, para poder nombrarlo. Sale de
+ *   `plazoClienteEstadoMs`, así que si el peor caso del servidor cambia el aviso
+ *   dice el número nuevo sin que nadie lo edite.
+ */
+export function textoDeFalloDeToggle(error: unknown, plazoMs: number): string {
+  if (esAbortoPorPlazo(error)) {
+    return `El cambio de estado no confirmó en ${Math.round(plazoMs / 1000)} segundos. ${CIERRE_INDETERMINADO}`;
+  }
+  const detalle = error instanceof Error ? error.message : String(error);
+  return `El cambio de estado no se pudo completar: ${detalle}. ${CIERRE_INDETERMINADO}`;
+}
+
+/** El plazo de `duplicate`, que este spec NO toca (R3.14). */
+const PLAZO_LOTE_DUPLICATE_MS = 300_000;
+
+/**
+ * El plazo del lote, que este spec deja en 60 s para todo lo que no sea
+ * `pause`/`activate` ni `duplicate`.
+ *
+ * **PENDIENTE CON DUEÑO CONOCIDO, y va acá y no implícito en un `if`:**
+ * `budget_set`, `rename` y `schedule` tienen la MISMA clase de defecto que este
+ * spec arregla para `pause`/`activate` —un plazo del cliente fijo que nadie
+ * comparó contra el peor caso de su propio camino en el servidor— y siguen con
+ * este número. Quedan afuera porque R1.9 y R2.5–R2.8 hablan de `pause`/`activate`
+ * y porque extenderlo pide medir el peor caso de cada una: `budget_set` tiene su
+ * propio `fetchMinimoPresupuesto` en el preflight, y `rename` tiene su propia
+ * copia de la relectura (`route.ts`, los dos caminos del renombrado) que la tanda
+ * C **no** difirió.
+ */
+const PLAZO_LOTE_OTRAS_MS = 60_000;
+
+/**
+ * El plazo que el cliente le da a un lote, por acción y por cantidad de objetos
+ * (task 16.3, R1.9 y R2.7).
+ *
+ * Era `accion === 'duplicate' ? 300_000 : 60_000`, y el 60 s era el bug: es MENOR
+ * que el peor caso del servidor para **un solo objeto** pre-C (64 s), y el lote
+ * hace ese camino por objeto en serie. Un lote de 20 se abandonaba a los 60 s
+ * cuando el servidor podía tardar 604 s, y cada pedido abandonado que estaba por
+ * confirmarse se convierte en un desenlace indeterminado: exactamente lo que R2.7
+ * prohíbe.
+ *
+ * Pura y exportada por la misma razón que `textoDeFalloDeToggle`: el número está
+ * adentro de un `fetch` de un handler del componente, y es lo único de ese handler
+ * que un test puede mirar.
+ *
+ * **`duplicate` no se toca (R3.14):** sus 300 s no salen de esta cuenta —su peor
+ * caso es la creación de `n × copias` objetos, otro camino— y sus filas fantasma y
+ * su vaciado al responder dependen de ese número.
+ */
+export function plazoDeLoteMs(accion: AccionAds, cantidad: number): number {
+  if (accion === 'duplicate') return PLAZO_LOTE_DUPLICATE_MS;
+  if (accion === 'pause' || accion === 'activate') return plazoClienteEstadoMs(cantidad);
+  return PLAZO_LOTE_OTRAS_MS;
+}
+
+// ─── La ida y la vuelta del nivel y la cascada por la URL (2.12) ─────────────
+//
+// Las cuatro piezas puras del link del tercer estado del interruptor viven en
+// `./cascadaUrl`, y **no acá**: `page.tsx` las necesita y este archivo es
+// `'use client'`, así que sus exports le llegan al server como referencias de
+// cliente y llamarlas tira «Attempted to call … from the server». El módulo de al
+// lado no tiene directiva y sirve a los dos. El detalle largo está en su docblock.
 
 /**
  * La lista de filas con el `status` de UNA cambiado. Escritura condicional: con
@@ -488,11 +602,33 @@ export async function ejecutarToggle(
     entorno.pintar(fila.objectId, statusPrevio, pintado);
   };
 
+  /**
+   * El plazo de ESTE pedido (task 16.2, R2.5).
+   *
+   * ## Por qué el plazo entra acá y no en el `pedir` del componente
+   *
+   * `pedir` es `(url, init) => fetch(url, init)` y vive adentro del componente,
+   * o sea en la parte del archivo que ningún test de este repo puede tocar
+   * (vitest corre en node, sin jsdom y sin testing-library). Si el número
+   * estuviera ahí, la desigualdad de R2.7 —que el plazo del cliente sea mayor que
+   * el peor caso del servidor— quedaría sin verificar justamente en el camino que
+   * el usuario usa. Acá el `init` es observable: el `pedir` del test lo registra.
+   *
+   * `1` porque el toggle de una fila manda UN objeto: es el mismo `objectIds` de
+   * abajo, y por eso el `n` no es un parámetro de esta función.
+   *
+   * **El vencimiento no necesita código nuevo**: el abort rechaza el `pedir`, cae
+   * en el `catch` de abajo, y ese `catch` ya revierte con su guarda condicional,
+   * ya avisa y ya libera el id en el `finally`. Lo único que cambia es el texto.
+   */
+  const plazoMs = plazoClienteEstadoMs(1);
+
   try {
     const res = await entorno.pedir('/api/ads/acciones', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ level: fila.level, accountId: fila.accountId, action: destino, objectIds: [fila.objectId] }),
+      signal: AbortSignal.timeout(plazoMs),
     });
     const av = mensajeDeResultado(res.status, await cuerpoDeAcciones(res));
     // Lo que decide la reversión es `aplicado`, NO la nulidad del aviso.
@@ -538,16 +674,16 @@ export async function ejecutarToggle(
     // mismo dato viejo que causó la Omisión.
     entorno.refrescar();
   } catch (e) {
-    // Red, abort o cuerpo ilegible: no se sabe si Meta lo aplicó, así que la
-    // fila vuelve a lo que era (R2 c3) en lugar de quedar afirmando un cambio
+    // Red, plazo vencido o cuerpo ilegible: no se sabe si Meta lo aplicó, así que
+    // la fila vuelve a lo que era (R2 c3) en lugar de quedar afirmando un cambio
     // que nadie confirmó.
+    //
+    // El texto sale de `textoDeFalloDeToggle` y no de un template acá para que las
+    // dos causas se puedan distinguir —el plazo nombra el plazo, el resto
+    // interpola el mensaje— sin que ninguna de las dos pueda afirmar que el cambio
+    // no ocurrió (R2.6, R3.1). La oración del cierre es textual en las dos.
     revertir();
-    entorno.avisar({
-      tono: 'error',
-      texto:
-        `El cambio de estado no se pudo completar: ${e instanceof Error ? e.message : String(e)}. ` +
-        'La fila quedó como estaba; si el pedido llegó a Meta, el resultado se define cuando corra la reconciliación.',
-    });
+    entorno.avisar({ tono: 'error', texto: textoDeFalloDeToggle(e, plazoMs) });
   } finally {
     entorno.enVuelo.delete(fila.objectId);
   }
@@ -653,16 +789,9 @@ export function GestorAnuncios({
   const [estadoSel, setEstadoSel] = useState<EstadoSeleccion>(
     estadoInicial(nivelInicial),
   );
-  const [cascada, setCascada] = useState<Cascada | null>(() => {
-    const ids = nivelInicial === 'adset'
-      ? filtrosIniciales.campaignIds
-      : nivelInicial === 'ad'
-        ? filtrosIniciales.adsetIds
-        : undefined;
-    return ids && ids.length > 0
-      ? { nivel: nivelInicial === 'ad' ? 'adset' : 'campaign', ids: ids.slice(0, MAX_CASCADA), descartados: Math.max(0, ids.length - MAX_CASCADA), motivo: ids.length > MAX_CASCADA ? 'tope' : null }
-      : null;
-  });
+  const [cascada, setCascada] = useState<Cascada | null>(() =>
+    cascadaInicial(nivelInicial, filtrosIniciales.campaignIds, filtrosIniciales.adsetIds),
+  );
 
   // Vista aplicada y columnas en pantalla (R3 c8: la Vista_Por_Defecto llega
   // del server component en el primer render, sin salto visual).
@@ -699,8 +828,12 @@ export function GestorAnuncios({
   const [maxDelta, setMaxDelta] = useState(300);
   // El umbral con el que se decide si una fila está vieja. Lo consume la marca
   // de la celda de nombre y el conteo de filas desactualizadas (task 8).
+  //
+  // El default sólo se usa si la respuesta no lo trae: el primer render lo recibe
+  // como prop del server component, así que el valor real de `settings` ya está
+  // antes de que corra el primer fetch del cliente.
   const [umbralFrescura, setUmbralFrescura] = useState(
-    frescuraUmbralSegundos ?? UMBRAL_FRESCURA_DEFAULT,
+    frescuraUmbralSegundos ?? UMBRAL_FRESCURA_DEFAULT_SEGUNDOS,
   );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -884,18 +1017,7 @@ export function GestorAnuncios({
   // ── La URL refleja nivel y cascada (R8 c7) ──
   const escribirUrl = useCallback(
     (nuevoNivel: NivelAds, nuevaCascada: { nivel: 'campaign' | 'adset'; ids: readonly string[] } | null, extra?: Record<string, string>) => {
-      const params = new URLSearchParams(searchParams.toString());
-      params.set('level', nuevoNivel);
-      params.delete('campaignIds');
-      params.delete('adsetIds');
-      if (nuevaCascada && nuevaCascada.ids.length > 0) {
-        const clave = nuevaCascada.nivel === 'campaign' ? 'campaignIds' : 'adsetIds';
-        for (const id of nuevaCascada.ids) params.append(clave, id);
-      }
-      for (const [k, v] of Object.entries(extra ?? {})) {
-        if (v) params.set(k, v);
-        else params.delete(k);
-      }
+      const params = paramsDeNivel(searchParams.toString(), nuevoNivel, nuevaCascada, extra);
       router.replace(`/anuncios?${params.toString()}`, { scroll: false });
     },
     [router, searchParams],
@@ -975,6 +1097,44 @@ export function GestorAnuncios({
     setCascada(nuevaCascada);
     setNivel(nivelAbajo);
     escribirUrl(nivelAbajo, nuevaCascada);
+  };
+
+  /**
+   * Sube al nivel campaña con la campaña de esta fila como única cascada (2.12 de
+   * `toggle-conjuntos-entrega`). **Espejo exacto de `bajarNivel`.**
+   *
+   * Lo dispara el link del tercer estado del interruptor: un conjunto con
+   * `effective_status = 'CAMPAIGN_PAUSED'` no entrega y lo único que lo haría
+   * entregar es activar su campaña, que hasta ahora había que ir a buscar a mano.
+   *
+   * **NO pasa por la máquina de estados de `seleccion.ts`**, igual que
+   * `bajarNivel`: esa máquina no tiene evento para SUBIR, y agregarlo es más
+   * cambio que estas líneas. El precedente ya estaba y esto no lo inventa.
+   *
+   * **No hay SQL nuevo, y eso se verificó antes de elegir este camino**: el
+   * filtro de cascada de `lib/queries/ads.ts` es `o."campaignId" = ANY($campaignIds)`
+   * en el `WHERE` de afuera, y a nivel campaña el `SELECT` emite
+   * `c.campaign_id AS "campaignId"`. O sea que `level=campaign&campaignIds=<id>`
+   * ya filtra a esa campaña.
+   *
+   * **Es navegación y no cascada de escritura**: la campaña se activa con su
+   * propio interruptor en su propia fila. Activar una campaña cambia la entrega y
+   * el gasto de todos sus conjuntos, y hoy no hay ninguna previa que muestre ese
+   * alcance antes de tocar 92 objetos.
+   *
+   * Lo que se descartó y no se rediscute: filtrar por `nombre` (es substring e
+   * insensible a mayúsculas, así que con dos campañas parecidas lleva a la fila
+   * equivocada o a dos) y cambiar de nivel resaltando sin filtrar (la tabla está
+   * paginada y ordenada por gasto, y una campaña pausada sin gasto puede no estar
+   * en la página o quedar escondida por `status=active` o `ocultarSinDatos`).
+   */
+  const subirACampania = (fila: MetricasObjeto): void => {
+    const nuevaCascada = cascadaDeCampania(fila);
+    if (nuevaCascada === null) return;
+    setEstadoSel(estadoInicial('campaign'));
+    setCascada(nuevaCascada);
+    setNivel('campaign');
+    escribirUrl('campaign', nuevaCascada);
   };
 
   const tildar = (id: string): void => {
@@ -1134,18 +1294,55 @@ export function GestorAnuncios({
    * `activate confirmado` sobre el mismo conjunto separadas por un segundo,
    * porque no había ninguna guarda.
    *
-   * Ref y no estado: no se dibuja nada con esto, y un `setState` por click
-   * volvería a renderizar la tabla entera sin necesidad.
+   * Ref y no estado: **es la guarda, no el dibujo** (3.11). Tiene que ser
+   * síncrono, porque dos clicks en el mismo tick no pueden pasar los dos y un
+   * `setState` es asíncrono. Lo que se dibuja sale de `togglesEnCurso`, abajo.
    */
   const enVueloToggle = useRef<Set<string>>(new Set());
+
+  /**
+   * Los ids que se DIBUJAN como en curso (2.15, task 14.3). Dos estructuras con
+   * dos trabajos, y el reparto es la decisión: el ref de arriba decide si el
+   * pedido sale, este estado decide qué ve el usuario mientras el pedido está en
+   * vuelo. Antes el único indicio era el Pintado_Optimista, que es indistinguible
+   * de un cambio ya confirmado.
+   *
+   * El comentario original del ref decía que un `setState` por click volvería a
+   * renderizar la tabla entera sin necesidad. Ese argumento no se pierde, se
+   * acota: **el camino del toggle ya renderiza la tabla entera**, porque el
+   * Pintado_Optimista llama a `setData`. El render que ese comentario quería
+   * evitar era el de consultar la guarda en CADA click —incluidos los
+   * descartados—, y eso sigue saliendo del ref. Este estado agrega un render al
+   * arrancar y uno al terminar, sobre un camino que ya tenía uno de cada.
+   */
+  const [togglesEnCurso, setTogglesEnCurso] = useState<ReadonlySet<string>>(new Set());
+
+  const marcarEnCurso = (objectId: string, enCurso: boolean): void =>
+    setTogglesEnCurso((prev) => {
+      const next = new Set(prev);
+      if (enCurso) next.add(objectId);
+      else next.delete(objectId);
+      return next;
+    });
 
   /**
    * El toggle de una fila: `ejecutarToggle` con este componente como entorno.
    * Toda la lógica está allá arriba, afuera del componente, para que la guarda y
    * la reversión se puedan testear sin render (task 4.3).
+   *
+   * El marcado del dibujo va acá y no adentro de `ejecutarToggle` porque el
+   * `enVuelo` del entorno ya dice lo mismo y sumarle un tercer lugar que lo
+   * repita sería el problema que este spec vino a arreglar. El `finally` es del
+   * `then/finally` de la promesa y no del `try` de allá: lo único que necesita es
+   * correr cuando el pedido termine, con cualquier desenlace.
    */
-  const toggleEstado = (fila: MetricasObjeto): Promise<void> =>
-    ejecutarToggle(fila, {
+  const toggleEstado = (fila: MetricasObjeto): Promise<void> => {
+    // Si el id ya está en vuelo el pedido se descarta allá adentro, así que acá
+    // tampoco se marca nada: la señal tiene que decir «hay un pedido», y el
+    // segundo click no crea ninguno.
+    if (enVueloToggle.current.has(fila.objectId)) return Promise.resolve();
+    marcarEnCurso(fila.objectId, true);
+    return ejecutarToggle(fila, {
       enVuelo: enVueloToggle.current,
       pintar: (objectId, status, siMuestra) =>
         setData((prev) => ({
@@ -1155,7 +1352,8 @@ export function GestorAnuncios({
       avisar: setAvisoTonal,
       refrescar: () => setRetryTick((x) => x + 1),
       pedir: (url, init) => fetch(url, init),
-    });
+    }).finally(() => marcarEnCurso(fila.objectId, false));
+  };
 
   const editarPresupuesto = (fila: MetricasObjeto, eur: number): void => {
     // El importe escrito en la celda siembra el campo del diálogo, y el alcance
@@ -1312,9 +1510,13 @@ export function GestorAnuncios({
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(body),
-        // R18 c6: si el lote asíncrono no responde en 300 s, se vacía el estado
-        // en proceso y se informa qué se aplicó y qué no.
-        signal: AbortSignal.timeout(confirmacion.accion === 'duplicate' ? 300_000 : 60_000),
+        // R18 c6: si el lote asíncrono no responde dentro de su plazo, se vacía
+        // el estado en proceso y se informa qué se aplicó y qué no. El `catch` de
+        // abajo no cambia con la task 16.3: ya conserva la ambigüedad («los
+        // resultados sin confirmar se definen cuando corra la reconciliación») y ya
+        // vacía las filas en proceso. Lo único que cambia es el número, y ahora
+        // depende de la acción y de cuántos objetos van.
+        signal: AbortSignal.timeout(plazoDeLoteMs(confirmacion.accion, ids.length)),
       });
       const cuerpo = await cuerpoDeAcciones(res);
       // R16 c6 / R18 c9: las filas fantasma se VACÍAN completas al responder y
@@ -1566,7 +1768,7 @@ export function GestorAnuncios({
         cuentas={cuentas}
         cascada={
           cascada ? (
-            <ChipCascada cascada={cascada} nombres={new Map(Object.entries(nombresCascada))} onLimpiar={limpiarCascada} />
+            <ChipCascada cascada={cascada} nivelActivo={nivel} nombres={new Map(Object.entries(nombresCascada))} onLimpiar={limpiarCascada} />
           ) : null
         }
         ocultarSinDatos={ocultarSinDatos}
@@ -1729,7 +1931,9 @@ export function GestorAnuncios({
               evento({ tipo: 'tildar_todas', idsPagina: filas.map((f) => f.objectId) })
             }
             onBajarNivel={bajarNivel}
+            onIrACampania={subirACampania}
             onEditarPresupuesto={editarPresupuesto}
+            togglesEnCurso={togglesEnCurso}
             onToggleEstado={(f) => void toggleEstado(f)}
             onRenombrarFila={(fila) => abrirConfirmacion('rename', {}, [fila.objectId])}
             enProceso={enProceso}
