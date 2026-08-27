@@ -12,13 +12,16 @@ Lo más nuevo va arriba. Las reglas de cómo se escribe una entrada están en
 
 ## 2026-08-27 — El interruptor de conjuntos: el umbral sin margen, el POST sin plazo, el control que no hablaba de la entrega y la relectura en el camino crítico
 
-Spec `toggle-conjuntos-entrega` **completo, tareas 1 a 18**, sobre `7ddb963`.
-**Sin commitear: el hash todavía no existe y va en este párrafo cuando exista.**
+Spec `toggle-conjuntos-entrega` **completo, tareas 1 a 18**, en **`f23406b`**. El
+padre es `7ddb963`, el commit que había dejado el spec escrito y sin implementar.
 
-El inventario del checkpoint dio **18 archivos modificados, +2416/−213** y **13
-nuevos**. De ese total, 962 líneas eran esta entrada —que siguió creciendo
-mientras se escribía, así que ese número se mueve— y 39 el `tasks.md` del spec:
-**de código y tests son +1377/−174 en 15 archivos, más los 13 nuevos.**
+El commit son **31 archivos, +7448/−213** (17 modificados, 14 nuevos), y ese
++7448 no es código: **1368 líneas son esta entrada** —el checkpoint intermedio
+había contado 962 y la entrada siguió creciendo mientras se escribía, y su
+`--stat` tampoco sumaba los archivos nuevos: de ahí el +2416 que decía antes este
+párrafo—, 515 son el `tasks.meta.json` del spec y +39/−39 su `tasks.md`. **De
+código y tests son +5526/−174 en 28 archivos, 13 de ellos nuevos.** Los números
+salen de `git show --numstat f23406b`.
 
 **Lo que está en el mismo tree y NO es de este cambio**, dicho acá por lo que
 costó el 2026-08-24: `tasks/finanzas/00-PLAN-FINANZAS.md` (+38) y las carpetas
@@ -243,7 +246,7 @@ y una espera que nadie necesita:
 
 **Consecuencias pendientes.** El `export` de `causaDeRelectura`
 (`lib/ads/acciones.ts:843`, la única precondición de producción de la tarea 1, sin
-cambio de comportamiento) está en el working tree sin commitear. **Es lo único de
+cambio de comportamiento) entró en `f23406b`, como el resto. **Es lo único de
 producción que la fase 0 tocó:** las tareas 3 y 4 no cambiaron una línea de código
 de producción, sólo agregaron dos archivos de test. Los cuatro archivos quedan en
 rojo hasta las tareas 11.3, 16.2/16.3, 13.1/13.2 y 14.1/14.2. Dos puentes quedan
@@ -283,7 +286,7 @@ sin jsdom por decisión de todo el repo.
 
 ### Fase 1, tareas 5 y 6 — los dos baselines de preservación, vistos PASAR antes del arreglo
 
-Misma tanda de trabajo, mismo working tree sin commitear. Va acá y no en una
+Misma tanda de trabajo, mismo commit `f23406b`. Va acá y no en una
 entrada nueva porque es la otra mitad de la misma idea: la fase 0 dejó cuatro
 tests rojos a propósito y la fase 1 deja los verdes que van a decir si el arreglo
 rompió algo. Los dos son de la **ventana que no se recupera**: un test de
@@ -402,7 +405,7 @@ todavía no existe.
 
 ### Fase 1, tareas 7 y 8 — los otros dos baselines, y el inventario de lo que la 13.2 va a romper
 
-Cierra la fase 1: las tandas B y C. Mismo working tree sin commitear.
+Cierra la fase 1: las tandas B y C. Misma tanda, mismo commit `f23406b`.
 
 **Qué pasaba.** Dos cosas que el diseño declara intocables y que nadie había
 ejecutado, más una que estaba cubierta a medias y no se veía:
