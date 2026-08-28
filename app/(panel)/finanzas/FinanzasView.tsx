@@ -19,19 +19,30 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Bar, BarChart, CartesianGrid, Tooltip, XAxis, YAxis } from 'recharts';
-import { panelColors } from '@/tailwind.config';
 import type {
   FinanceCategory,
   FinanceMovement,
   FinanceMovementKind,
   FinanceOverview,
-  MonthlyPoint,
   ScheduledPayment,
 } from '@/lib/queries/finance';
-import { Badge, Banner, Card, ChartFrame, IconButton, Spinner, Table, fmtAxis, fmtDate, fmtMoney } from '@/components/ui';
+import type {
+  AccountWithBalance,
+  FinanceAccount,
+  PuntoDiario,
+  PuntoMensual,
+  SaldoOverview,
+} from '@/lib/queries/saldo';
+import { Badge, Banner, Card, IconButton, Spinner, Table, fmtDate, fmtMoney } from '@/components/ui';
 import { inputCls, btnCls, btnPrimary, btnGhost } from '../config/kit';
 import { formatearMontoParaInput, parsearMonto } from '@/lib/monto';
+import { CargaDiaria } from './CargaDiaria';
+import { CuentasSection } from './CuentasSection';
+import { GraficoSaldo } from './GraficoSaldo';
+
+// Este archivo ya NO importa recharts. El gráfico vive en GraficoSaldo.tsx, que
+// además es el único que lo necesita: dejarlo acá arrastraba la librería a un
+// componente de 600 líneas que casi nunca la usaba.
 
 const CATEGORIES: FinanceCategory[] = ['sueldos', 'herramientas', 'alquiler', 'impuestos', 'otros'];
 
@@ -39,12 +50,31 @@ const KIND_LABEL: Record<FinanceMovementKind, string> = {
   gasto: 'Gasto',
   retiro: 'Retiro',
   ajuste: 'Ajuste',
+  aporte: 'Aporte',
 };
 
-const KIND_TONE: Record<FinanceMovementKind, 'neutral' | 'info' | 'warn'> = {
+const KIND_TONE: Record<FinanceMovementKind, 'neutral' | 'info' | 'warn' | 'good'> = {
   gasto: 'neutral',
   retiro: 'info',
   ajuste: 'warn',
+  // `good` porque es plata que ENTRA: es el único movimiento con signo positivo.
+  aporte: 'good',
+};
+
+/**
+ * Qué es cada tipo, en una línea, al lado del selector.
+ *
+ * El de `aporte` no es decorativo: es el único que cambia un número de la
+ * pantalla de forma no obvia. La ganancia del mes se calcula como
+ * `Δ patrimonio − retiros − aportes`, así que plata propia cargada como `ajuste`
+ * en lugar de `aporte` infla la ganancia del mes sin que nada avise. Sin esta
+ * ayuda nadie va a saber cuál elegir.
+ */
+const KIND_AYUDA: Record<FinanceMovementKind, string> = {
+  gasto: 'plata que sale del negocio (sueldos, herramientas, alquiler…).',
+  retiro: 'plata que sacás para vos. No cuenta como pérdida del negocio.',
+  ajuste: 'una corrección a mano cuando algo no cierra. No afecta la ganancia.',
+  aporte: 'plata que entra desde afuera del negocio; se descuenta de la ganancia del mes.',
 };
 
 async function api<T = unknown>(url: string, init?: RequestInit): Promise<T> {
@@ -64,49 +94,128 @@ async function api<T = unknown>(url: string, init?: RequestInit): Promise<T> {
   return body;
 }
 
-function MovimientoTooltip({
-  active,
-  payload,
-}: {
-  active?: boolean;
-  payload?: Array<{ name?: string; value?: number; payload: MonthlyPoint }>;
-}): JSX.Element | null {
-  if (!active || !payload?.length) return null;
-  const p = payload[0]!.payload;
+type Flash = { tone: 'good' | 'bad'; text: string } | null;
+
+/**
+ * El número grande de la pantalla: el patrimonio del último día COMPLETO.
+ *
+ * `patrimonioTotalEur` puede ser `null`, y eso NO se tapa con un 0. Un
+ * patrimonio de cero es un dato real y dramático; "todavía no cargaste ningún día
+ * completo" es otra cosa. Mostrar 0 en el segundo caso las vuelve
+ * indistinguibles, y es exactamente el bug que el tipo `number | null` existe
+ * para prevenir (plan SALDO D3, D5).
+ *
+ * Y va con la FECHA de la foto: un patrimonio sin fecha no significa nada. Si el
+ * usuario no cargó en tres días, ver "9.300 EUR · al 25/08" es la diferencia
+ * entre confiar en el número y confiar de más.
+ */
+function PatrimonioCard({ overview }: { overview: FinanceOverview }): JSX.Element {
+  const total = overview.patrimonioTotalEur;
+
+  if (total === null) {
+    return (
+      <div className="rounded-2xl border border-border-subtle bg-surface p-5 shadow-inset-highlight">
+        <div className="truncate text-xs font-medium text-neutral-400">Patrimonio</div>
+        <div className="mt-1.5 font-mono text-3xl font-semibold tracking-tight text-neutral-500">
+          sin información
+        </div>
+        <div className="mt-1 text-xs text-neutral-500">
+          Cargá el saldo de todas tus cuentas para tener la primera foto.
+        </div>
+      </div>
+    );
+  }
+
+  const negativo = total < 0;
+  const d = overview.desglose;
+
   return (
-    <div className="rounded-lg border border-border-strong bg-surface-raised px-3 py-2 text-xs shadow-float">
-      <p className="mb-1 font-semibold text-neutral-100">{p.month}</p>
-      <p className="tabular-nums text-neutral-200">Neto: {fmtMoney(p.netEur, 'EUR')}</p>
-      <p className="tabular-nums text-neutral-400">Profit: {fmtMoney(p.profitEur, 'EUR')}</p>
-      <p className="tabular-nums text-neutral-400">Movimientos: {fmtMoney(p.movementsEur, 'EUR')}</p>
+    <div
+      className={`rounded-2xl border bg-surface p-5 shadow-inset-highlight ${
+        negativo ? 'border-bad-500/20' : 'border-border-subtle'
+      }`}
+    >
+      <div className="truncate text-xs font-medium text-neutral-400">Patrimonio</div>
+      <div
+        className={`mt-1.5 font-mono text-4xl font-semibold tabular-nums tracking-tight ${
+          negativo ? 'text-bad-400' : 'text-neutral-50'
+        }`}
+      >
+        {fmtMoney(total, 'EUR')}
+      </div>
+      <div className="mt-1 text-xs text-neutral-500">
+        Medido{overview.diaPatrimonio ? ` al ${fmtDate(overview.diaPatrimonio)}` : ''} · el último día
+        con todas las cuentas cargadas
+      </div>
+
+      {d && (
+        // El desglose es la razón de ser de las cuentas: sin él, el total no dice
+        // cuánto es plata disponible, cuánto está retenido y cuánto se debe.
+        // `deudaEur` llega POSITIVO (es "cuánto debemos") y el − se pone acá,
+        // nunca con Math.abs() sobre el total.
+        <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1.5 border-t border-border-subtle pt-3 text-xs">
+          <span className="flex items-center gap-1.5">
+            <span className="text-neutral-500">Disponible</span>
+            <span className="font-mono tabular-nums text-neutral-200">
+              {fmtMoney(d.dineroEur, 'EUR')}
+            </span>
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="text-neutral-500">Retenido</span>
+            <span className="font-mono tabular-nums text-neutral-300">
+              {fmtMoney(d.retenidoEur, 'EUR')}
+            </span>
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="text-neutral-500">Deuda</span>
+            <span className="font-mono tabular-nums text-bad-300">
+              −{fmtMoney(d.deudaEur, 'EUR')}
+            </span>
+          </span>
+        </div>
+      )}
     </div>
   );
 }
-
-type Flash = { tone: 'good' | 'bad'; text: string } | null;
 
 export function FinanzasView({
   initialOverview,
   initialMovements,
   initialScheduledPayments,
+  initialSaldo,
+  initialDiario,
+  initialMensual,
+  initialCuentas,
 }: {
   initialOverview: FinanceOverview;
   initialMovements: FinanceMovement[];
   initialScheduledPayments: ScheduledPayment[];
+  initialSaldo: SaldoOverview;
+  initialDiario: PuntoDiario[];
+  initialMensual: PuntoMensual[];
+  initialCuentas: FinanceAccount[];
 }): JSX.Element {
   const router = useRouter();
 
   const [overview, setOverview] = useState<FinanceOverview>(initialOverview);
   const [movements, setMovements] = useState<FinanceMovement[]>(initialMovements);
   const [scheduled, setScheduled] = useState<ScheduledPayment[]>(initialScheduledPayments);
+  const [saldo, setSaldo] = useState<SaldoOverview>(initialSaldo);
+  const [diario, setDiario] = useState<PuntoDiario[]>(initialDiario);
+  const [mensual, setMensual] = useState<PuntoMensual[]>(initialMensual);
+  const [cuentas, setCuentas] = useState<FinanceAccount[]>(initialCuentas);
   const [busy, setBusy] = useState(false);
   const [flash, setFlash] = useState<Flash>(null);
 
-  // router.refresh() re-ejecuta la página y baja props frescas: estos tres
-  // efectos son los que las adoptan sin perder el estado del componente.
+  // router.refresh() re-ejecuta la página y baja props frescas: estos efectos
+  // son los que las adoptan sin perder el estado del componente.
   useEffect(() => setOverview(initialOverview), [initialOverview]);
   useEffect(() => setMovements(initialMovements), [initialMovements]);
   useEffect(() => setScheduled(initialScheduledPayments), [initialScheduledPayments]);
+  useEffect(() => setSaldo(initialSaldo), [initialSaldo]);
+  useEffect(() => setDiario(initialDiario), [initialDiario]);
+  useEffect(() => setMensual(initialMensual), [initialMensual]);
+  useEffect(() => setCuentas(initialCuentas), [initialCuentas]);
 
   const show = useCallback((tone: 'good' | 'bad', text: string) => setFlash({ tone, text }), []);
 
@@ -350,22 +459,27 @@ export function FinanzasView({
         </Banner>
       )}
 
-      {/* El patrimonio: SUM(finance_daily_profit) + SUM(finance_movements), todo el histórico (D1). */}
-      <div
-        className={`rounded-2xl border bg-surface p-5 shadow-inset-highlight ${
-          overview.patrimonioTotalEur < 0 ? 'border-bad-500/20' : 'border-border-subtle'
-        }`}
-      >
-        <div className="truncate text-xs font-medium text-neutral-400">Patrimonio total</div>
-        <div
-          className={`mt-1.5 font-mono text-4xl font-semibold tabular-nums tracking-tight ${
-            overview.patrimonioTotalEur < 0 ? 'text-bad-400' : 'text-neutral-50'
+      {/* El patrimonio: la suma de los saldos que el usuario MIDIÓ el último día
+          completo, con el signo de cada tipo de cuenta (plan SALDO D1). Ya no se
+          calcula desde daily_metrics ni se le suman los movimientos: un saldo
+          tipeado ya incluye los gastos. */}
+      <PatrimonioCard overview={overview} />
+
+      {/* Falta cargar el saldo de hoy. Va ARRIBA del banner de pagos atrasados:
+          por D5, olvidarse UNA cuenta hace perder el punto del día entero en el
+          gráfico, así que es el aviso más urgente de la pantalla. Y nombra las
+          cuentas en vez de decir "cargá el saldo", para que sea accionable. */}
+      {overview.faltanCargarHoy.length > 0 && (
+        <Banner
+          tone="warn"
+          title={`Falta cargar el saldo de hoy en ${overview.faltanCargarHoy.length} ${
+            overview.faltanCargarHoy.length === 1 ? 'cuenta' : 'cuentas'
           }`}
         >
-          {fmtMoney(overview.patrimonioTotalEur, 'EUR')}
-        </div>
-        <div className="mt-1 text-xs text-neutral-500">Todo el histórico · profit diario + movimientos</div>
-      </div>
+          {overview.faltanCargarHoy.join(', ')} — hasta que estén todas, el día de hoy no tiene
+          patrimonio y no aparece en el gráfico.
+        </Banner>
+      )}
 
       {atrasados.length > 0 && (
         <Banner tone="warn" title={`${atrasados.length} pago${atrasados.length === 1 ? '' : 's'} programado${atrasados.length === 1 ? '' : 's'} atrasado${atrasados.length === 1 ? '' : 's'}`}>
@@ -385,39 +499,18 @@ export function FinanzasView({
         </Banner>
       )}
 
-      <Card title="Evolución mensual" hint="Los últimos 12 meses, siempre continuos — un mes sin datos aparece en 0.">
-        <ChartFrame alto="sm">
-          <BarChart data={overview.byMonth} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-            <CartesianGrid stroke="rgba(255,255,255,0.06)" vertical={false} />
-            <XAxis
-              dataKey="month"
-              tickFormatter={(v: string) => `${v.slice(5, 7)}/${v.slice(2, 4)}`}
-              tick={{ fontSize: 11, fill: panelColors.axis }}
-              tickLine={false}
-              axisLine={{ stroke: 'rgba(255,255,255,0.12)' }}
-              minTickGap={16}
-            />
-            <YAxis
-              tickFormatter={fmtAxis}
-              tick={{ fontSize: 11, fill: panelColors.axis }}
-              tickLine={false}
-              axisLine={false}
-              width={56}
-            />
-            <Tooltip content={<MovimientoTooltip />} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
-            {/* Dos barras apiladas desde el cero: el profit del mes crece para
-                arriba y los movimientos (gastos, retiros y ajustes, casi
-                siempre negativos) para abajo. OJO: la altura visible NO es el
-                neto — recharts apila los negativos hacia el otro lado en vez de
-                restarlos de la barra positiva. El neto del mes está en el
-                tooltip, que es donde se lee de verdad. */}
-            <Bar dataKey="profitEur" name="Profit" stackId="mes" fill={panelColors.good} radius={[2, 2, 0, 0]} />
-            <Bar dataKey="movementsEur" name="Movimientos" stackId="mes" fill={panelColors.warn} />
-          </BarChart>
-        </ChartFrame>
-      </Card>
+      {/* La carga diaria: UN formulario con una fila por cuenta y UN botón, que
+          manda todas juntas (es una transacción). No cuatro formularios: por D5
+          cargar 3 de 4 no le sirve de nada al usuario. */}
+      <CargaDiaria cuentas={saldo.cuentas} hoy={saldo.hoyStr} onGuardado={() => router.refresh()} />
 
-      <Card title="Movimientos" hint="Gastos, retiros y ajustes cargados a mano. El signo se muestra tal cual se guarda.">
+      {/* El gráfico nuevo. Reemplazó a un BarChart de dos barras apiladas (profit
+          + movimientos) cuya altura NO era el neto, porque recharts apila los
+          negativos hacia el otro lado en vez de restarlos: el neto sólo se veía
+          en el tooltip. Ahora es una sola serie y el toggle cambia qué mide. */}
+      <GraficoSaldo diario={diario} mensual={mensual} />
+
+      <Card title="Movimientos" hint="Gastos, retiros, ajustes y aportes cargados a mano. El signo se muestra tal cual se guarda. NO afectan al patrimonio: el saldo que cargás ya los incluye.">
         <div className="mb-3 flex items-center gap-3">
           <label className="flex items-center gap-2 text-xs text-neutral-500">
             Tipo
@@ -430,6 +523,7 @@ export function FinanzasView({
               <option value="gasto">Gastos</option>
               <option value="retiro">Retiros</option>
               <option value="ajuste">Ajustes</option>
+              <option value="aporte">Aportes</option>
             </select>
           </label>
         </div>
@@ -493,8 +587,14 @@ export function FinanzasView({
                 <option value="gasto">Gasto</option>
                 <option value="retiro">Retiro</option>
                 <option value="ajuste">Ajuste</option>
+                <option value="aporte">Aporte</option>
               </select>
             </label>
+            {/* Qué es cada tipo. El de `aporte` no es decorativo: es el único que
+                mueve un número de forma no obvia (la ganancia del mes lo
+                descuenta), así que sin esta línea nadie sabría cuándo usarlo en
+                vez de un ajuste — y elegir mal infla la ganancia sin avisar. */}
+            <p className="text-xs text-neutral-500">{KIND_AYUDA[movForm.kind]}</p>
             {movForm.kind === 'gasto' ? (
               <label className="flex flex-col gap-1 text-xs text-neutral-500">
                 Categoría (obligatoria)
@@ -719,6 +819,12 @@ export function FinanzasView({
           </div>
         </div>
       </Card>
+
+      {/* Las cuentas van AL FINAL: es configuración, no algo que se mire todos
+          los días. La acción principal de esta sección es CERRAR una cuenta, no
+          borrarla — borrarla se lleva sus saldos en cascada y cambia el
+          patrimonio de todos esos días hacia atrás (plan SALDO D10). */}
+      <CuentasSection cuentas={cuentas} onCambio={() => router.refresh()} />
     </div>
   );
 }

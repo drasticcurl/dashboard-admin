@@ -560,3 +560,41 @@ código**. Si bloquea, la task se detiene y no sigue con suposiciones.
   propio archivo. La afirmación vuelve a probar exactamente los 4 casos de D8
   y el resto de las 21 no se tocó.
 - **Bloquea:** no (ya resuelto por T01).
+### P-08 — El saldo pasa a cargarse a mano: D1 y el gráfico del §6 quedan en revisión
+
+**Anotado el 2026-08-26, antes de decidir nada. Ninguna task de T01-T04 se toca
+por esto: el módulo ya está implementado y en producción. Esto queda acá para
+que el plan no siga afirmando algo que el usuario ya pidió cambiar.**
+
+- **Task:** ninguna de este módulo. El cambio va a vivir en su propia carpeta de
+  plan (`tasks/saldo-finanzas/`, pendiente de escribir).
+- **Sección del plan:** §1 D1 y D11, §5, §6.
+- **Pedido del usuario, textual:** «que el de finanzas no se sincronice el saldo
+  con las cuentas publicitarias, que simplemente yo ponga cuanto saldo hay 1 vez
+  al dia. ademas el grafico debe poder cambiarse entre diario (de este mes) y
+  mensual, y no ser de velas, ni de movimiento solo de saldo tipo grafico».
+- **Qué implica, en lo concreto:**
+  1. **No existe hoy ninguna sincronización de saldo con cuentas publicitarias**
+     (cero código en todo el repo: ni columna, ni fetch a Graph API, ni script).
+     Lo que sí existe y es lo que el pedido apunta: `finance_daily_profit` se
+     calcula solo desde `daily_metrics`, y ahí dentro está `ad_spend_eur`, que
+     baja `scripts/sync-ads.ts` de Meta. O sea que el patrimonio de hoy SÍ
+     depende de lo que reporta Meta, aunque nadie lea el "saldo" de la cuenta
+     publicitaria. Lo que hay que sacar es ese cálculo, no una sincronización
+     que no existe.
+  2. **D1 queda derogado si el saldo manual es la verdad.** Hoy
+     `patrimonio = SUM(finance_daily_profit) + SUM(finance_movements)`. Un saldo
+     tipeado a mano ya incluye los gastos (cuando se paga el alquiler, el saldo
+     del banco ya bajó): sumar las dos cosas cuenta el mismo gasto dos veces.
+     Es la decisión bloqueante de la entrevista nueva.
+  3. **El gráfico del §6 no es "de velas": son dos `<Bar>` apiladas** (profit
+     verde para arriba, movimientos naranja para abajo, `stackId="mes"`,
+     `FinanzasView.tsx` L388-419). Es probablemente lo que se lee como velas.
+     El pedido es reemplazarlo por una serie de saldo con toggle
+     diario (mes actual) / mensual.
+- **Bloquea:** SÍ a la carpeta de plan nueva, hasta que el usuario conteste si
+  el saldo manual reemplaza al patrimonio calculado o convive con él. No bloquea
+  nada de lo que ya está corriendo.
+- **Mientras tanto:** el módulo sigue funcionando exactamente como está
+  documentado arriba. Nada se cambió al anotar esto.
+- **Resolución:** _(la completa el usuario)_

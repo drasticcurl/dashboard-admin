@@ -22,6 +22,7 @@ import {
   updateMovement,
   type FinanceCategory,
 } from './finance';
+import { createAccount, guardarSaldosDelDia, type AccountKind } from './saldo';
 
 // vitest no carga .env solo (mismo patrón que lib/queries/funnel.test.ts):
 // cargarlo acá hace que la suite corra contra la base real en vez de
@@ -100,25 +101,150 @@ describe.skipIf(!dbAvailable)('createMovement', () => {
   });
 });
 
-describe.skipIf(!dbAvailable)('getFinanceOverview', () => {
+describe.skipIf(!dbAvailable)('createMovement — el kind `aporte`', () => {
   afterEach(cleanup);
 
-  it('4. byMonth es continuo: un mes sin filas aparece en 0, no se saltea', async () => {
-    await q(`INSERT INTO finance_daily_profit (day, amount_eur) VALUES
-      ('2026-06-05', 100.00), ('2026-06-20', 50.00), ('2026-08-01', 40.00), ('2026-08-15', -10.00)`);
+  it('3b. un aporte va SIEMPRE positivo, aunque se mande negativo', async () => {
+    const a = await createMovement({
+      kind: 'aporte',
+      category: null,
+      amountEur: 3000,
+      note: notes('3b-aporte'),
+      day: '2026-08-01',
+    });
+    expect(a.amountEur).toBe(3000);
+
+    // applySign le pone el signo: un aporte negativo no existe, para eso está retiro.
+    const b = await createMovement({
+      kind: 'aporte',
+      category: null,
+      amountEur: -500,
+      note: notes('3b-aporte-neg'),
+      day: '2026-08-01',
+    });
+    expect(b.amountEur).toBe(500);
+  });
+
+  it('3c. un aporte CON categoría se rechaza: la categoría es sólo del gasto', async () => {
+    await expect(
+      createMovement({
+        kind: 'aporte',
+        category: 'otros',
+        amountEur: 100,
+        note: notes('3c'),
+        day: '2026-08-01',
+      }),
+    ).rejects.toThrow();
+  });
+
+  it('3d. cambiar el tipo recalcula el signo contra el kind FINAL', async () => {
+    // Un ajuste de +300 que pasa a gasto tiene que quedar en −300: si no, un
+    // gasto sumaría al patrimonio. Y el mismo ajuste a aporte queda en +300.
+    const aj = await createMovement({
+      kind: 'ajuste',
+      category: null,
+      amountEur: 300,
+      note: notes('3d'),
+      day: '2026-08-01',
+    });
+    expect(aj.amountEur).toBe(300);
+
+    const aAporte = await updateMovement(aj.id, { kind: 'aporte' });
+    expect(aAporte.amountEur).toBe(300);
+
+    const aGasto = await updateMovement(aj.id, { kind: 'gasto', category: 'otros' });
+    expect(aGasto.amountEur).toBe(-300);
+  });
+});
+
+describe.skipIf(!dbAvailable)('getFinanceOverview — el patrimonio se MIDE', () => {
+  afterEach(cleanup);
+
+  it('4. sin ningún día completo cargado, el patrimonio es null y NO cero', async () => {
+    // Un cero inventado es indistinguible de un cero real: si el usuario nunca
+    // cargó nada, la pantalla no puede decir que tiene 0 EUR.
+    const overview = await getFinanceOverview();
+    expect(overview.patrimonioTotalEur).toBeNull();
+    expect(overview.desglose).toBeNull();
+    expect(overview.diaPatrimonio).toBeNull();
+  });
+
+  it('5. el patrimonio sale del último día COMPLETO, con el signo de cada tipo de cuenta', async () => {
+    const arq = await seedAccount('arq', 'dinero');
+    const ret = await seedAccount('ret', 'retenido');
+    const meta = await seedAccount('meta', 'deuda');
+
+    await guardarSaldosDelDia('2026-06-20', [
+      { accountId: arq, amountEur: 8000 },
+      { accountId: ret, amountEur: 700 },
+      { accountId: meta, amountEur: 1200 },
+    ]);
 
     const overview = await getFinanceOverview();
 
-    const porMes = new Map(overview.byMonth.map((p) => [p.month, p]));
-    const junio = porMes.get('2026-06');
-    const julio = porMes.get('2026-07');
-    const agosto = porMes.get('2026-08');
+    expect(overview.patrimonioTotalEur).toBe(7500); // 8000 + 700 − 1200
+    expect(overview.diaPatrimonio).toBe('2026-06-20');
+    expect(overview.desglose).toEqual({ dineroEur: 8000, retenidoEur: 700, deudaEur: 1200 });
+  });
 
-    expect(junio?.profitEur).toBe(150);
-    expect(julio?.profitEur).toBe(0); // julio sin filas de profit: 0, no desaparece
-    expect(agosto?.profitEur).toBe(30);
-    expect(overview.byMonth.length).toBe(12); // SIEMPRE los últimos 12 meses
-    expect(overview.byMonth[0]!.month < overview.byMonth[1]!.month).toBe(true);
+  it('6. un día más NUEVO pero incompleto no reemplaza la foto', async () => {
+    const arq = await seedAccount('arq', 'dinero');
+    const meta = await seedAccount('meta', 'deuda');
+
+    await guardarSaldosDelDia('2026-06-20', [
+      { accountId: arq, amountEur: 5000 },
+      { accountId: meta, amountEur: 500 },
+    ]);
+    // El 25 es más nuevo pero le falta la deuda: no tiene patrimonio (D5), así
+    // que la foto sigue siendo la del 20.
+    await guardarSaldosDelDia('2026-06-25', [{ accountId: arq, amountEur: 9999 }]);
+
+    const overview = await getFinanceOverview();
+    expect(overview.diaPatrimonio).toBe('2026-06-20');
+    expect(overview.patrimonioTotalEur).toBe(4500);
+  });
+
+  it('7. UN MOVIMIENTO NO CAMBIA EL PATRIMONIO. Es la regla nueva del módulo', async () => {
+    const arq = await seedAccount('arq', 'dinero');
+    await guardarSaldosDelDia('2026-06-20', [{ accountId: arq, amountEur: 5000 }]);
+
+    const antes = await getFinanceOverview();
+    expect(antes.patrimonioTotalEur).toBe(5000);
+
+    // Antes de la 028 esto restaba 500 del patrimonio. Ahora no: el saldo que el
+    // usuario tipeó mirando el banco YA incluye ese gasto, así que sumárselo
+    // contaría el mismo gasto dos veces.
+    await createMovement({
+      kind: 'gasto',
+      category: 'sueldos',
+      amountEur: 500,
+      note: notes('7-gasto'),
+      day: '2026-06-21',
+    });
+    await createMovement({
+      kind: 'aporte',
+      category: null,
+      amountEur: 3000,
+      note: notes('7-aporte'),
+      day: '2026-06-21',
+    });
+
+    const despues = await getFinanceOverview();
+    expect(despues.patrimonioTotalEur).toBe(5000);
+  });
+
+  it('8. faltanCargarHoy nombra las cuentas vigentes hoy sin saldo', async () => {
+    // Se crea una cuenta PROPIA con openedOn viejo en vez de apoyarse en las 4
+    // que siembra la migración. El seed usa `DEFAULT CURRENT_DATE`, que es la
+    // fecha del server de Postgres (Europe/Berlin en producción), mientras que
+    // `hoy` se resuelve en DASHBOARD_TZ (Buenos Aires, 5 horas atrás): entre las
+    // 00:00 y las 05:00 de Berlín las dos fechas NO coinciden, el seed queda con
+    // opened_on = mañana, las cuentas no están vigentes y este test fallaba
+    // abortando el deploy por una diferencia de zona horaria.
+    await createAccount({ name: names('falta'), kind: 'dinero', openedOn: '2026-01-01' });
+
+    const overview = await getFinanceOverview();
+    expect(overview.faltanCargarHoy).toContain(names('falta'));
   });
 });
 
@@ -199,5 +325,15 @@ async function cleanup(): Promise<void> {
   // la interpolación acá es de constantes del propio archivo, nunca de input.
   await q(`DELETE FROM finance_scheduled_payments WHERE name LIKE '${PREFIX}%'`);
   await q(`DELETE FROM finance_movements WHERE note LIKE '${PREFIX}%'`);
-  await q(`DELETE FROM finance_daily_profit WHERE day IN ('2026-06-05', '2026-06-20', '2026-08-01', '2026-08-15')`);
+  // Las cuentas de prueba: el ON DELETE CASCADE se lleva sus saldos. Hace falta
+  // borrarlas SIEMPRE porque getFinanceOverview lee el último día completo de
+  // TODA la tabla, no de un rango: una cuenta que sobrevive cambia el resultado
+  // del test siguiente.
+  await q(`DELETE FROM finance_accounts WHERE name LIKE '${PREFIX}%'`);
+}
+
+/** Una cuenta de prueba, vigente desde junio (lejos del seed de la migración). */
+async function seedAccount(nombre: string, kind: AccountKind): Promise<number> {
+  const a = await createAccount({ name: names(nombre), kind, openedOn: '2026-06-01' });
+  return a.id;
 }

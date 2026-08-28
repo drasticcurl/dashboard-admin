@@ -27,7 +27,7 @@ import {
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const kindEnum = z.enum(['gasto', 'retiro', 'ajuste']);
+const kindEnum = z.enum(['gasto', 'retiro', 'ajuste', 'aporte']);
 const categoryEnum = z.enum(['sueldos', 'herramientas', 'alquiler', 'impuestos', 'otros']);
 
 const createSchema = z.object({
@@ -75,15 +75,19 @@ function validarCategoria(
     return { ok: true, category };
   }
   if (category !== undefined && category !== null) {
-    return { ok: false, error: 'un retiro o ajuste no lleva categoría' };
+    return { ok: false, error: 'un retiro, ajuste o aporte no lleva categoría' };
   }
   return { ok: true, category: null };
 }
 
 /**
- * El monto de un gasto/retiro SIEMPRE es el valor absoluto (positivo) que
- * tipeó el usuario; el signo lo aplica la capa de queries. Un ajuste puede
- * ir en cualquier dirección pero tiene que mover algo.
+ * El monto de un gasto, un retiro o un aporte SIEMPRE es el valor absoluto
+ * (positivo) que tipeó el usuario; el signo lo aplica `applySign` en la capa de
+ * queries. Un ajuste puede ir en cualquier dirección pero tiene que mover algo.
+ *
+ * `aporte` cae en la misma rama que gasto/retiro (positivo obligatorio) y no en
+ * la del ajuste: un aporte negativo no existe, para eso está `retiro`, y el
+ * CHECK de la base lo rechaza igual.
  */
 function validarMonto(kind: FinanceMovementKind | undefined, amountEur: number | undefined):
   | { ok: true }
@@ -93,7 +97,7 @@ function validarMonto(kind: FinanceMovementKind | undefined, amountEur: number |
     return amountEur === 0 ? { ok: false, error: 'un ajuste tiene que mover algo' } : { ok: true };
   }
   return amountEur <= 0
-    ? { ok: false, error: 'el monto de un gasto/retiro va en positivo' }
+    ? { ok: false, error: 'el monto de un gasto, retiro o aporte va en positivo' }
     : { ok: true };
 }
 

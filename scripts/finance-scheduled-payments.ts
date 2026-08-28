@@ -11,9 +11,14 @@
  * finance_scheduled_payment_runs rechaza la segunda ejecución del mismo mes,
  * así que correr este script dos veces el mismo día no duplica ningún gasto.
  *
- * Corre DESPUÉS de finance-rollup.ts en el cron de producción: mantener el
- * orden "profit antes que gastos del día" hace que la UI vea los dos ya
- * actualizados juntos y no a medias.
+ * NO depende de ninguna hora. Hasta la migración 028 corría después de
+ * finance-rollup.ts para que la UI viera el profit del día y los gastos ya
+ * actualizados juntos; ese script y su tabla (finance_daily_profit) se
+ * borraron, porque el patrimonio dejó de calcularse y ahora lo tipea el
+ * usuario. Este script sólo escribe finance_movements y
+ * finance_scheduled_payment_runs a partir de los pagos programados: no lee
+ * daily_metrics ni las cotizaciones, así que se puede mover de hora sin
+ * romper nada.
  */
 
 import { existsSync } from 'node:fs';

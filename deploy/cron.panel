@@ -71,17 +71,32 @@
 30 4 * * * sudo -u postgres pg_dump panel | gzip > /srv/panel/backups/panel-$(date +\%F).sql.gz
 35 4 * * * find /srv/panel/backups -name 'panel-*.sql.gz' -mtime +14 -delete
 
-# Finanzas: profit diario (T01/T04). DESPUÉS del rollup nocturno de daily_metrics
-# (05:25): el profit del día se calcula agregando daily_metrics de TODOS los
-# funnels, así que si corriera antes, sumaría datos de hasta 24 h viejos.
-# Recalcula ayer y hoy (plan §5): el profit de "hoy" sigue moviéndose durante
-# el día, así que la corrida de la madrugada corrige el de ayer una vez más.
-35 5 * * * cd /srv/panel/current && /usr/bin/node --env-file=.env.production ./node_modules/.bin/tsx scripts/finance-rollup.ts >> /var/log/panel/finance.log 2>&1
-
-# Finanzas: pagos programados (T01/T04). DESPUÉS del profit diario de arriba,
-# para que si alguien mira /finanzas a las 5:40 de la mañana vea los dos ya
-# actualizados juntos. No depende funcionalmente del profit (son tablas
-# distintas), es sólo para que la foto sea consistente.
+# Finanzas: pagos programados. ES LA ÚNICA LÍNEA DE FINANZAS QUE QUEDA, y esa es
+# la invariante que se verifica contando las líneas de este archivo que nombran a
+# los scripts de Finanzas: tiene que dar exactamente 1 (task T05 §5, punto 3).
+# Por eso los comentarios de acá abajo escriben los nombres de tabla en MAYÚSCULA:
+# en minúscula cada mención sumaría a ese conteo y la guarda dejaría de servir para
+# lo único que importa, que es "¿alguien borró la línea equivocada?". Si editás
+# esto, mantené la convención (Postgres no distingue mayúsculas en un identificador
+# sin comillas: FINANCE_MOVEMENTS se copia y pega igual).
+#
+# Había una segunda línea a las 05:35 que calculaba el profit diario en la tabla
+# FINANCE_DAILY_PROFIT agregando DAILY_METRICS, y por eso tenía que correr después
+# del rollup nocturno de las 05:25. La migración 028 borra esa tabla: el patrimonio
+# ya no se calcula, lo tipea el usuario una vez al día mirando sus cuentas (plan
+# SALDO D1/D11). El script, la entrada de npm y esa línea se fueron juntos. Si
+# vuelve una sin la tabla, el cron revienta todas las noches (el error textual está
+# en el runbook §4.1).
+#
+# Consecuencia práctica: 05:40 ya no depende de ninguna hora. Este script sólo
+# escribe FINANCE_MOVEMENTS / FINANCE_SCHEDULED_PAYMENT_RUNS a partir de los pagos
+# programados del mes; no lee DAILY_METRICS ni las cotizaciones, así que no le
+# afecta el orden respecto de fetch-fx (05:10) ni del rollup (05:25). Se puede
+# mover sin romper nada. Se deja a las 05:40 porque es la hora que tiene el crontab
+# vivo de la VPS y cambiarla no compra nada.
+#
+# Correrlo dos veces el mismo día no duplica gastos: la PK
+# (scheduled_payment_id, month) de FINANCE_SCHEDULED_PAYMENT_RUNS lo rechaza.
 40 5 * * * cd /srv/panel/current && /usr/bin/node --env-file=.env.production ./node_modules/.bin/tsx scripts/finance-scheduled-payments.ts >> /var/log/panel/finance.log 2>&1
 
 # ─── Anuncios ──────────────────────────────────────────────────────────────

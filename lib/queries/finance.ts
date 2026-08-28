@@ -15,10 +15,16 @@
  */
 
 import { q, q1, tx } from '@/lib/db';
+import { getSaldoOverview } from '@/lib/queries/saldo';
 
 // ─── Tipos (plan §4) ────────────────────────────────────────────────────────
 
-export type FinanceMovementKind = 'gasto' | 'retiro' | 'ajuste';
+// El 'aporte' y su rama en applySign las escribió T01, no T02: son la excepción
+// declarada del plan tasks/saldo-cuentas §8. Van con el CHECK de la migración
+// 027 porque declaran la MISMA regla (un aporte es positivo) y separarlas es
+// cómo quedan en desacuerdo. T03 necesita este tipo en su misma ola para el zod
+// del route de movimientos.
+export type FinanceMovementKind = 'gasto' | 'retiro' | 'ajuste' | 'aporte';
 export type FinanceCategory = 'sueldos' | 'herramientas' | 'alquiler' | 'impuestos' | 'otros';
 
 export type FinanceMovement = {
@@ -46,18 +52,29 @@ export type ScheduledPayment = {
   updatedAt: string;
 };
 
-export type MonthlyPoint = {
-  month: string; // 'YYYY-MM'
-  profitEur: number; // SUM(finance_daily_profit) del mes, 0 si no hay filas
-  movementsEur: number; // SUM(finance_movements) del mes, 0 si no hay filas
-  netEur: number; // profitEur + movementsEur
-};
+// `MonthlyPoint` y `byMonth` NO EXISTEN MÁS. El gráfico de /finanzas ahora pide
+// `serieDiaria()` / `serieMensual()` a `lib/queries/saldo.ts`: la serie mensual
+// dejó de ser una suma de movimientos y pasó a ser la GANANCIA del mes
+// (Δ patrimonio − retiros − aportes, plan SALDO D7).
 
 export type FinanceOverview = {
-  /** SUM(finance_daily_profit) + SUM(finance_movements) de TODO el histórico (D1). */
-  patrimonioTotalEur: number;
-  /** Los últimos 12 meses, SIEMPRE continuos: un mes sin filas aparece en 0, no se saltea (D-verificado #20). */
-  byMonth: MonthlyPoint[];
+  /**
+   * El patrimonio del último día COMPLETO que el usuario cargó, medido — no
+   * calculado (plan SALDO D1).
+   *
+   * Es `number | null` A PROPÓSITO, y ése es medio módulo: `null` significa
+   * "todavía no hay ningún día con TODAS las cuentas vigentes cargadas", y no
+   * es lo mismo que un patrimonio de cero. El tipo obliga a cada consumidor a
+   * decidir qué muestra en ese caso; **nadie puede escribir `?? 0`**, porque un
+   * cero inventado es indistinguible de un cero real.
+   */
+  patrimonioTotalEur: number | null;
+  /** El desglose de esa misma foto. `deudaEur` viene POSITIVO y el total lo resta. */
+  desglose: { dineroEur: number; retenidoEur: number; deudaEur: number } | null;
+  /** De qué día es la foto. Sin esto el número no significa nada. */
+  diaPatrimonio: string | null;
+  /** Nombres de las cuentas vigentes hoy que todavía no tienen saldo (D9). */
+  faltanCargarHoy: string[];
   /** Pagos programados con atrasado=true. Se muestra como banner. */
   atrasados: ScheduledPayment[];
   /**
@@ -97,43 +114,25 @@ type ScheduledRow = {
   updated_at: Date;
 };
 
-type MonthRow = {
-  month: string;
-  profitEur: string;
-  movementsEur: string;
-};
-
 const MONEY = (v: string): number => Number(v);
 const ISO = (d: Date): string => d.toISOString();
 
-const PATRIMONIO_SQL = `
-  SELECT
-    (SELECT COALESCE(SUM(amount_eur), 0) FROM finance_daily_profit) +
-    (SELECT COALESCE(SUM(amount_eur), 0) FROM finance_movements) AS patrimonio_total_eur`;
-
-const BY_MONTH_SQL = `
-  WITH meses AS (
-    SELECT generate_series(
-      date_trunc('month', now() - interval '11 months'),
-      date_trunc('month', now()),
-      interval '1 month'
-    )::date AS mes
-  ),
-  profit_mes AS (
-    SELECT date_trunc('month', day)::date AS mes, SUM(amount_eur) AS profit
-    FROM finance_daily_profit GROUP BY 1
-  ),
-  mov_mes AS (
-    SELECT date_trunc('month', day)::date AS mes, SUM(amount_eur) AS movimientos
-    FROM finance_movements GROUP BY 1
-  )
-  SELECT to_char(m.mes, 'YYYY-MM') AS month,
-         COALESCE(p.profit, 0)::text AS "profitEur",
-         COALESCE(mv.movimientos, 0)::text AS "movementsEur"
-  FROM meses m
-  LEFT JOIN profit_mes p ON p.mes = m.mes
-  LEFT JOIN mov_mes mv ON mv.mes = m.mes
-  ORDER BY m.mes`;
+// PATRIMONIO_SQL y BY_MONTH_SQL SE BORRARON en la migración 028, y no es una
+// limpieza: es el cambio de fondo del módulo.
+//
+// PATRIMONIO_SQL era `SUM(finance_daily_profit) + SUM(finance_movements)`. Dos
+// razones para que no exista más, y la segunda es la que importa:
+//
+//   1. `finance_daily_profit` ya no existe, así que la query directamente falla.
+//   2. Sumarle los movimientos a un saldo MEDIDO cuenta cada gasto dos veces:
+//      cuando se paga el alquiler, el saldo que el usuario ve en el banco ya
+//      bajó. El patrimonio ahora sale de `getSaldoOverview()` y los movimientos
+//      NO se le suman (plan SALDO D1).
+//
+// BY_MONTH_SQL se fue porque la serie mensual dejó de ser una suma de
+// movimientos: es una GANANCIA calculada con deltas de patrimonio menos los
+// retiros y los aportes (D7), y vive en `serieMensual()` de `lib/queries/saldo.ts`.
+// No la reimplementes acá contra las tablas nuevas.
 
 // Atrasados (D8): activo, día ya pasado este mes, sin run para el mes actual.
 // La garantía de no-duplicación NO es esta consulta sino la PK compuesta de
@@ -230,29 +229,43 @@ async function idsAtrasados(hoy: string): Promise<Set<string>> {
   return new Set(rows.map((r) => String(r.id)));
 }
 
+/**
+ * El patrimonio ya no se calcula acá: se le pide a `lib/queries/saldo.ts`, que
+ * lee los saldos que el usuario tipeó. Lo único que sigue siendo de este archivo
+ * son los pagos programados y sus atrasados.
+ *
+ * `hoy` sale de `getSaldoOverview()` en vez de una llamada propia a `hoyEnTz()`:
+ * las dos resuelven lo mismo (`now() AT TIME ZONE DASHBOARD_TZ`), y usar el de
+ * saldo garantiza que el día con el que se calculan los atrasados sea EXACTAMENTE
+ * el mismo con el que se decidió qué cuentas faltan cargar. Con dos llamadas
+ * separadas, un request que cruce la medianoche podría mezclar dos días.
+ */
 export async function getFinanceOverview(): Promise<FinanceOverview> {
-  const [patRow, monthRows, scheduledRows, hoy] = await Promise.all([
-    q1<{ patrimonio_total_eur: string }>(PATRIMONIO_SQL),
-    q<MonthRow>(BY_MONTH_SQL),
+  const [saldo, scheduledRows] = await Promise.all([
+    getSaldoOverview(),
     q<ScheduledRow>(LIST_SCHEDULED_SQL),
-    hoyEnTz(),
   ]);
 
+  const hoy = saldo.hoyStr;
   const atrasadoIds = await idsAtrasados(hoy);
 
-  // El neto de cada mes se suma en JS, después del COALESCE en SQL: las dos
-  // CTEs están LEFT JOINadas y sumarlas en SQL arrastraría NULL si alguna de
-  // las dos no tiene filas ese mes.
-  const byMonth: MonthlyPoint[] = monthRows.map((r) => ({
-    month: r.month,
-    profitEur: MONEY(r.profitEur),
-    movementsEur: MONEY(r.movementsEur),
-    netEur: MONEY(r.profitEur) + MONEY(r.movementsEur),
-  }));
+  // `ultimo` es el último día COMPLETO, no el último con alguna carga: un día al
+  // que le falta una cuenta no tiene patrimonio (D5), así que no puede ser la
+  // foto. Si nunca se completó ninguno, los tres campos van en null juntos —
+  // nunca uno en null y otro en 0.
+  const ultimo = saldo.ultimo;
 
   return {
-    patrimonioTotalEur: MONEY(patRow!.patrimonio_total_eur),
-    byMonth,
+    patrimonioTotalEur: ultimo?.totalEur ?? null,
+    desglose: ultimo
+      ? {
+          dineroEur: ultimo.dineroEur,
+          retenidoEur: ultimo.retenidoEur,
+          deudaEur: ultimo.deudaEur,
+        }
+      : null,
+    diaPatrimonio: ultimo?.day ?? null,
+    faltanCargarHoy: saldo.hoy.faltan,
     atrasados: scheduledRows
       .filter((r) => atrasadoIds.has(String(r.id)))
       .map((r) => toScheduled(r, true)),
@@ -288,7 +301,13 @@ export async function listScheduledPayments(): Promise<ScheduledPayment[]> {
  * con su toggle +/−, porque un ajuste puede ir en cualquier dirección).
  */
 export function applySign(kind: FinanceMovementKind, amountEur: number): number {
-  return kind === 'ajuste' ? amountEur : -Math.abs(amountEur);
+  // El orden importa: 'ajuste' primero porque es el único que respeta el signo
+  // que le pasan. 'aporte' es plata que entra desde afuera del negocio y va
+  // SIEMPRE positivo — el CHECK de la base rechaza un aporte negativo, porque
+  // para eso está 'retiro'.
+  if (kind === 'ajuste') return amountEur;
+  if (kind === 'aporte') return Math.abs(amountEur);
+  return -Math.abs(amountEur); // gasto | retiro
 }
 
 type MovementWriteRow = {

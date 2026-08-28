@@ -207,14 +207,37 @@ tail -50 /var/log/panel/db.log
 
 ## 4.1 Finanzas
 
-**Qué hace:** `finance-rollup.ts` calcula el profit diario (todos los funnels, agregado) desde
-`daily_metrics`, 1 vez al día (05:35, después del rollup nocturno de las 05:25).
-`finance-scheduled-payments.ts` (05:40) genera el gasto de cualquier pago programado activo cuyo
-día ya pasó este mes. Los dos escriben en `/var/log/panel/finance.log`.
+**El patrimonio NO se calcula: lo tipea el usuario.** Desde la migración 028, `/finanzas` no deriva
+nada de `daily_metrics`: el usuario carga una vez al día el saldo de cada cuenta (`finance_accounts`,
+de tipo `dinero` / `retenido` / `deuda`) y el patrimonio es
+`Σ dinero + Σ retenido − Σ deuda` sobre los saldos de **ese día**.
+
+**Por eso Finanzas y Resumen ya no comparten fuente, y no tienen por qué coincidir.** Es la primera
+pregunta que va a aparecer: Resumen dice **cuánto se vendió** en un rango (`resultEur`, calculado
+desde `daily_metrics`, que incluye el gasto que reporta Meta); Finanzas dice **cuánta plata hay**
+(medido a mano). Son dos preguntas distintas con dos fuentes distintas. Si difieren, ninguna de las
+dos está mal.
+
+**Un día al que le falta una cuenta no tiene patrimonio.** Si el usuario cargó 3 de 4 cuentas, el
+total de ese día es `null` y la pantalla dice "sin información", no un total parcial. Un total al que
+le falta una cuenta es un número equivocado que se ve igual de bien que uno correcto.
+
+**Qué corre por cron:** una sola cosa, `finance-scheduled-payments.ts` (05:40), que genera el gasto
+de cualquier pago programado activo cuyo día ya pasó este mes. Escribe en
+`/var/log/panel/finance.log`.
+
+**Ya no existe ningún cron de profit.** Hasta la 028 había un `finance-rollup.ts` a las 05:35 que
+llenaba `finance_daily_profit`. El script, su entrada de npm (`finance:rollup`), su línea de cron y
+la tabla se fueron juntos. Si alguna vuelve sin las otras, el cron falla todas las noches con
+`relation "finance_daily_profit" does not exist`.
 
 | Síntoma | Dónde mirar |
 |---|---|
-| el patrimonio no se mueve de un día para otro | `SELECT * FROM finance_daily_profit ORDER BY day DESC LIMIT 3;` — ¿corrió el cron anoche? |
+| el patrimonio dice "sin información" | falta al menos una cuenta vigente sin saldo ese día. `SELECT a.name FROM finance_accounts a WHERE a.opened_on <= CURRENT_DATE AND (a.closed_on IS NULL OR CURRENT_DATE <= a.closed_on) AND NOT EXISTS (SELECT 1 FROM finance_account_balances b WHERE b.account_id = a.id AND b.day = CURRENT_DATE);` — la pantalla ya las nombra en el banner |
+| el patrimonio no se mueve de un día para otro | no es un bug del cron: nadie cargó el saldo. `SELECT day, count(*) FROM finance_account_balances GROUP BY 1 ORDER BY 1 DESC LIMIT 5;` |
+| el gráfico mensual está vacío | la ganancia de un mes necesita el cierre de ese mes **y** del anterior. Con menos de dos meses cerrados no hay nada que dibujar, y es lo esperado al arrancar |
+| la ganancia de un mes parece demasiado alta | ¿entró plata de afuera sin registrarse como `aporte`? La fórmula es `Δ patrimonio − retiros − aportes`: un aporte cargado como `ajuste` no se descuenta y el mes miente para arriba |
+| un saldo negativo no se puede cargar | es a propósito: el `CHECK` es `amount_eur >= 0` y el signo lo pone el tipo de cuenta. Una cuenta en descubierto se modela como una cuenta de tipo `deuda` aparte |
 | un pago programado activo no generó su gasto | `finance_scheduled_payment_runs` para ese `scheduled_payment_id` y el mes actual; si no hay fila, revisar `/var/log/panel/finance.log` |
 | un pago se ejecutó dos veces (no debería poder pasar) | el `PRIMARY KEY (scheduled_payment_id, month)` de `finance_scheduled_payment_runs` lo impide a nivel de base; si esto pasa, es un bug — reportarlo, no hay procedimiento de "arreglar a mano" documentado |
 
@@ -222,9 +245,72 @@ Correr a mano, si hace falta:
 
 ```bash
 cd /srv/panel/current
-node --env-file=.env.production ./node_modules/.bin/tsx scripts/finance-rollup.ts
 node --env-file=.env.production ./node_modules/.bin/tsx scripts/finance-scheduled-payments.ts
 ```
+
+### 4.1.1 Antes de correr la migración 028 en producción — OBLIGATORIO
+
+La 028 **borra `finance_daily_profit`**. Se puede borrar sin miedo porque cada fila es un cálculo
+derivado de `daily_metrics`, no un dato propio. Pero hay que guardar dos cosas **antes**, y el motivo
+no es la recuperación:
+
+```bash
+cd /srv/panel/current
+set -a && . /srv/panel/shared/.env.production && set +a
+
+# 1. La tabla que se va.
+psql "$DATABASE_URL" -c "\copy finance_daily_profit TO '/srv/panel/backups/finance_daily_profit_pre028.csv' CSV HEADER"
+
+# 2. El patrimonio VIEJO, el que la pantalla muestra hoy.
+psql "$DATABASE_URL" -c "SELECT
+  (SELECT COALESCE(SUM(amount_eur),0) FROM finance_daily_profit) +
+  (SELECT COALESCE(SUM(amount_eur),0) FROM finance_movements) AS patrimonio_viejo;"
+```
+
+**Guardá ese número en `registro.md`.** Es lo único que va a explicar el salto: el día del deploy el
+patrimonio pasa del número calculado a "sin información", y de ahí al primer saldo que el usuario
+cargue. Sin el número viejo anotado, dentro de tres meses nadie va a poder comparar.
+
+Medido el **2026-08-28** contra producción: `patrimonio_viejo = 2487.44 EUR` (1798.44 de
+`finance_daily_profit`, 14 filas del 2026-08-15 al 2026-08-28, más 689.00 de un único movimiento de
+tipo `ajuste`). Si el número que te da es bastante distinto, pasaron días y entraron más filas: es
+normal. **Si te da 0, la tabla ya no existe y estás corriendo esto después de migrar, no antes.**
+
+### 4.1.2 El orden del deploy de la 028
+
+```
+1. git pull en la VPS
+2. npm ci && npm run build
+3. el export CSV + el patrimonio viejo (§4.1.1)
+4. instalar el crontab nuevo      ← acá desaparece la línea de las 05:35
+5. npm run db:migrate             ← acá desaparece finance_daily_profit
+6. pm2 reload
+```
+
+**Los pasos 4 y 5 van en ese orden y no al revés.** Si el crontab va primero, el script deja de
+correr un día antes de que la tabla desaparezca: no pasa nada. Si la migración va primero y el
+crontab queda para el día siguiente, el cron de las 05:35 revienta esa misma noche. Es el error que
+se comete al revés.
+
+**Y el build y la migración van en el mismo deploy, no en dos.** Entre que la tabla desaparece y que
+el código nuevo está sirviendo, `/finanzas` responde error: la versión vieja de
+`getFinanceOverview()` consulta `finance_daily_profit`. No se puede migrar y deployar por partes.
+
+### 4.1.3 Cómo revertir la 028
+
+En orden. Todo está en el repo:
+
+1. `DROP TABLE finance_account_balances, finance_accounts;`
+2. Recrear `finance_daily_profit` con el DDL de `tasks/finanzas/_schema-022.sql`, que queda intacto
+   justamente para esto.
+3. Recuperar `scripts/finance-rollup.ts` del git log. **El hash del commit donde vivía está anotado
+   en `registro.md`**, en la entrada de este cambio — sin ese hash, este paso es una búsqueda a
+   ciegas en un repo con cientos de commits.
+4. `npm run finance:rollup -- --all` reconstruye el 100 % de las filas. No es recuperación de datos
+   perdidos: es recomputar.
+5. Revertir los 3 `CHECK` de `finance_movements` a la versión de `tasks/finanzas/_schema-022.sql`.
+   **Ojo:** si ya se cargó algún movimiento de tipo `aporte`, el `CHECK` viejo lo rechaza y el
+   `ALTER` falla. Hay que borrarlos o convertirlos a `ajuste` primero.
 
 ## 5. Restaurar un backup
 

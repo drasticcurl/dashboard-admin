@@ -114,7 +114,7 @@ describe.skipIf(!dbAvailable)('/api/finanzas/movimientos', () => {
     }));
     expect(res.status).toBe(400);
     const body = (await res.json()) as { detail?: string };
-    expect(body.detail).toBe('un retiro o ajuste no lleva categoría');
+    expect(body.detail).toBe('un retiro, ajuste o aporte no lleva categoría');
   });
 
   it('6. PATCH del monto de un gasto mantiene el signo (el route llama a updateMovement)', async () => {
@@ -218,7 +218,7 @@ describe.skipIf(!dbAvailable)('/api/finanzas/movimientos', () => {
     const m = await crear('retiro', null, 400, '11');
     const r = await patchMov({ id: m.id, category: 'sueldos' });
     expect(r.status).toBe(400);
-    expect(r.body.detail).toBe('un retiro o ajuste no lleva categoría');
+    expect(r.body.detail).toBe('un retiro, ajuste o aporte no lleva categoría');
   });
 
   it('12. cambiar el kind funciona, limpia la categoría y recalcula el signo', async () => {

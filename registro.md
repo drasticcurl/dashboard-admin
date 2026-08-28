@@ -10,6 +10,149 @@ Lo más nuevo va arriba. Las reglas de cómo se escribe una entrada están en
 
 ---
 
+## 2026-08-28 — Finanzas: el patrimonio se mide, no se calcula
+
+**Sin commitear todavía.** El módulo entero de `/finanzas` cambia de qué mide el
+número principal. Migración `028_saldo_cuentas.sql`.
+
+**Qué pasaba.** El pedido fue "que el de finanzas no se sincronice el saldo con
+las cuentas publicitarias, que simplemente yo ponga cuánto saldo hay 1 vez al
+día".
+
+**No había ninguna sincronización con cuentas publicitarias que sacar.** Se buscó
+`balance|saldo|spend_cap|amount_spent|funding|account_status` en todo el repo:
+cero. No hay columna, ni fetch a Graph API, ni script. Los únicos hits eran
+"balanceo" de load balancing en dos comentarios. **Esto queda anotado porque el
+próximo que lea el pedido va a salir a buscar un fetch a Meta que nunca existió.**
+
+Lo que sí había era la cadena `sync-ads.ts` → `daily_metrics.ad_spend_eur` →
+`finance-rollup.ts` → `finance_daily_profit` → patrimonio. O sea: el patrimonio
+**sí** dependía de lo que reportaba Meta, aunque nadie leyera el "saldo" de la
+cuenta publicitaria. Lo que había que sacar era ese cálculo.
+
+La evidencia de que el número calculado ya no cerraba estaba en la base de
+producción: el **único** movimiento cargado en `finance_movements` era un `ajuste`
+de **+689.00**. Alguien ya estaba corrigiendo a mano la diferencia entre el
+cálculo y la realidad. Eso explica el pedido mejor que el pedido.
+
+**El gráfico tampoco era "de velas", como decía el pedido: eran dos `<Bar>`
+apiladas** (profit verde arriba, movimientos naranja abajo, mismo `stackId`), y su
+altura visible **no era el neto** porque recharts apila los negativos hacia el
+otro lado en vez de restarlos. El neto sólo se veía en el tooltip. Por eso se leía
+raro.
+
+**Por qué se resolvió así.**
+
+`patrimonio = Σ dinero + Σ retenido − Σ deuda` sobre los saldos que el usuario
+tipea, y **`finance_movements` deja de sumar al patrimonio**. La alternativa
+—dejar el cálculo y sumarle el saldo manual— cuenta cada gasto dos veces: cuando
+se paga el alquiler, el saldo del banco ya bajó. Esto **deroga el D1 del plan
+viejo** (`tasks/finanzas/00-PLAN-FINANZAS.md`), que decía textualmente que el
+patrimonio es una suma de dos tablas.
+
+Cuatro decisiones que cuestan explicar y son las que evitan que el número mienta:
+
+| Decisión | El bug que evita |
+|---|---|
+| Un día al que le falta UNA cuenta vale `null`, no un total parcial | Un total incompleto es un número **equivocado** que se ve igual de bien que uno correcto. `patrimonioTotalEur` es `number \| null` para que el compilador obligue a decidir, y **nadie puede escribir `?? 0`** |
+| `opened_on` / `closed_on` participan de la aritmética | Sin `opened_on`, abrir una cuenta nueva hoy dejaba incompletos **todos** los días anteriores (esa cuenta no existía, nunca tuvo saldo) y el gráfico entero desaparecía al crear una cuenta |
+| El monto se guarda siempre `>= 0` y el signo lo pone el `kind` al leer | Un `CHECK` no puede mirar `finance_accounts`: si la deuda se guardara en negativo, el signo dependería de que el código que inserta se acuerde |
+| Se agregó el kind `aporte` | La ganancia del mes es `Δ patrimonio − retiros − aportes`. Sin el término de aportes, el mes en que se transfieren 3.000 propios el gráfico dice que el negocio ganó 3.000 que nadie ganó — y es el mes en que más se lo mira |
+
+**El gráfico cambia de unidad con el toggle, a propósito:** *Diario (este mes)*
+muestra el nivel de patrimonio, *Mensual* muestra la ganancia de cada mes. Son un
+nivel y un flujo en el mismo control, así que el título de la card dice cuál está
+activa. `connectNulls` va **prendido**: sin eso, un mes con dos cargas aisladas no
+dibuja nada (recharts necesita dos puntos adyacentes para un segmento) y el
+gráfico se ve roto en vez de escaso.
+
+**Qué se decidió NO hacer**, que es lo que evita que alguien lo "arregle" de nuevo:
+
+- **`finance_movements` no vuelve a sumar al patrimonio.** No es un bug: es la
+  decisión. Los movimientos son el desglose de en qué se fue la plata.
+- **`ajuste` queda sin función real y se deja igual.** Existía para corregir un
+  patrimonio *calculado*; con el patrimonio medido no hay nada que ajustar. La
+  fila de +689 de producción queda como registro. **Pendiente de decidir por el
+  usuario:** si esos 689 eran plata que entró de afuera, conviene reetiquetarla
+  como `aporte` y entonces cuenta bien en la ganancia; si era un descuadre del
+  cálculo, `ajuste` es correcto.
+- **Una cuenta `dinero` en descubierto no se puede tipear.** El `CHECK` es
+  `>= 0`. Se modela como una cuenta `deuda` aparte, y el mensaje de error lo dice.
+- **No se tocó `lib/ads/**` ni `scripts/sync-ads.ts`.** Verificado con
+  `git diff --stat`.
+
+**La migración es la 028 y no la 027**, que es donde casi se rompió algo: mientras
+esto se escribía entraron 10 commits de otra sesión, y uno traía
+`027_experimento_upsell.sql`. Dos archivos con el mismo número funcionan por
+accidente (`scripts/migrate.ts` ordena alfabéticamente) pero rompen la convención.
+La misma revisión encontró que **`app/(panel)/finanzas/monto.ts` había sido
+borrado** (el parseo se consolidó en `lib/monto.ts`, commit `0e151e0`) y que
+**`parsearMonto` rechaza el cero**: usarlo para un saldo habría hecho que una
+cuenta vacía fuera imposible de cargar y que ese día nunca pudiera estar completo.
+De ahí sale `parsearSaldo`, que es `parsearMonto` con `< 0` en vez de `<= 0`.
+
+**Consecuencias pendientes.**
+
+- **El patrimonio de producción va a saltar el día del deploy.** Valor viejo
+  medido el 2026-08-28: **2487.44 EUR** (1798.44 de `finance_daily_profit`, 14
+  filas del 2026-08-15 al 2026-08-28, más los 689.00 del ajuste). Después de
+  migrar dice "sin información" hasta la primera carga. El export a CSV es
+  obligatorio y está en `docs/runbook.md` §4.1.1.
+- **`finance_daily_profit` se borra, con su script y su línea de cron.** Los tres
+  van juntos: si la migración se deploya sin el crontab nuevo, el cron de las 5:35
+  falla todas las noches con `relation "finance_daily_profit" does not exist`. Y
+  el build tiene que ir en el mismo deploy que la migración: la versión vieja de
+  `getFinanceOverview()` consulta esa tabla.
+- **`scripts/finance-rollup.ts` vivía en el commit `7d37bba`.** Ese hash es el
+  paso 3 de "cómo revertir" (`docs/runbook.md` §4.1.3); sin él es una búsqueda a
+  ciegas.
+- Las 4 cuentas sembradas (`Arq`, `Mercado Pago`, `Retenido en Mercado Pago`,
+  `Deuda con Meta`) son una transcripción de cómo el usuario las nombró de
+  palabra. Si alguna está mal escrita se renombra desde la UI, no en la migración.
+- `db/migrations/026_funnel_latam.sql` quedó commiteada, pero **`npm run
+  db:migrate` no carga `.env`** (quirk preexistente): hay que usar
+  `node --env-file=.env ./node_modules/.bin/tsx scripts/migrate.ts`.
+
+**Qué se verificó.**
+
+- `_schema-028.sql` corrido **dos veces** sobre una base scratch con 001-027
+  (salteando la 021, que no corre desde cero por un problema preexistente ya
+  documentado): idempotente.
+- **19 afirmaciones** de `_verificacion-028.sql` en verde, incluidas las que más
+  importan: el patrimonio con el signo por tipo de cuenta, el mismo día con una
+  cuenta faltante devolviendo `null`, que abrir una cuenta no rompe el historial,
+  el cierre del mes tomando el último día **completo** (no el último con datos), y
+  el reemplazo de los 3 `CHECK` de `finance_movements` **sobre una tabla con
+  filas** — que es lo que va a pasar en producción y podía abortar la migración.
+- **22 afirmaciones** del `_verificacion-e2e.sh`, entre ellas que un movimiento no
+  mueve el patrimonio y que los pagos programados siguen siendo idempotentes.
+- **1408 tests en 109 archivos, 0 fallos** (baseline previo: 1208 en 97). `tsc
+  --noEmit` limpio y `npm run build` limpio.
+- Producción: leída **sólo con SELECT**. VPS en `main`, working tree limpio,
+  sirviendo `0b5a044`, HTTP 200.
+
+**Dos errores propios que encontró la verificación y no una lectura:**
+
+1. El CTE del patrimonio usaba un `JOIN` inner a `finance_accounts`, así que un
+   día en el que no había **ninguna** cuenta vigente desaparecía de la serie en
+   vez de venir como `null`: `serieDiaria()` de un mes anterior a la primera
+   cuenta devolvía 0 filas en lugar de los 30 días. Lo encontró el test de "un mes
+   sin ninguna carga". Se arregló con `LEFT JOIN` + `count(d.id)` en vez de
+   `count(*)`, más un `d.id IS NOT NULL` en el `array_agg` de `faltan` (sin eso,
+   un día sin cuentas devuelve `{NULL}`, un array con un elemento nulo que la UI
+   imprimiría como una cuenta sin nombre).
+2. El mensaje de zod salía **en inglés** (`Number must be greater than or equal to
+   0`) y `detail` viaja tal cual al banner rojo del usuario. Ahora está en
+   castellano y además dice qué hacer: cargala como cuenta de tipo deuda.
+
+**Sin verificar:** la revisión visual en el browser. No hay jsdom en el proyecto
+(`vitest.config.ts` usa `environment: 'node'`), así que no hay forma de renderizar
+un componente en un test. Quedan a mano: el toggle del gráfico con teclado, que la
+línea se dibuje entre dos cargas aisladas, y el aspecto de la card de patrimonio
+con el desglose.
+
+---
+
 ## 2026-08-27 — El interruptor de conjuntos: el umbral sin margen, el POST sin plazo, el control que no hablaba de la entrega y la relectura en el camino crítico
 
 Spec `toggle-conjuntos-entrega` **completo, tareas 1 a 18**, en **`f23406b`**. El
