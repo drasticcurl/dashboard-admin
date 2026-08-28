@@ -13,6 +13,19 @@ export const EVENT_NAMES = [
   'downsell_view',
   'lead',
   'purchase',
+  // Retención del VSL del upsell (`testfunnel/lib/vsl-retention.ts`). Se agregan
+  // porque sin ellos cada evento de retención entra como `unknown_event`: los
+  // eventos SE GUARDAN igual (nada se descarta), pero dejan una fila en
+  // `ingest_errors` y el banner de avisos del embudo los cuenta. Medido en
+  // producción el 2026-08-21, últimas 24 h: 679 `unknown_event`, que junto a los
+  // `unknown_experiment` dejaban el banner inservible — un problema real de
+  // configuración quedaba tapado por 1485 avisos esperables.
+  //
+  // Agregar un nombre acá NO lo convierte en un hito del embudo: `deriveSessionState`
+  // decide los hitos por su propia lista y no se toca.
+  'vsl_sound_on',
+  'vsl_audio',
+  'vsl_pitch',
 ] as const;
 export type EventName = (typeof EVENT_NAMES)[number];
 

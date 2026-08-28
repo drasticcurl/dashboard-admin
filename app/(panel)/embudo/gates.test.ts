@@ -19,7 +19,25 @@ import { debeMostrarCardVariantes } from './EmbudoView';
  *
  * Lo que este archivo cuida ahora son dos cosas distintas:
  *  1. que el gate de `Variantes` siga siendo el arreglo de variantes del funnel;
- *  2. que la superficie del A/B NO vuelva a medias.
+ *  2. que la superficie del A/B DE LA PORTADA no vuelva a medias.
+ *
+ * OJO, QUE ESTO CAMBIÓ: sí hay una card de test A/B en `/embudo` otra vez, pero
+ * es OTRA —`CardPitch.tsx`, para el A/B del segundo en que el VSL del upsell
+ * revela el precio— y por eso los describes de abajo siguen valiendo tal cual.
+ * La diferencia que los mantiene válidos no es de nombre, es de diseño:
+ *
+ *  - No reintroduce ninguno de los cuatro puros que este archivo vigila. Sus
+ *    gates y sus etiquetas viven en `CardPitch.tsx`, con sus propios tests.
+ *  - No recorta el embudo. La card muestra los dos brazos juntos y no existe un
+ *    `?exp=` que parta la pantalla, que era la mitad peligrosa de la superficie
+ *    vieja: un control que recortaba todo sin nada que explicara el recorte.
+ *  - No pasa por `FunnelData`. Trae sus datos de `/api/data/pitch`, así que
+ *    `lib/queries/funnel.ts` sigue sin lectores del desglose por experimento.
+ *
+ * O sea: el desglose por `experiment` de `funnel.ts` sigue siendo el slot
+ * dormido que este archivo cuida, y la lectura del test que corre hoy es un
+ * módulo aparte. Si alguien vuelve a querer partir el embudo por brazo, que
+ * lea primero por qué se sacó.
  */
 
 describe('debeMostrarCardVariantes (puro)', () => {

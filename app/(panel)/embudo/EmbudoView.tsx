@@ -41,6 +41,7 @@ import Link from 'next/link';
 import type { Funnel } from '@/lib/funnels';
 import type { BaseMode, FunnelData } from '@/lib/queries/funnel';
 import { EmbudoChart } from '@/components/EmbudoChart';
+import { CardPitch, debeMostrarCardPitch } from './CardPitch';
 import {
   Badge,
   Banner,
@@ -379,6 +380,22 @@ export function EmbudoView({
           </div>
         )}
       </Card>
+
+      {/*
+        El A/B del pitch del upsell. Trae sus propios datos de /api/data/pitch en
+        vez de viajar en `FunnelData`, y es a propósito: es una consulta con su
+        propio ciclo de vida (cuando el test cierre se borra un archivo y esta
+        línea, sin desarmar el embudo) y además tarda distinto, así que colgarla
+        del mismo fetch retrasaría los KPIs de arriba.
+
+        Va DEBAJO del paso a paso porque el embudo sigue siendo lo primero que se
+        mira; el test es una lectura puntual mientras corre.
+
+        NO recorta nada del resto de la pantalla: los KPIs, el embudo por etapas y
+        las tablas de abajo siguen siendo del funnel completo. La card muestra los
+        dos brazos juntos, que es la única forma de compararlos.
+      */}
+      {debeMostrarCardPitch(funnel.experiments) && <CardPitch funnel={funnel} />}
 
       <Card title="Filtros" hint="Cada filtro recorta el embudo completo">
         <div className="flex flex-wrap items-center gap-2">
