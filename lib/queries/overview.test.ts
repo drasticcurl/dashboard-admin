@@ -111,6 +111,26 @@ describe.skipIf(!(dbAvailable && schemaReady))('getOverviewData (integración)',
     if (slugs.length) await q('DELETE FROM funnels WHERE slug = ANY($1::text[])', [slugs]);
   });
 
+  /**
+   * Slugs de los funnels ACTIVOS en este momento.
+   *
+   * Los asserts de abajo lo usan en lugar de un 2 hardcodeado. El 2 era el
+   * catálogo del seed original (`chauhinchazon` y `reset`) y quedó roto cuando la
+   * migración 026 sumó `chauhinchazon-latam`, que es un funnel activo legítimo y
+   * por lo tanto aparece en el Resumen con todo en 0 — exactamente lo que el test
+   * 2 dice que tiene que pasar.
+   *
+   * Se consulta DENTRO de cada test y no en un `beforeAll` a propósito: los tests
+   * 6 y 7 de este archivo crean funnels sintéticos, y otros archivos corren en
+   * paralelo, así que el catálogo puede cambiar entre el arranque y el assert.
+   */
+  async function slugsActivos(): Promise<string[]> {
+    const rows = await q<{ slug: string }>(
+      'SELECT slug FROM funnels WHERE active = true ORDER BY id',
+    );
+    return rows.map((r) => r.slug);
+  }
+
   /** Un funnel sintético: los tests de alerts no pueden depender de los reales. */
   async function seedFunnel(slug: string, name: string): Promise<Funnel> {
     createdFunnelSlugs.push(slug);
@@ -204,14 +224,16 @@ describe.skipIf(!(dbAvailable && schemaReady))('getOverviewData (integración)',
 
     const data = await overviewDay(DAY);
 
-    expect(data.funnels).toHaveLength(2);
+    expect(data.funnels).toHaveLength((await slugsActivos()).length);
     expect(data.totals.sessions).toBe(5); // 3 + 2
     expect(data.totals.orders).toBe(3); // solo aprobadas
     expect(data.totals.ordersRefunded).toBe(1);
     expect(data.totals.refundedEur).toBe(5);
     // El neto del resumen es la suma EXACTA de los netos de los funnels
-    // (4.51 + 10 − 5 de chau, 4.51 de reset).
-    expect(data.totals.netEur).toBe(data.funnels[0]!.netEur + data.funnels[1]!.netEur);
+    // (4.51 + 10 − 5 de chau, 4.51 de reset). Se suman TODAS las filas y no las
+    // dos primeras: los funnels activos sin datos aportan 0, así que el assert
+    // vale igual y no se rompe cuando el catálogo crece.
+    expect(data.totals.netEur).toBe(data.funnels.reduce((a, f) => a + f.netEur, 0));
     expect(data.totals.netEur).toBe(14.02);
     expect(data.totals.avgTicketEur).toBeCloseTo(14.02 / 3, 5);
 
@@ -234,7 +256,8 @@ describe.skipIf(!(dbAvailable && schemaReady))('getOverviewData (integración)',
     await seedOrder(chau.id, { externalId: 'ov-t2-a', amount: 7790, amountEur: 4.51 });
 
     const data = await overviewDay(DAY);
-    expect(data.funnels).toHaveLength(2);
+    // Todos los activos aparecen, no solo el que tiene datos: es el punto del test.
+    expect(data.funnels).toHaveLength((await slugsActivos()).length);
 
     const r = data.funnels.find((f) => f.funnelId === reset.id)!;
     expect(r.sessions).toBe(0);
@@ -265,12 +288,18 @@ describe.skipIf(!(dbAvailable && schemaReady))('getOverviewData (integración)',
     expect(data.byDay[0]!.orders).toBe(1);
     // El día sin datos existe con 0 — un hueco en el gráfico miente sobre la
     // continuidad del negocio.
+    // `perFunnel` lleva una clave por funnel ACTIVO, todas en 0. Se arma desde el
+    // catálogo en vez de listar los dos del seed: un funnel activo nuevo (la 026
+    // sumó `chauhinchazon-latam`) tiene que aparecer con 0, y eso es lo correcto
+    // —un hueco en el gráfico miente sobre la continuidad del negocio—, así que el
+    // assert tiene que seguir al catálogo y no al revés.
+    const perFunnelVacio = Object.fromEntries((await slugsActivos()).map((s) => [s, 0]));
     expect(data.byDay[1]!).toEqual({
       day: DAY_EMPTY,
       netEur: 0,
       orders: 0,
       sessions: 0,
-      perFunnel: { [chau.slug]: 0, [reset.slug]: 0 },
+      perFunnel: perFunnelVacio,
     });
   });
 
