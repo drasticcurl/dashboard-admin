@@ -144,7 +144,7 @@ export function CardPitch({ funnel }: { funnel: Funnel }) {
   return (
     <Card
       title="Test A/B del pitch del upsell"
-      hint="Mide en qué segundo del VSL aparece el precio: un brazo lo revela antes que el otro, con el mismo video y el mismo precio. La tasa que decide es ventas sobre vistas del upsell, no clicks: revelar el precio antes puede subir los clicks y bajar las ventas."
+      hint="Mide en qué segundo del VSL aparece el precio: un brazo lo revela antes que el otro, con el mismo video y el mismo precio. La tasa que decide es ventas sobre vistas del upsell, no clicks: revelar el precio antes puede subir los clicks y bajar las ventas. Las ventas y la plata son del upsell (con el downsell adentro, que es el mismo producto más barato); el VIP va en su propia columna porque se vende en otra página y no lo vendió el pitch."
     >
       {loading && !data ? (
         <div className="flex items-center gap-2 py-8 text-sm text-neutral-500">
@@ -224,12 +224,28 @@ export function CardPitch({ funnel }: { funnel: Funnel }) {
                 key: 'ventas',
                 header: 'Vendió',
                 align: 'right',
+                render: (r) => fmtInt(r.ventas),
+              },
+              {
+                /*
+                  El VIP en su PROPIA columna y no como un `(+N)` pegado a las
+                  ventas. El `+` decía dos mentiras a la vez: sugería que se sumaba
+                  (`34 (+3 VIP)` se lee 37, y son 34, porque en la práctica quien
+                  compró el VIP había comprado el upsell antes), y metía en la
+                  columna del pitch una venta de OTRA página.
+
+                  Se muestra igual porque es plata que existe: lo que no hace es
+                  entrar en `% de ventas` ni en la columna de plata de al lado.
+                */
+                key: 'ventasVip',
+                header: 'VIP',
+                align: 'right',
                 render: (r) => (
-                  <span className="tabular-nums">
-                    {fmtInt(r.ventas)}
-                    {r.ventasVip > 0 && (
-                      <span className="text-xs text-neutral-500"> (+{fmtInt(r.ventasVip)} VIP)</span>
-                    )}
+                  <span
+                    className={r.ventasVip === 0 ? 'text-neutral-600' : 'text-neutral-400'}
+                    title="Ventas del VIP (upsell2), que se vende en otra página. No cuentan en el % de ventas ni en la plata por vista: no las hizo el pitch."
+                  >
+                    {fmtInt(r.ventasVip)}
                   </span>
                 ),
               },
@@ -258,8 +274,14 @@ export function CardPitch({ funnel }: { funnel: Funnel }) {
                 key: 'revenuePorVista',
                 header: `${moneda}/vista`,
                 align: 'right',
-                render: (r) =>
-                  r.vistasUpsell > 0 ? fmtMoney(r.revenuePorVista, moneda) : '—',
+                render: (r) => (
+                  <span
+                    className="tabular-nums"
+                    title="Plata del upsell (incluye el downsell) por vista del upsell. NO incluye el VIP, que se vende en otra página."
+                  >
+                    {r.vistasUpsell > 0 ? fmtMoney(r.revenuePorVista, moneda) : '—'}
+                  </span>
+                ),
               },
             ]}
           />

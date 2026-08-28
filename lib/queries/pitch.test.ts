@@ -23,6 +23,7 @@ function contador(brazo: string, over: Partial<PitchContadores> = {}): PitchCont
     ventas: 0,
     ventasVip: 0,
     revenue: 0,
+    revenueVip: 0,
     conSonido: 0,
     reveladoEnSec: null,
     ...over,
@@ -32,14 +33,21 @@ function contador(brazo: string, over: Partial<PitchContadores> = {}): PitchCont
 /**
  * Tuplas de contadores que la base puede devolver de verdad.
  *
- * El tramo del upsell es jerárquico —`ventasVip ⊆ ventas ⊆ clicks ⊆ vistasUpsell`—
- * y encadenar los rangos cubre ceros en cualquier posición sin filtrar. Generar
- * ventas sin clicks produciría tuplas imposibles y un `pctCierre` arriba de 100
- * que no representa ningún estado real.
+ * El tramo del upsell es jerárquico —`ventas ⊆ clicks ⊆ vistasUpsell`— y encadenar
+ * los rangos cubre ceros en cualquier posición sin filtrar. Generar ventas sin
+ * clicks produciría tuplas imposibles y un `pctCierre` arriba de 100 que no
+ * representa ningún estado real.
  *
  * `conSonido` cuelga de `vistasUpsell` (no se puede activar el sonido de un video
  * que no se vio) pero es independiente de los clicks: se puede escuchar todo el
  * pitch y no comprar.
+ *
+ * `ventasVip` cuelga de `vistasUpsell` y NO de `ventas`: son dos `EXISTS`
+ * independientes en la query, así que nada garantiza que el VIP sea un subconjunto
+ * de las ventas del upsell. En producción lo es (nadie compró VIP sin upsell), pero
+ * el generador tiene que poder producir el caso contrario para que las tasas se
+ * prueben también ahí — es justamente el caso en el que un `(+N VIP)` pegado a las
+ * ventas mentiría.
  */
 const contadores = fc
   .integer({ min: 0, max: 1000 })
@@ -52,18 +60,22 @@ const contadores = fc
   )
   .chain(([vistasUpsell, conSonido, clicks]) =>
     fc.integer({ min: 0, max: clicks }).chain((ventas) =>
-      fc.tuple(
-        fc.integer({ min: 0, max: ventas }), // ventasVip
-        fc.integer({ min: 0, max: 5_000_000 }), // revenue
-      ).map(([ventasVip, revenue]) => ({
-        vistasUpsell,
-        conSonido,
-        clicks,
-        ventas,
-        ventasVip,
-        revenue,
-        reveladoEnSec: null as number | null,
-      })),
+      fc
+        .tuple(
+          fc.integer({ min: 0, max: vistasUpsell }), // ventasVip: NO acotado por ventas
+          fc.integer({ min: 0, max: 5_000_000 }), // revenue (upsell, sin VIP)
+          fc.integer({ min: 0, max: 5_000_000 }), // revenueVip
+        )
+        .map(([ventasVip, revenue, revenueVip]) => ({
+          vistasUpsell,
+          conSonido,
+          clicks,
+          ventas,
+          ventasVip,
+          revenue,
+          revenueVip,
+          reveladoEnSec: null as number | null,
+        })),
     ),
   );
 
@@ -105,6 +117,40 @@ describe('calcularTasasPitch (pura)', () => {
       }),
       { numRuns: 100 },
     );
+  });
+
+  /**
+   * La plata del VIP NO puede tocar la columna que decide.
+   *
+   * Es la regresión de un error que estuvo en producción: `revenue` sumaba
+   * `tier IN ('upsell','upsell2')`, así que la facturación de `/upsell2` —otra
+   * página, aguas abajo del pitch— entraba en el ARS/vista del test. Con los datos
+   * reales del 2026-08-28 le movía la ventaja del brazo A del 10,8 % al 13,5 % con
+   * 2 ventas de VIP de diferencia.
+   */
+  it('revenueVip NO entra en la plata por vista, por más grande que sea', () => {
+    fc.assert(
+      fc.property(fc.integer({ min: 0, max: 50_000_000 }), (revenueVip) => {
+        const [fila] = calcularTasasPitch([
+          contador('pitch_A', { vistasUpsell: 200, ventas: 20, revenue: 400_000, revenueVip }),
+        ]);
+        // Siempre 400000/200 = 2000, sin importar cuánto facturó el VIP.
+        expect(fila!.revenuePorVista).toBe(2000);
+      }),
+      { numRuns: 100 },
+    );
+  });
+
+  it('ventasVip no altera ninguna tasa: es informativa y vive en su propia columna', () => {
+    const sinVip = calcularTasasPitch([
+      contador('pitch_A', { vistasUpsell: 100, clicks: 30, ventas: 15 }),
+    ])[0]!;
+    const conVip = calcularTasasPitch([
+      contador('pitch_A', { vistasUpsell: 100, clicks: 30, ventas: 15, ventasVip: 9 }),
+    ])[0]!;
+    expect(conVip.pctVentas).toBe(sinVip.pctVentas);
+    expect(conVip.pctCierre).toBe(sinVip.pctCierre);
+    expect(conVip.revenuePorVista).toBe(sinVip.revenuePorVista);
   });
 
   it('denominador 0 da 0 y NUNCA NaN ni Infinity, que es lo que llegaría al JSON', () => {

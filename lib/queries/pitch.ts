@@ -73,12 +73,44 @@ export type PitchContadores = {
   vistasUpsell: number;
   /** Sesiones con `upsell_click_at`. */
   clicks: number;
-  /** Sesiones con al menos una orden aprobada de tier `upsell` o `upsell2`. */
+  /**
+   * Sesiones con al menos una orden aprobada de tier `upsell`, que es lo que
+   * OFRECE la página del upsell: el upsell y el downsell.
+   *
+   * El downsell entra acá y no es un olvido: es el MISMO producto de Shopify más
+   * barato, así que `product_map` lo clasifica como `tier='upsell'`. Y cuenta como
+   * venta igual, porque si el revelado del precio corre gente del upsell al
+   * downsell, esa plata la trajo el brazo.
+   *
+   * El VIP (`upsell2`) NO entra: se vende en `/upsell2`, otra página, aguas abajo
+   * de este test. Ver `ventasVip`.
+   */
   ventas: number;
-  /** De esas, las que además compraron `upsell2` (el VIP). */
+  /**
+   * Sesiones que compraron el VIP (`upsell2`). INFORMATIVO, NO se suma a `ventas`.
+   *
+   * OJO CON LA RELACIÓN: en la práctica es un SUBCONJUNTO de `ventas` —medido en
+   * producción el 2026-08-28, las 4 sesiones con VIP de los dos brazos habían
+   * comprado antes el upsell, y cero compraron VIP sin upsell—. Pero se cuenta
+   * aparte y no como "de esas, N", porque nada en el esquema lo garantiza: son dos
+   * `EXISTS` independientes.
+   *
+   * Va en su propia columna porque el VIP se vende en OTRA página. Una diferencia
+   * de VIP entre brazos no la produjo el pitch: al 2026-08-28, A tenía 3 y B tenía
+   * 1, y esas 2 ventas de diferencia (19.940 ARS, puro ruido a esta muestra) le
+   * movían la ventaja de A del 10,8 % al 13,5 % cuando entraban a la plata.
+   */
   ventasVip: number;
-  /** Plata aprobada de tier upsell/upsell2, en la moneda de venta del funnel. */
+  /**
+   * Plata aprobada de tier `upsell` (upsell + downsell), en la moneda del funnel.
+   *
+   * SIN el VIP, por lo mismo que `ventas`: es la plata que produjo la página que
+   * este test modifica. Es la que alimenta `revenuePorVista`, la columna de plata
+   * que se mira para decidir.
+   */
   revenue: number;
+  /** Plata del VIP (`upsell2`), aparte. No entra en `revenuePorVista`. */
+  revenueVip: number;
   /** Sesiones que activaron el sonido del VSL (emitieron `vsl_sound_on`). */
   conSonido: number;
   /**
@@ -106,7 +138,14 @@ export type PitchBrazoRow = PitchContadores & {
   pctCierre: number;
   /** conSonido / vistasUpsell — cuántos escucharon el pitch. */
   pctConSonido: number;
-  /** Plata por vista de upsell. NO es un porcentaje. */
+  /**
+   * Plata del upsell por vista de upsell, SIN el VIP. NO es un porcentaje.
+   *
+   * Es la columna de plata que decide, y el "sin el VIP" es la parte que importa:
+   * mide lo que factura la página que el test modifica, con el denominador de la
+   * población que el test reparte. Meter el VIP le sumaba la facturación de otra
+   * página y movía el resultado con ventas que el pitch no hizo.
+   */
   revenuePorVista: number;
 };
 
@@ -282,16 +321,21 @@ export async function getPitchData(f: PitchFilters): Promise<PitchData> {
     //    compraron. Una sesión con upsell + VIP tiene dos órdenes y contaría dos
     //    veces, dando una conversión mayor a 100 % contra un denominador que son
     //    sesiones.
-    //  - `tier IN ('upsell','upsell2')` INCLUYE el downsell, y no es un olvido.
-    //    El downsell es el MISMO producto de Shopify más barato, así que
-    //    `product_map` lo clasifica como `tier='upsell'` (verificado: 14 órdenes
-    //    de `tier='upsell'` con `amount = 14790`, el precio del downsell).
-    //    Separarlo exigiría discriminar por monto, y los montos se movieron ocho
-    //    veces en tres semanas: una regla por monto queda vieja al siguiente test
-    //    de precio y falla en silencio. Y el downsell cuenta como venta igual: si
-    //    el revelado corre gente del upsell al downsell, esa plata la trajo el
-    //    brazo. `ventasVip` va aparte para que el VIP, que se vende en otra
-    //    página, no se lea como si lo hubiera vendido el pitch.
+    //  - `tier = 'upsell'` INCLUYE el downsell, y no es un olvido. El downsell es
+    //    el MISMO producto de Shopify más barato, así que `product_map` lo
+    //    clasifica como `tier='upsell'` (verificado: 14 órdenes de `tier='upsell'`
+    //    con `amount = 14790`, el precio del downsell). Separarlo exigiría
+    //    discriminar por monto, y los montos se movieron ocho veces en tres
+    //    semanas: una regla por monto queda vieja al siguiente test de precio y
+    //    falla en silencio. Y el downsell cuenta como venta igual: si el revelado
+    //    corre gente del upsell al downsell, esa plata la trajo el brazo.
+    //  - EL VIP (`upsell2`) VA APARTE, en `ventasVip` y `revenueVip`, y NO entra
+    //    ni en `ventas` ni en `revenue`. Se vende en `/upsell2`, otra página,
+    //    aguas abajo de lo que este test modifica. Medido el 2026-08-28: A tenía
+    //    3 VIP y B tenía 1, y esas 2 ventas de diferencia —19.940 ARS, ruido puro
+    //    a esta muestra— le movían la ventaja de A del 10,8 % al 13,5 % cuando
+    //    entraban a la plata. Atribuirle al pitch la facturación de otra página es
+    //    la forma más rápida de elegir el brazo equivocado.
     //  - `status = 'approved'`: la plata reembolsada no es una venta. Mismo
     //    criterio que el bruto de Ventas.
     //  - Subconsulta correlacionada y NO un `JOIN orders`: un join plano duplica
@@ -308,6 +352,7 @@ export async function getPitchData(f: PitchFilters): Promise<PitchData> {
       ventas: number;
       ventasVip: number;
       revenue: number;
+      revenueVip: number;
     }>(
       `SELECT experiment                                                    AS brazo,
               count(*) FILTER (WHERE upsell_view_at  IS NOT NULL)::int       AS "vistasUpsell",
@@ -316,7 +361,7 @@ export async function getPitchData(f: PitchFilters): Promise<PitchData> {
                 SELECT 1 FROM orders o
                 WHERE o.session_id = sessions.id
                   AND o.status = 'approved'
-                  AND o.tier IN ('upsell', 'upsell2')
+                  AND o.tier = 'upsell'
               ))::int                                                       AS ventas,
               count(*) FILTER (WHERE EXISTS (
                 SELECT 1 FROM orders o
@@ -328,8 +373,14 @@ export async function getPitchData(f: PitchFilters): Promise<PitchData> {
                 SELECT COALESCE(sum(o.amount), 0) FROM orders o
                 WHERE o.session_id = sessions.id
                   AND o.status = 'approved'
-                  AND o.tier IN ('upsell', 'upsell2')
-              )), 0)::float8                                                AS revenue
+                  AND o.tier = 'upsell'
+              )), 0)::float8                                                AS revenue,
+              COALESCE(sum((
+                SELECT COALESCE(sum(o.amount), 0) FROM orders o
+                WHERE o.session_id = sessions.id
+                  AND o.status = 'approved'
+                  AND o.tier = 'upsell2'
+              )), 0)::float8                                                AS "revenueVip"
        FROM sessions
        WHERE ${WHERE_PITCH}
        GROUP BY 1`,
