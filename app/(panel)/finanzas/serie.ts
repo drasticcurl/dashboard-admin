@@ -290,3 +290,64 @@ export async function pedir<T = unknown>(url: string, init?: RequestInit): Promi
   if (!res.ok) throw new Error(body.detail ?? body.error ?? `HTTP ${res.status}`);
   return body;
 }
+
+/** Lo que la UI necesita del patrimonio de un día, después de guardar. */
+export type PatrimonioResumen = {
+  totalEur: number | null;
+  completo: boolean;
+  faltan: string[];
+};
+
+/**
+ * Saca el patrimonio del SOBRE que devuelve `POST /api/finanzas/saldos`, que es
+ * `{ ok: true, patrimonio: {...} }` y no el patrimonio pelado.
+ *
+ * ── Por qué existe esta función ─────────────────────────────────────────────
+ *
+ * Esto se rompió en producción el 2026-08-29, con los saldos ya guardados y la
+ * pantalla mostrando `undefined is not an object (evaluating 'n.faltan.join')`
+ * en un banner rojo: el usuario creyó que no se había guardado nada.
+ *
+ * La causa es que `pedir<T>` hace `body as T`. El generic no verifica nada: es
+ * una AFIRMACIÓN de forma, no una comprobación. `CargaDiaria` pedía
+ * `pedir<{ totalEur, completo, faltan }>` y el route devolvía esos campos un
+ * nivel más abajo, dentro de `patrimonio`. `tsc` no puede ver ese desajuste
+ * —los dos lados compilan— y en este repo tampoco lo ve un test, porque no hay
+ * jsdom (`vitest.config.ts` usa `environment: 'node'`) y los componentes no se
+ * pueden renderizar.
+ *
+ * O sea: era un error que NINGUNA de las dos guardas del proyecto podía
+ * atrapar. Por eso la lectura del sobre se saca del componente y se pone acá,
+ * en una función pura con test: es el único lugar donde este tipo de bug se
+ * puede cubrir.
+ *
+ * Y falla FUERTE y con un mensaje que se entiende. Un `?? []` defensivo habría
+ * evitado el crash mostrando "falta el saldo de " (con la lista vacía), que es
+ * peor: el usuario habría leído que su día está incompleto cuando estaba
+ * completo, y nadie se habría enterado del desajuste.
+ */
+export function leerPatrimonio(body: unknown): PatrimonioResumen {
+  const sobre = body as { patrimonio?: unknown } | null;
+  const p = sobre?.patrimonio as Partial<PatrimonioResumen> | undefined;
+
+  if (!p || typeof p !== 'object') {
+    throw new Error(
+      'el servidor guardó los saldos pero contestó algo inesperado (falta `patrimonio` en la respuesta). ' +
+        'Recargá la pantalla para ver cómo quedó el día.',
+    );
+  }
+  if (!Array.isArray(p.faltan) || typeof p.completo !== 'boolean') {
+    throw new Error(
+      'el servidor guardó los saldos pero contestó algo inesperado (`patrimonio` incompleto). ' +
+        'Recargá la pantalla para ver cómo quedó el día.',
+    );
+  }
+
+  return {
+    // `totalEur` es null a propósito cuando el día está incompleto (D5): eso NO
+    // es un dato faltante que haya que rellenar con 0.
+    totalEur: typeof p.totalEur === 'number' ? p.totalEur : null,
+    completo: p.completo,
+    faltan: p.faltan,
+  };
+}

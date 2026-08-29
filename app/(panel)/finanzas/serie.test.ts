@@ -22,6 +22,7 @@ import { parsearMonto } from '@/lib/monto';
 import {
   etiquetaDia,
   etiquetaMes,
+  leerPatrimonio,
   offsetDelCero,
   parsearSaldo,
   signoDeSaldo,
@@ -295,5 +296,72 @@ describe('offsetDelCero', () => {
     // es un NaN en el `offset` de un stop, que deja el área sin pintar.
     expect(offsetDelCero([])).toBe(1);
     expect(offsetDelCero([null, null])).toBe(1);
+  });
+});
+
+describe('leerPatrimonio — el sobre de POST /api/finanzas/saldos', () => {
+  // Estos tests existen por un bug REAL de producción (2026-08-29): el
+  // componente leía `res.faltan` cuando el route contesta
+  // `{ ok, patrimonio: { faltan } }`. Los saldos se guardaban y la pantalla
+  // mostraba un banner rojo con `undefined is not an object`.
+  //
+  // Ni `tsc` ni un test podían atraparlo antes: `pedir<T>` hace `body as T` (una
+  // afirmación, no una comprobación) y en este repo no hay jsdom, así que los
+  // componentes no se renderizan. Sacar la lectura del sobre a una función pura
+  // es lo que lo vuelve cubrible.
+
+  const bueno = {
+    ok: true,
+    patrimonio: { totalEur: 1559.18, completo: true, faltan: [], day: '2026-08-29' },
+  };
+
+  it('lee el patrimonio de adentro del sobre', () => {
+    expect(leerPatrimonio(bueno)).toEqual({
+      totalEur: 1559.18,
+      completo: true,
+      faltan: [],
+    });
+  });
+
+  it('conserva `faltan` cuando el día quedó incompleto', () => {
+    const r = leerPatrimonio({
+      ok: true,
+      patrimonio: { totalEur: null, completo: false, faltan: ['Arq', 'Mercado Pago'] },
+    });
+    expect(r.completo).toBe(false);
+    // Y NO lo convierte en 0: un día incompleto no tiene patrimonio (D5).
+    expect(r.totalEur).toBeNull();
+    expect(r.faltan).toEqual(['Arq', 'Mercado Pago']);
+  });
+
+  it('EL BUG DE PRODUCCIÓN: los campos en la raíz, sin el sobre, se rechazan', () => {
+    // Ésta era exactamente la forma que el componente esperaba y que el route
+    // nunca mandó. Antes daba `undefined is not an object`; ahora da un mensaje
+    // que dice qué hacer.
+    expect(() =>
+      leerPatrimonio({ ok: true, totalEur: 1559.18, completo: true, faltan: [] }),
+    ).toThrow(/falta .patrimonio. en la respuesta/);
+  });
+
+  it('un sobre vacío o basura se rechaza con un mensaje que se entiende', () => {
+    for (const basura of [{}, null, undefined, { ok: true }, 'texto', 42]) {
+      expect(() => leerPatrimonio(basura)).toThrow(/inesperado/);
+    }
+  });
+
+  it('un patrimonio sin `faltan` o sin `completo` se rechaza', () => {
+    // Media respuesta es peor que ninguna: `faltan.join()` sobre un undefined es
+    // el crash original, y un `completo` ausente haría que un día completo se
+    // muestre como incompleto.
+    expect(() => leerPatrimonio({ patrimonio: { totalEur: 1, completo: true } })).toThrow(
+      /incompleto/,
+    );
+    expect(() => leerPatrimonio({ patrimonio: { totalEur: 1, faltan: [] } })).toThrow(/incompleto/);
+  });
+
+  it('menciona que los saldos SÍ se guardaron, porque es lo que pasó', () => {
+    // El mensaje tiene que decirlo: el POST ya había respondido 200 cuando esto
+    // falla, así que "no se pudo guardar" es mentira y es lo que asustó.
+    expect(() => leerPatrimonio({})).toThrow(/guardó los saldos/);
   });
 });

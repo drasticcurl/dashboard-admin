@@ -10,10 +10,94 @@ Lo más nuevo va arriba. Las reglas de cómo se escribe una entrada están en
 
 ---
 
+## 2026-08-29 — El sobre de la respuesta: `undefined is not an object` con los saldos ya guardados
+
+Arregla un bug de runtime de `e422150` que apareció **en el primer uso real** de la
+carga de saldos. Sin commitear todavía.
+
+**Qué pasaba.** Cargaste los cuatro saldos, apretaste guardar, y la pantalla
+mostró un banner rojo que decía **«No se pudo guardar — undefined is not an object
+(evaluating 'n.faltan.join')»**.
+
+**El cartel mentía en lo peor: los saldos SÍ se habían guardado.** Las cuatro
+filas estaban en `finance_account_balances` para el 2026-08-29 (1941.89 + 0 + 95 −
+477.71 = 1559.18, el mismo número que el formulario ya mostraba en el preview). El
+error explotó DESPUÉS de que el `POST` contestara 200, armando el mensaje de éxito.
+
+Y tuvo un segundo efecto peor que el cartel: el `throw` cortó antes del
+`onGuardado()`, así que el `router.refresh()` nunca corrió y la pantalla no se
+actualizó. O sea que quedó mostrando el estado viejo **y** un error: las dos
+señales que tenía el usuario decían "no se guardó nada", y las dos eran falsas.
+
+**La causa: un desajuste de contrato entre dos capas.** El route contesta el
+sobre `{ ok: true, patrimonio: { totalEur, completo, faltan } }`, igual que el
+resto de los routes del panel (`{ ok, movement }`, `{ ok, account }`). El
+componente pedía `pedir<{ totalEur, completo, faltan }>`, o sea los campos un
+nivel más arriba. `res.faltan` era `undefined` y `undefined.join(', ')` reventó.
+
+**Por qué ninguna de las dos guardas del proyecto lo atrapó**, que es lo que
+importa de este bug:
+
+- **`tsc` no puede verlo.** `pedir<T>` hace `body as T`: el generic es una
+  AFIRMACIÓN de forma, no una comprobación. Los dos lados compilan perfecto
+  porque nadie está comparando la forma real contra la declarada.
+- **Un test tampoco.** En este repo no hay jsdom (`vitest.config.ts` usa
+  `environment: 'node'`) y `vitest.config.ts` sólo incluye `.test.ts`, así que los
+  componentes no se pueden renderizar. El test del route probaba que la respuesta
+  trae `patrimonio.faltan`; el componente leía `faltan`. Nadie miraba los dos.
+
+Estaba anticipado y se me pasó igual: `T06-ensamblado.md` §8 dice literalmente
+«Si `FinanceOverview` (T02) y lo que `GraficoSaldo`/`CargaDiaria` (T04) esperan no
+encajan, PARÁ». La revisión que hice fue `tsc` + tests + build, y las tres pasaban.
+
+**Por qué se resolvió así.** La lectura del sobre se saca del componente y pasa a
+`leerPatrimonio()` en `app/(panel)/finanzas/serie.ts`: una función pura, con test.
+Es el único lugar donde este tipo de bug se puede cubrir en este repo, porque es
+lo único que se puede ejecutar sin un browser.
+
+**Y falla fuerte, con un mensaje que dice la verdad.** La salida fácil era un
+`res.faltan ?? []`: no habría crasheado, pero el usuario habría leído «el día
+sigue incompleto: falta el saldo de » con la lista vacía —o sea que su día
+completo se mostraría como incompleto— y el desajuste habría seguido ahí, invisible,
+para siempre. El mensaje nuevo arranca con **«el servidor guardó los saldos pero
+contestó algo inesperado»**, porque eso es exactamente lo que pasó y es lo que
+había que decirle a alguien que acaba de ver un error rojo.
+
+Se revisaron las otras cuatro llamadas de los componentes nuevos por el mismo
+patrón. **`CuentasSection` está bien** y no por casualidad: lee `saldosAfectados`
+y `saldosBorrados`, que sí viven en la raíz del sobre, y los dos con guarda
+(`typeof === 'number'` y `?? 0`). `GraficoSaldo` no hace fetch.
+
+**Qué NO se hizo.** No se unificó `pedir()` de `serie.ts` con la copia de `api()`
+que tiene `FinanzasView.tsx`, ni se le puso validación de esquema a `pedir<T>`.
+Lo segundo es la solución de fondo (un zod del lado del cliente, o que `pedir`
+devuelva `unknown` y obligue a un lector por endpoint) y es un cambio que toca
+todas las pantallas del panel: no entra como parche de un bug. Queda anotado.
+
+**Qué se verificó.**
+
+- Los 6 tests nuevos de `leerPatrimonio`, uno de ellos con **la forma exacta que
+  causó el bug** (los campos en la raíz, sin sobre) confirmando que ahora se
+  rechaza con un mensaje legible. `serie.test.ts` pasa de 32 a 38.
+- `tsc --noEmit` limpio, `npm run build` limpio, suite completa en verde.
+- Contra producción, con tus datos ya cargados: `patrimonio = 1559.18`,
+  `desglose = {dinero 1941.89, retenido 95, deuda 477.71}`, día 2026-08-29
+  completo, `serieDiaria` con 1 punto y el cierre de agosto en 1559.18. Las
+  ganancias mensuales siguen en 0, que es lo correcto: hacen falta dos meses
+  cerrados.
+
+**Sin verificar:** sigue faltando la revisión visual en el browser. Este bug es
+justamente el ejemplo de qué se escapa sin ella, así que la próxima carga de
+saldos hay que hacerla mirando la pantalla.
+
+---
+
 ## 2026-08-28 — Finanzas: el patrimonio se mide, no se calcula
 
-**Sin commitear todavía.** El módulo entero de `/finanzas` cambia de qué mide el
-número principal. Migración `028_saldo_cuentas.sql`.
+**`e422150`**, deployada el 2026-08-28 (release `20260828153231`). El módulo entero
+de `/finanzas` cambia de qué mide el número principal. Migración
+`028_saldo_cuentas.sql`. **Tuvo un bug de runtime que salió en el primer uso: ver
+la entrada de arriba.**
 
 **Qué pasaba.** El pedido fue "que el de finanzas no se sincronice el saldo con
 las cuentas publicitarias, que simplemente yo ponga cuánto saldo hay 1 vez al

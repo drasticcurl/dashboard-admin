@@ -32,7 +32,14 @@ import { formatearMontoParaInput } from '@/lib/monto';
 import type { AccountWithBalance } from '@/lib/queries/saldo';
 import { Badge, Banner, Card, EmptyState, Spinner, fmtMoney } from '@/components/ui';
 import { btnGhost, btnPrimary, inputCls } from '../config/kit';
-import { parsearSaldo, pedir, signoDeSaldo, totalTipeado, type FilaTipeada } from './serie';
+import {
+  leerPatrimonio,
+  parsearSaldo,
+  pedir,
+  signoDeSaldo,
+  totalTipeado,
+  type FilaTipeada,
+} from './serie';
 
 const KIND_LABEL: Record<AccountWithBalance['kind'], string> = {
   dinero: 'Dinero',
@@ -169,14 +176,18 @@ export function CargaDiaria({
 
       if (payload.length === 0) throw new Error('no hay ningún saldo para guardar');
 
-      const res = await pedir<{
-        totalEur: number | null;
-        completo: boolean;
-        faltan: string[];
-      }>('/api/finanzas/saldos', {
-        method: 'POST',
-        body: JSON.stringify({ day, saldos: payload }),
-      });
+      // El route contesta el SOBRE `{ ok, patrimonio }`, no el patrimonio
+      // pelado. `pedir<T>` no lo verifica (hace `body as T`), así que la forma
+      // se lee con `leerPatrimonio`, que sí la chequea y tiene test. La primera
+      // versión de esto pedía `pedir<{ totalEur, completo, faltan }>` y reventó
+      // en producción con `undefined is not an object` — con los saldos ya
+      // guardados y el usuario creyendo que no.
+      const res = leerPatrimonio(
+        await pedir('/api/finanzas/saldos', {
+          method: 'POST',
+          body: JSON.stringify({ day, saldos: payload }),
+        }),
+      );
 
       // El mensaje dice si el día quedó COMPLETO, y si no, qué falta. Guardar
       // parcial está permitido; lo que no está permitido es que el usuario crea
