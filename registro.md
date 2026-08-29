@@ -10,6 +10,121 @@ Lo más nuevo va arriba. Las reglas de cómo se escribe una entrada están en
 
 ---
 
+## 2026-08-29 — Finanzas: la pantalla se calla, y el saldo del día persigue al usuario
+
+Rediseño de `/finanzas` y un recordatorio nuevo en todo el panel. Sin commitear
+todavía.
+
+**Qué pasaba.** La pantalla mostraba las cuatro secciones abiertas al mismo
+tiempo: patrimonio, formulario de carga, gráfico, tabla de movimientos con su
+formulario, tabla de pagos programados con el suyo, y la de cuentas. Más de 2000
+px de alto. Para ver el gráfico había que scrollear por arriba de un formulario, y
+para cargar el saldo había que buscarlo entre dos tablas. **Lo que se mira todos
+los días y lo que se administra una vez al mes tenían el mismo peso visual.**
+
+Y el problema de fondo: el patrimonio se mide a mano una vez al día, así que si
+hoy no se carga, **ese día se pierde para siempre**. No queda un dato peor: no
+queda ninguno — el día no aparece en el gráfico y el número grande dice "sin
+información". El único recordatorio era un banner dentro de `/finanzas`, o sea que
+había que entrar a Finanzas para acordarse de entrar a Finanzas.
+
+**Por qué se resolvió así.**
+
+**La pantalla por defecto es el patrimonio y su gráfico, nada más.** Las otras
+cuatro secciones se abren desde una botonera. Se eligió **reemplazar el contenido
+con un modal** y no acordeones ni pestañas: un acordeón deja las secciones a un
+click de volver a apilarse (el problema vuelve solo), y con pestañas el patrimonio
+—que es el número que uno viene a ver— desaparecería al mirar cualquier otra cosa.
+
+**El botón de cargar saldo no es un botón más.** Cuando falta el saldo del día se
+pone amarillo y late; cuando ya está, se apaga a neutro con un ✓. El color pasa a
+contestar "¿ya lo hice?", que es la pregunta con la que uno entra. Reemplaza al
+banner: la señal vive en el control que la resuelve, no en un cartel al lado.
+
+**El latido va por `box-shadow` y no por `opacity`.** Un botón que se desvanece y
+vuelve se lee como "deshabilitado, intermitente" — es el mismo motivo por el que
+el `Skeleton` de este panel ya había descartado `animate-pulse`. Un aro que se
+expande alrededor de un botón sólido se lee como "acá, tocá esto". 2.4 s y no 1 s:
+a un segundo el latido compite con el contenido y cansa. Se apaga solo con
+`prefers-reduced-motion` (la regla de `@layer base` fuerza
+`animation-iteration-count: 1`) y queda el amarillo quieto, que dice lo mismo.
+
+**El aviso al entrar vive en el LAYOUT del panel, no en `/finanzas`.** Es lo que
+lo hace servir para algo: aparece en Resumen, Ventas, Anuncios o donde sea que la
+persona entre. Se descarta con «Después» y no vuelve hasta el día siguiente, con la
+fecha como clave en `localStorage` — así mañana reaparece sin que nadie limpie
+nada. Adentro de `/finanzas` no se muestra: el botón ya está latiendo y dos avisos
+de lo mismo en la misma pantalla se anulan.
+
+**El punto en la tab de Finanzas es además del aviso, no en su lugar**, porque los
+dos duran distinto: el aviso se descarta, el punto se queda hasta que el saldo esté
+cargado de verdad. Si el único recordatorio fuera descartable, "después" y "listo"
+serían indistinguibles.
+
+**Qué se decidió NO hacer.**
+
+- **No se usó la API `Notification` del navegador**, aunque el pedido decía
+  "notificación". Necesita un permiso explícito cuyo prompt aparece descolgado de
+  todo contexto, y no sirve para este caso: una notificación del sistema tiene
+  sentido con la pestaña cerrada, y este aviso sólo aplica cuando la persona ya
+  está en el panel y a un click de resolverlo. Avisar con el panel cerrado sería el
+  bot de Telegram que ya existe para anuncios, no esto.
+- **No se reusó `DialogoConfirmacion`** de anuncios: recibe una previsualización de
+  ads y trae su propio checkbox y sus botones Ejecutar/Cancelar. Es un diálogo de
+  confirmación, no un contenedor. Del él se copió el envoltorio visual para que los
+  dos modales del panel se vean como el mismo objeto.
+- **No se usó el `<dialog>` nativo**, que habría dado el foco y el Escape gratis:
+  su `::backdrop` no acepta las utilidades de Tailwind del panel y habría que
+  escribir CSS suelto para el fondo, quedando un modal que no se parece al otro.
+- **Los banners de "falta cargar" y de pagos atrasados se borraron**, no se
+  escondieron: su información vive ahora en el color y el contador de los botones.
+  El de atrasados va en rojo con el conteo justamente porque reemplaza a un banner
+  — si no se mostrara ahí, un pago atrasado dejaría de avisar por completo.
+
+**Un bug propio, del mismo tipo que ya me había pasado dos veces en este módulo.**
+La primera versión del layout calculaba la fecha del aviso con
+`new Date().toISOString().slice(0,10)`, que es **UTC**. La clave del "descartar por
+hoy" se habría reseteado a la medianoche de Londres: en producción, con el panel en
+Buenos Aires, hasta 5 horas antes de que cambiara el día del usuario — el aviso
+reaparecería a las 21:00 diciendo que falta el saldo de un día que ya se cargó.
+Ahora `faltanSaldosDeHoy()` devuelve también el día, resuelto en `DASHBOARD_TZ`,
+porque es la única fecha correcta y la función ya la tenía para hacer la consulta.
+
+**Consecuencia pendiente:** el layout del panel hace una consulta más en CADA
+pantalla (Resumen, Embudo, Ventas, Anuncios, Leads, Config). Es una sola query
+sobre un índice y va en el `Promise.all` con `listFunnels`, así que no suma
+latencia en serie, pero ahora **todas** las pantallas del panel dependen de que
+`finance_accounts` exista. Si algún día se revierte la migración 028 sin revertir
+esto, el panel entero deja de cargar, no sólo Finanzas.
+
+**Qué se verificó.**
+
+- `tsc --noEmit` limpio, `npm run build` limpio, **1414 tests en verde**.
+- **`lib/paleta.test.ts` en verde**, que es la guarda que importa acá: valida cada
+  clase de color literal contra `tailwind.config.ts`. Todos los tonos usados
+  (`warn-200/300/500`, `bad-200/300/500`) existen.
+- **La animación emite CSS de verdad**, comprobado en el bundle construido:
+  `@keyframes latido{0%,to{box-shadow:0 0 0 0 rgba(232,163,61,.45)}…}` y
+  `.animate-latido{animation:latido 2.4s cubic-bezier(.4,0,.6,1) infinite}`. Este
+  chequeo no es ceremonia: una clase que Tailwind no conoce no rompe la build, no
+  emite una regla y el efecto simplemente no pasa — es exactamente el modo de
+  falla que `paleta.test.ts` existe para atrapar.
+- La estructura de la pantalla, contada sobre el JSX: cero `<Card>` abiertas de
+  nivel 1, cero banners sueltos, cuatro modales que sólo se renderizan con `vista`
+  puesta.
+
+**Sin verificar, y esta vez pesa más que nunca:** toda la revisión visual y de
+interacción. El modal tiene trampa de foco, Escape para cerrar, devolución del foco
+al botón que lo abrió, cierre por click en el fondo (con `onMouseDown` y chequeo de
+`target`, para que arrastrar una selección desde adentro y soltar afuera no cierre
+y pierda lo tipeado) y bloqueo del scroll de atrás. **Nada de eso está cubierto por
+un test**, porque en este repo no hay jsdom y los componentes no se renderizan.
+Hay que probar a mano: abrir cada sección, cerrar con Escape, cerrar con el fondo,
+tabular adentro del modal a ver que no se escape al header, y confirmar que el foco
+vuelve al botón.
+
+---
+
 ## 2026-08-29 — El sobre de la respuesta: `undefined is not an object` con los saldos ya guardados
 
 Arregla un bug de runtime de `e422150` que apareció **en el primer uso real** de la

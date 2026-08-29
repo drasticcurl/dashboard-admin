@@ -41,7 +41,23 @@ const TABS = [
 export const SELECT_HEADER =
   'press appearance-none rounded-lg border border-border-strong bg-surface-raised py-1.5 pl-3 pr-8 text-sm font-medium text-neutral-200 shadow-inset-highlight transition-[background-color,border-color,box-shadow] duration-250 hover:border-overlay/18 hover:bg-surface-overlay';
 
-export function Nav({ funnels }: { funnels: Funnel[] }) {
+export function Nav({
+  funnels,
+  saldoPendiente = false,
+}: {
+  funnels: Funnel[];
+  /**
+   * true = falta cargar el saldo de hoy en alguna cuenta. Pone un punto en la
+   * tab de Finanzas.
+   *
+   * El punto está además del aviso flotante (`AvisoSaldo`) y no en su lugar,
+   * porque los dos duran distinto: el aviso se descarta con "Después" y no
+   * vuelve hasta mañana, mientras que el punto se queda hasta que el saldo esté
+   * cargado de verdad. Si el único recordatorio fuera descartable, "después" y
+   * "listo" se volverían indistinguibles.
+   */
+  saldoPendiente?: boolean;
+}) {
   const pathname = usePathname() ?? '/';
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -74,7 +90,8 @@ export function Nav({ funnels }: { funnels: Funnel[] }) {
         cambiar de sección.
       */}
       <ul className="flex items-center gap-0.5 rounded-xl bg-canvas/60 p-1 shadow-[inset_0_1px_2px_0_rgba(4,6,14,0.6),inset_0_0_0_1px_rgba(255,255,255,0.05)]">
-        {TABS.map((tab) => {
+        {TABS.map((t) => {
+          const tab = { ...t, pendiente: t.href === '/finanzas' && saldoPendiente };
           const active =
             pathname === tab.href || pathname.startsWith(`${tab.href}/`);
           return (
@@ -106,6 +123,25 @@ export function Nav({ funnels }: { funnels: Funnel[] }) {
                   </span>
                   <span className="col-start-1 row-start-1">{tab.label}</span>
                 </span>
+                {/*
+                  El punto de pendiente. Va `absolute` y NO en el flujo para no
+                  ensanchar la tab: el truco del grid de arriba fija el ancho
+                  contra el label en semibold, y un punto que ocupara espacio
+                  correría las otras seis tabs cada vez que aparece o se va —
+                  justo el jitter que ese grid existe para evitar.
+
+                  El texto para lector de pantalla va aparte y en `sr-only`,
+                  porque un punto de color no dice nada a quien no lo ve.
+                */}
+                {tab.pendiente && (
+                  <>
+                    <span
+                      aria-hidden
+                      className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-warn-500"
+                    />
+                    <span className="sr-only"> (falta cargar el saldo de hoy)</span>
+                  </>
+                )}
               </Link>
             </li>
           );

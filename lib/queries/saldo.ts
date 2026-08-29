@@ -717,3 +717,40 @@ export async function guardarSaldosDelDia(
 
   return patrimonioDe(day);
 }
+
+/**
+ * Los nombres de las cuentas vigentes HOY que todavía no tienen saldo cargado.
+ * Vacío = el día ya está completo.
+ *
+ * Existe aparte de `getSaldoOverview()` porque la usa el LAYOUT del panel, o
+ * sea que corre en cada carga de cada pantalla (Resumen, Ventas, Anuncios…):
+ * `getSaldoOverview` hace cuatro consultas y devuelve el patrimonio, el
+ * desglose y las cuentas con sus saldos, y nada de eso se necesita para
+ * contestar "¿falta cargar?". Esto es UNA consulta a un índice.
+ *
+ * La condición de vigencia es la misma de D6 y por eso se lee del mismo lugar
+ * conceptual: una cuenta abierta mañana no "falta" hoy.
+ *
+ * Devuelve TAMBIÉN el día, y no sólo los nombres, porque el llamador lo
+ * necesita y no lo puede calcular: el aviso del layout usa la fecha como clave
+ * del "descartar por hoy", y con `new Date()` del cliente (o un
+ * `toISOString()` en el server, que es UTC) el recordatorio se reactivaría a la
+ * medianoche equivocada. La única fecha correcta acá es la de DASHBOARD_TZ, y
+ * esta función ya la resolvió para hacer la consulta.
+ */
+export async function faltanSaldosDeHoy(): Promise<{ hoy: string; faltan: string[] }> {
+  const hoy = await hoyEnTz();
+  const rows = await q<{ name: string }>(
+    `SELECT a.name
+       FROM finance_accounts a
+      WHERE a.opened_on <= $1::date
+        AND (a.closed_on IS NULL OR $1::date <= a.closed_on)
+        AND NOT EXISTS (
+          SELECT 1 FROM finance_account_balances b
+           WHERE b.account_id = a.id AND b.day = $1::date
+        )
+      ORDER BY a.sort_order, a.name`,
+    [hoy],
+  );
+  return { hoy, faltan: rows.map((r) => r.name) };
+}

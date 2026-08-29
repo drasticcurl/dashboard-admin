@@ -252,6 +252,31 @@ export default {
           to: { opacity: '1', transform: 'none' },
         },
         /**
+         * El aro que late alrededor del botón «Cargar saldo de hoy» cuando el
+         * saldo del día todavía no se cargó. Es un recordatorio, no un estado
+         * de carga.
+         *
+         * Va por `box-shadow` y NO por `opacity` (que es lo que hace
+         * `animate-pulse`): un botón que se desvanece y vuelve se lee como
+         * "deshabilitado, intermitente" —el mismo motivo por el que el Skeleton
+         * de este panel descartó `animate-pulse`— mientras que un aro que se
+         * expande alrededor de un botón sólido se lee como "acá, tocá esto".
+         *
+         * 2.4s y no 1s: a un segundo el latido compite con el contenido y
+         * cansa. Y el aro NUNCA llega a opacidad 0 en el keyframe intermedio,
+         * porque un borde que desaparece del todo hace parpadear el layout
+         * óptico del botón.
+         *
+         * Se apaga sola con `prefers-reduced-motion` (regla de @layer base, que
+         * fuerza `animation-iteration-count: 1`), así que el botón queda
+         * amarillo y quieto: el color sigue diciendo lo mismo sin el
+         * movimiento.
+         */
+        latido: {
+          '0%, 100%': { boxShadow: '0 0 0 0 rgba(232, 163, 61, 0.45)' },
+          '50%': { boxShadow: '0 0 0 6px rgba(232, 163, 61, 0)' },
+        },
+        /**
          * Barrido del skeleton: reemplaza al `animate-pulse` plano. Arranca
          * FUERA de la caja por la izquierda; sin el `from` explícito el brillo
          * aparece de la nada en el medio en el primer ciclo.
@@ -264,6 +289,7 @@ export default {
       animation: {
         'rise-in': 'rise-in 420ms cubic-bezier(0.32, 0.72, 0, 1) both',
         shimmer: 'shimmer 1.6s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+        latido: 'latido 2.4s cubic-bezier(0.4, 0, 0.6, 1) infinite',
       },
     },
   },

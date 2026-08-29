@@ -23,6 +23,8 @@ import {
   clearSessionCookieOptions,
   isAuthenticated,
 } from '@/lib/auth';
+import { faltanSaldosDeHoy } from '@/lib/queries/saldo';
+import { AvisoSaldo } from '@/components/AvisoSaldo';
 import { Nav } from '@/components/Nav';
 import { PanelLogo } from '@/components/PanelLogo';
 import { RangePicker } from '@/components/RangePicker';
@@ -44,7 +46,14 @@ export default async function PanelLayout({ children }: { children: ReactNode })
     redirect('/');
   }
 
-  const funnels = await listFunnels();
+  // Las dos en paralelo: `faltanSaldosDeHoy` es UNA consulta y corre en cada
+  // pantalla del panel, así que no puede sumar latencia en serie.
+  //
+  // Va en el layout y no en /finanzas a propósito: el patrimonio se mide a mano
+  // y un día al que le falta una cuenta no aparece en el gráfico, así que
+  // olvidarse no degrada el dato, LO BORRA. Un recordatorio que sólo se ve
+  // adentro de Finanzas obligaría a entrar para acordarse de entrar.
+  const [funnels, saldo] = await Promise.all([listFunnels(), faltanSaldosDeHoy()]);
 
   return (
     /*
@@ -87,7 +96,7 @@ export default async function PanelLayout({ children }: { children: ReactNode })
           </Link>
 
           <div className="flex flex-wrap items-center gap-2.5">
-            <Nav funnels={funnels} />
+            <Nav funnels={funnels} saldoPendiente={saldo.faltan.length > 0} />
             <RangePicker />
             <form action={logoutAction}>
               <button
@@ -121,6 +130,19 @@ export default async function PanelLayout({ children }: { children: ReactNode })
       <main id="contenido" className="reveal mx-auto max-w-7xl px-4 pb-16 pt-7">
         {children}
       </main>
+
+      {/*
+        Fuera del <main> y del `reveal`: el aviso no es contenido de la pantalla
+        y no tiene que entrar en la animación escalonada de las tarjetas. Se
+        oculta solo dentro de /finanzas, donde el botón ya está latiendo.
+      */}
+      {/*
+        `saldo.hoy` viene del server resuelto en DASHBOARD_TZ, y NO de un
+        `new Date()`: es la clave del "descartar por hoy", así que con la fecha
+        del browser (o con un toISOString(), que es UTC) el aviso se reactivaría
+        a la medianoche equivocada — hasta 5 horas antes en producción.
+      */}
+      <AvisoSaldo faltan={saldo.faltan} hoy={saldo.hoy} />
     </div>
   );
 }

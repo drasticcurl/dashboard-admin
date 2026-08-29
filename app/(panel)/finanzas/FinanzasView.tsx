@@ -39,6 +39,7 @@ import { formatearMontoParaInput, parsearMonto } from '@/lib/monto';
 import { CargaDiaria } from './CargaDiaria';
 import { CuentasSection } from './CuentasSection';
 import { GraficoSaldo } from './GraficoSaldo';
+import { Modal } from './Modal';
 
 // Este archivo ya NO importa recharts. El gráfico vive en GraficoSaldo.tsx, que
 // además es el único que lo necesita: dejarlo acá arrastraba la librería a un
@@ -95,6 +96,125 @@ async function api<T = unknown>(url: string, init?: RequestInit): Promise<T> {
 }
 
 type Flash = { tone: 'good' | 'bad'; text: string } | null;
+
+/** Qué sección está abierta. `null` = sólo el patrimonio y el gráfico. */
+type Vista = null | 'saldo' | 'movimientos' | 'pagos' | 'cuentas';
+
+/**
+ * Los cuatro accesos a las secciones que ya no están abiertas por defecto.
+ *
+ * El de «Cargar saldo de hoy» NO es un botón más y por eso se ve distinto:
+ * cuando falta el saldo del día se pone amarillo y late. El motivo no es
+ * decorativo — un día al que le falta una cuenta no tiene patrimonio, así que no
+ * aparece en el gráfico y el número grande queda en "sin información". Olvidarse
+ * no degrada el dato: lo borra. Y como el saldo se mide una vez por día, si no
+ * se carga hoy ese día se pierde para siempre.
+ *
+ * Cuando ya está cargado, el mismo botón se apaga a neutro con un ✓: el color
+ * pasa a ser la respuesta a "¿ya lo hice?", que es la pregunta que uno se hace
+ * al entrar.
+ *
+ * Los contadores de los otros tres son la única forma de saber que hay algo
+ * adentro sin abrirlos, ahora que no se ven. Y el de pagos atrasados va en rojo
+ * porque reemplaza a un banner: si no lo mostrara acá, un pago atrasado dejaría
+ * de avisar por completo.
+ */
+function Botonera({
+  faltanHoy,
+  atrasados,
+  movimientos,
+  cuentas,
+  onAbrir,
+}: {
+  faltanHoy: string[];
+  atrasados: number;
+  movimientos: number;
+  cuentas: number;
+  onAbrir: (v: Vista) => void;
+}): JSX.Element {
+  const falta = faltanHoy.length > 0;
+
+  const base =
+    'press flex items-center justify-between gap-3 rounded-xl border px-4 py-3 text-left text-sm font-medium transition-[background-color,border-color,box-shadow] duration-250';
+
+  return (
+    <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
+      <button
+        type="button"
+        onClick={() => onAbrir('saldo')}
+        // `animate-latido` sólo cuando falta. Se apaga sola con
+        // prefers-reduced-motion (regla de @layer base): queda el amarillo sin
+        // el movimiento, y el color dice lo mismo.
+        className={
+          falta
+            ? `${base} animate-latido border-warn-500/40 bg-warn-500/10 text-warn-200 hover:bg-warn-500/20`
+            : `${base} border-border-subtle bg-surface text-neutral-300 hover:bg-overlay/6 hover:text-neutral-100`
+        }
+      >
+        <span className="flex flex-col gap-0.5">
+          <span>{falta ? 'Cargar saldo de hoy' : 'Saldo de hoy cargado'}</span>
+          <span className={`text-xs font-normal ${falta ? 'text-warn-300' : 'text-neutral-500'}`}>
+            {falta
+              ? faltanHoy.length === 1
+                ? `falta ${faltanHoy[0]}`
+                : `faltan ${faltanHoy.length} cuentas`
+              : 'editar o cargar otro día'}
+          </span>
+        </span>
+        <span aria-hidden className="shrink-0 text-base">
+          {falta ? '!' : '✓'}
+        </span>
+      </button>
+
+      <button
+        type="button"
+        onClick={() => onAbrir('movimientos')}
+        className={`${base} border-border-subtle bg-surface text-neutral-300 hover:bg-overlay/6 hover:text-neutral-100`}
+      >
+        <span className="flex flex-col gap-0.5">
+          <span>Movimientos</span>
+          <span className="text-xs font-normal text-neutral-500">
+            {movimientos === 0 ? 'ninguno todavía' : `${movimientos} cargado${movimientos === 1 ? '' : 's'}`}
+          </span>
+        </span>
+      </button>
+
+      <button
+        type="button"
+        onClick={() => onAbrir('pagos')}
+        className={
+          atrasados > 0
+            ? `${base} border-bad-500/40 bg-bad-500/10 text-bad-200 hover:bg-bad-500/20`
+            : `${base} border-border-subtle bg-surface text-neutral-300 hover:bg-overlay/6 hover:text-neutral-100`
+        }
+      >
+        <span className="flex flex-col gap-0.5">
+          <span>Pagos programados</span>
+          <span className={`text-xs font-normal ${atrasados > 0 ? 'text-bad-300' : 'text-neutral-500'}`}>
+            {atrasados > 0
+              ? `${atrasados} atrasado${atrasados === 1 ? '' : 's'}`
+              : 'al día'}
+          </span>
+        </span>
+      </button>
+
+      <button
+        type="button"
+        onClick={() => onAbrir('cuentas')}
+        className={`${base} border-border-subtle bg-surface text-neutral-300 hover:bg-overlay/6 hover:text-neutral-100`}
+      >
+        <span className="flex flex-col gap-0.5">
+          <span>Cuentas</span>
+          <span className="text-xs font-normal text-neutral-500">
+            {cuentas} {cuentas === 1 ? 'cuenta' : 'cuentas'}
+          </span>
+        </span>
+      </button>
+    </div>
+  );
+}
+
+
 
 /**
  * El número grande de la pantalla: el patrimonio del último día COMPLETO.
@@ -207,6 +327,18 @@ export function FinanzasView({
   const [busy, setBusy] = useState(false);
   const [flash, setFlash] = useState<Flash>(null);
 
+  /**
+   * Qué sección está abierta. `null` = la pantalla por defecto, que muestra sólo
+   * el patrimonio y su gráfico.
+   *
+   * Antes las cuatro secciones estaban abiertas al mismo tiempo y la pantalla
+   * medía más de 2000 px: para ver el gráfico había que scrollear por arriba de
+   * un formulario de carga, y para cargar el saldo había que buscarlo entre dos
+   * tablas. Lo que se mira todos los días y lo que se administra cada tanto
+   * tenían el mismo peso visual.
+   */
+  const [vista, setVista] = useState<Vista>(null);
+
   // router.refresh() re-ejecuta la página y baja props frescas: estos efectos
   // son los que las adoptan sin perder el estado del componente.
   useEffect(() => setOverview(initialOverview), [initialOverview]);
@@ -218,6 +350,14 @@ export function FinanzasView({
   useEffect(() => setCuentas(initialCuentas), [initialCuentas]);
 
   const show = useCallback((tone: 'good' | 'bad', text: string) => setFlash({ tone, text }), []);
+
+  // Al cerrar una sección se limpia el flash: el cartel de "Listo" de lo que se
+  // hizo adentro del modal quedaría flotando sobre la pantalla del patrimonio
+  // sin contexto de a qué se refería.
+  const cerrarVista = useCallback(() => {
+    setVista(null);
+    setFlash(null);
+  }, []);
 
   // El aviso de éxito se borra solo a los 6 s. El de error NO: si algo no se
   // guardó, el cartel se queda hasta que el usuario haga otra cosa.
@@ -448,9 +588,6 @@ export function FinanzasView({
             </span>
           )}
         </div>
-        <button type="button" className={btnGhost} disabled={busy} onClick={ejecutarAhora}>
-          Ejecutar pagos atrasados
-        </button>
       </div>
 
       {flash && (
@@ -465,366 +602,371 @@ export function FinanzasView({
           tipeado ya incluye los gastos. */}
       <PatrimonioCard overview={overview} />
 
-      {/* Falta cargar el saldo de hoy. Va ARRIBA del banner de pagos atrasados:
-          por D5, olvidarse UNA cuenta hace perder el punto del día entero en el
-          gráfico, así que es el aviso más urgente de la pantalla. Y nombra las
-          cuentas en vez de decir "cargá el saldo", para que sea accionable. */}
-      {overview.faltanCargarHoy.length > 0 && (
-        <Banner
-          tone="warn"
-          title={`Falta cargar el saldo de hoy en ${overview.faltanCargarHoy.length} ${
-            overview.faltanCargarHoy.length === 1 ? 'cuenta' : 'cuentas'
-          }`}
-        >
-          {overview.faltanCargarHoy.join(', ')} — hasta que estén todas, el día de hoy no tiene
-          patrimonio y no aparece en el gráfico.
-        </Banner>
-      )}
+      <Botonera
+        faltanHoy={overview.faltanCargarHoy}
+        atrasados={atrasados.length}
+        movimientos={movements.length}
+        cuentas={cuentas.length}
+        onAbrir={setVista}
+      />
 
-      {atrasados.length > 0 && (
-        <Banner tone="warn" title={`${atrasados.length} pago${atrasados.length === 1 ? '' : 's'} programado${atrasados.length === 1 ? '' : 's'} atrasado${atrasados.length === 1 ? '' : 's'}`}>
-          <span className="flex flex-wrap items-center gap-2">
-            <span>
-              {atrasados.map((p) => p.name).join(', ')} — el día ya pasó y todavía no generó el gasto.
-            </span>
-            <button
-              type="button"
-              className={`${btnCls} border border-warn-500/30 bg-warn-500/10 text-warn-200 hover:bg-warn-500/20`}
-              disabled={busy}
-              onClick={ejecutarAhora}
-            >
-              Ejecutar ahora
-            </button>
-          </span>
-        </Banner>
-      )}
-
-      {/* La carga diaria: UN formulario con una fila por cuenta y UN botón, que
-          manda todas juntas (es una transacción). No cuatro formularios: por D5
-          cargar 3 de 4 no le sirve de nada al usuario. */}
-      <CargaDiaria cuentas={saldo.cuentas} hoy={saldo.hoyStr} onGuardado={() => router.refresh()} />
-
-      {/* El gráfico nuevo. Reemplazó a un BarChart de dos barras apiladas (profit
-          + movimientos) cuya altura NO era el neto, porque recharts apila los
-          negativos hacia el otro lado en vez de restarlos: el neto sólo se veía
-          en el tooltip. Ahora es una sola serie y el toggle cambia qué mide. */}
+      {/* El gráfico. Es lo único, además del patrimonio, que se ve sin tocar
+          nada: son las dos cosas que el usuario quiere de un vistazo. */}
       <GraficoSaldo diario={diario} mensual={mensual} />
 
-      <Card title="Movimientos" hint="Gastos, retiros, ajustes y aportes cargados a mano. El signo se muestra tal cual se guarda. NO afectan al patrimonio: el saldo que cargás ya los incluye.">
-        <div className="mb-3 flex items-center gap-3">
-          <label className="flex items-center gap-2 text-xs text-neutral-500">
-            Tipo
-            <select
-              className={inputCls}
-              value={filtroKind}
-              onChange={(e) => setFiltroKind(e.target.value as 'todos' | FinanceMovementKind)}
-            >
-              <option value="todos">Todos</option>
-              <option value="gasto">Gastos</option>
-              <option value="retiro">Retiros</option>
-              <option value="ajuste">Ajustes</option>
-              <option value="aporte">Aportes</option>
-            </select>
-          </label>
-        </div>
-        <Table
-          rows={movsVisibles}
-          empty="Todavía no hay movimientos."
-          columns={[
-            { key: 'day', header: 'Fecha', render: (m) => <span className="whitespace-nowrap">{fmtDate(m.day)}</span> },
-            {
-              key: 'kind',
-              header: 'Tipo',
-              render: (m) => <Badge tone={KIND_TONE[m.kind]}>{KIND_LABEL[m.kind]}</Badge>,
-            },
-            {
-              key: 'category',
-              header: 'Categoría',
-              render: (m) => <span className="text-neutral-400">{m.category ?? '—'}</span>,
-            },
-            { key: 'note', header: 'Nota', render: (m) => <span className="text-neutral-300">{m.note}</span> },
-            // El monto lleva su signo REAL: un gasto se ve negativo. Nunca Math.abs en el render.
-            {
-              key: 'amount',
-              header: 'Monto',
-              align: 'right',
-              render: (m) => (
-                <span className={m.amountEur < 0 ? 'text-bad-300' : 'text-good-300'}>
-                  {fmtMoney(m.amountEur, 'EUR')}
-                </span>
-              ),
-            },
-            {
-              key: 'acciones',
-              header: '',
-              align: 'right',
-              render: (m) => (
-                <span className="flex justify-end gap-1.5">
-                  <button type="button" className={btnGhost} disabled={busy} onClick={() => editarMovimiento(m)}>
-                    Editar
-                  </button>
-                  <IconButton label={`Borrar ${m.note}`} onClick={() => borrarMovimiento(m)} disabled={busy}>
-                    <span aria-hidden>✕</span>
-                  </IconButton>
-                </span>
-              ),
-            },
-          ]}
-        />
+      {vista === 'saldo' && (
+        <Modal
+          titulo="Cargar los saldos del día"
+          descripcion="Una vez al día: cuánto hay en cada cuenta. El patrimonio es la suma con el signo de cada tipo."
+          onCerrar={cerrarVista}
+        >
+          <CargaDiaria
+            cuentas={saldo.cuentas}
+            hoy={saldo.hoyStr}
+            onGuardado={() => router.refresh()}
+          />
+        </Modal>
+      )}
 
-        <div className="mt-4 rounded-xl border border-border-subtle bg-overlay/2 p-4">
-          <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-neutral-500">
-            {editMov === null ? 'Cargar movimiento' : 'Editar movimiento'}
-          </p>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-            <label className="flex flex-col gap-1 text-xs text-neutral-500">
+      {vista === 'movimientos' && (
+        <Modal
+          titulo="Movimientos"
+          descripcion="Gastos, retiros, ajustes y aportes. NO afectan al patrimonio: el saldo que cargás ya los incluye."
+          ancho="lg"
+          onCerrar={cerrarVista}
+        >
+          <div className="mb-3 flex items-center gap-3">
+            <label className="flex items-center gap-2 text-xs text-neutral-500">
               Tipo
               <select
                 className={inputCls}
-                value={movForm.kind}
-                onChange={(e) => setMovForm({ ...movForm, kind: e.target.value as FinanceMovementKind })}
+                value={filtroKind}
+                onChange={(e) => setFiltroKind(e.target.value as 'todos' | FinanceMovementKind)}
               >
-                <option value="gasto">Gasto</option>
-                <option value="retiro">Retiro</option>
-                <option value="ajuste">Ajuste</option>
-                <option value="aporte">Aporte</option>
+                <option value="todos">Todos</option>
+                <option value="gasto">Gastos</option>
+                <option value="retiro">Retiros</option>
+                <option value="ajuste">Ajustes</option>
+                <option value="aporte">Aportes</option>
               </select>
             </label>
-            {/* Qué es cada tipo. El de `aporte` no es decorativo: es el único que
-                mueve un número de forma no obvia (la ganancia del mes lo
-                descuenta), así que sin esta línea nadie sabría cuándo usarlo en
-                vez de un ajuste — y elegir mal infla la ganancia sin avisar. */}
-            <p className="text-xs text-neutral-500">{KIND_AYUDA[movForm.kind]}</p>
-            {movForm.kind === 'gasto' ? (
+          </div>
+          <Table
+            rows={movsVisibles}
+            empty="Todavía no hay movimientos."
+            columns={[
+              { key: 'day', header: 'Fecha', render: (m) => <span className="whitespace-nowrap">{fmtDate(m.day)}</span> },
+              {
+                key: 'kind',
+                header: 'Tipo',
+                render: (m) => <Badge tone={KIND_TONE[m.kind]}>{KIND_LABEL[m.kind]}</Badge>,
+              },
+              {
+                key: 'category',
+                header: 'Categoría',
+                render: (m) => <span className="text-neutral-400">{m.category ?? '—'}</span>,
+              },
+              { key: 'note', header: 'Nota', render: (m) => <span className="text-neutral-300">{m.note}</span> },
+              // El monto lleva su signo REAL: un gasto se ve negativo. Nunca Math.abs en el render.
+              {
+                key: 'amount',
+                header: 'Monto',
+                align: 'right',
+                render: (m) => (
+                  <span className={m.amountEur < 0 ? 'text-bad-300' : 'text-good-300'}>
+                    {fmtMoney(m.amountEur, 'EUR')}
+                  </span>
+                ),
+              },
+              {
+                key: 'acciones',
+                header: '',
+                align: 'right',
+                render: (m) => (
+                  <span className="flex justify-end gap-1.5">
+                    <button type="button" className={btnGhost} disabled={busy} onClick={() => editarMovimiento(m)}>
+                      Editar
+                    </button>
+                    <IconButton label={`Borrar ${m.note}`} onClick={() => borrarMovimiento(m)} disabled={busy}>
+                      <span aria-hidden>✕</span>
+                    </IconButton>
+                  </span>
+                ),
+              },
+            ]}
+          />
+
+          <div className="mt-4 rounded-xl border border-border-subtle bg-overlay/2 p-4">
+            <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-neutral-500">
+              {editMov === null ? 'Cargar movimiento' : 'Editar movimiento'}
+            </p>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
               <label className="flex flex-col gap-1 text-xs text-neutral-500">
-                Categoría (obligatoria)
+                Tipo
                 <select
                   className={inputCls}
-                  value={movForm.category}
-                  onChange={(e) => setMovForm({ ...movForm, category: e.target.value as FinanceCategory })}
+                  value={movForm.kind}
+                  onChange={(e) => setMovForm({ ...movForm, kind: e.target.value as FinanceMovementKind })}
+                >
+                  <option value="gasto">Gasto</option>
+                  <option value="retiro">Retiro</option>
+                  <option value="ajuste">Ajuste</option>
+                  <option value="aporte">Aporte</option>
+                </select>
+              </label>
+              {/* Qué es cada tipo. El de `aporte` no es decorativo: es el único que
+                  mueve un número de forma no obvia (la ganancia del mes lo
+                  descuenta), así que sin esta línea nadie sabría cuándo usarlo en
+                  vez de un ajuste — y elegir mal infla la ganancia sin avisar. */}
+              <p className="text-xs text-neutral-500">{KIND_AYUDA[movForm.kind]}</p>
+              {movForm.kind === 'gasto' ? (
+                <label className="flex flex-col gap-1 text-xs text-neutral-500">
+                  Categoría (obligatoria)
+                  <select
+                    className={inputCls}
+                    value={movForm.category}
+                    onChange={(e) => setMovForm({ ...movForm, category: e.target.value as FinanceCategory })}
+                  >
+                    {CATEGORIES.map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                </label>
+              ) : (
+                <div className="flex flex-col gap-1 text-xs text-neutral-500">
+                  Categoría
+                  <p className="self-end pb-2 text-xs text-neutral-600">No aplica</p>
+                </div>
+              )}
+              <label className="flex flex-col gap-1 text-xs text-neutral-500">
+                Monto (EUR)
+                <span className="flex items-center gap-1">
+                  {movForm.kind === 'ajuste' ? (
+                    <>
+                      {/* El toggle +/− es solo del armado del payload: el campo
+                          siempre se tipea en positivo y el signo se aplica al
+                          mandar. */}
+                      <button
+                        type="button"
+                        className={`${btnCls} ${ajusteNegativo ? 'bg-warn-500/15 text-warn-300' : 'border border-border-strong text-neutral-300'}`}
+                        onClick={() => setAjusteNegativo(!ajusteNegativo)}
+                        aria-pressed={ajusteNegativo}
+                      >
+                        {ajusteNegativo ? '−' : '+'}
+                      </button>
+                    </>
+                  ) : null}
+                  <input
+                    className={inputCls}
+                    inputMode="decimal"
+                    placeholder="0.00"
+                    value={movForm.amount}
+                    onChange={(e) => setMovForm({ ...movForm, amount: e.target.value })}
+                  />
+                </span>
+              </label>
+              <label className="flex flex-col gap-1 text-xs text-neutral-500">
+                Nota
+                <input
+                  className={inputCls}
+                  maxLength={200}
+                  placeholder="¿En qué se fue?"
+                  value={movForm.note}
+                  onChange={(e) => setMovForm({ ...movForm, note: e.target.value })}
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-xs text-neutral-500">
+                Día (el que corresponde al movimiento)
+                <input
+                  className={inputCls}
+                  type="date"
+                  value={movForm.day}
+                  onChange={(e) => setMovForm({ ...movForm, day: e.target.value })}
+                />
+              </label>
+            </div>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <button type="button" className={btnPrimary} disabled={busy} onClick={guardarMovimiento}>
+                {editMov === null ? 'Cargar' : 'Guardar cambios'}
+              </button>
+              {editMov !== null && (
+                <button
+                  type="button"
+                  className={btnGhost}
+                  disabled={busy}
+                  onClick={() => {
+                    setEditMov(null);
+                    setMovForm(movFormVacio);
+                    setAjusteNegativo(false);
+                  }}
+                >
+                  Cancelar
+                </button>
+              )}
+              {/* El motivo, al lado del botón, mientras el formulario no está
+                  listo. `aria-live` para que un lector de pantalla lo anuncie
+                  cuando cambia sin que se recargue nada. */}
+              {faltaMov !== null && movForm.amount.trim().length > 0 && (
+                <span className="text-xs text-warn-300" aria-live="polite">
+                  {faltaMov}
+                </span>
+              )}
+            </div>
+            <p className="mt-2 text-xs text-neutral-500">
+              El monto se escribe con coma para los decimales: <span className="text-neutral-400">1234,56</span>.
+            </p>
+            {movForm.kind === 'ajuste' && (
+              <p className="mt-2 text-xs text-neutral-500">
+                El ajuste se carga con el signo del toggle (+/−) y puede ir en cualquier dirección.
+              </p>
+            )}
+          </div>
+        </Modal>
+      )}
+
+      {vista === 'pagos' && (
+        <Modal
+          titulo="Pagos programados"
+          descripcion="La plantilla de un gasto recurrente mensual. Cada mes, el día indicado, el cron genera el gasto."
+          ancho="lg"
+          onCerrar={cerrarVista}
+        >
+          <div className="mb-3 flex justify-end">
+            <button type="button" className={btnGhost} disabled={busy} onClick={ejecutarAhora}>
+              Ejecutar pagos atrasados
+            </button>
+          </div>
+          <Table
+            rows={scheduled}
+            empty="Todavía no hay pagos programados."
+            columns={[
+              { key: 'name', header: 'Nombre', render: (p) => <span className="text-neutral-200">{p.name}</span> },
+              { key: 'category', header: 'Categoría', render: (p) => <Badge tone="neutral">{p.category}</Badge> },
+              {
+                key: 'amount',
+                header: 'Monto',
+                align: 'right',
+                render: (p) => <span className="tabular-nums">{fmtMoney(p.amountEur, 'EUR')}</span>,
+              },
+              { key: 'day', header: 'Día del mes', align: 'right', render: (p) => <span className="tabular-nums">{p.dayOfMonth}</span> },
+              {
+                key: 'estado',
+                header: 'Estado',
+                render: (p) => (
+                  <span className="flex items-center gap-1.5">
+                    <Badge tone={p.active ? 'good' : 'neutral'}>{p.active ? 'Activo' : 'Pausado'}</Badge>
+                    {p.atrasado && <Badge tone="warn">Atrasado</Badge>}
+                  </span>
+                ),
+              },
+              {
+                key: 'acciones',
+                header: '',
+                align: 'right',
+                render: (p) => (
+                  <span className="flex justify-end gap-1.5">
+                    <button type="button" className={btnGhost} disabled={busy} onClick={() => editarPago(p)}>
+                      Editar
+                    </button>
+                    <button type="button" className={btnGhost} disabled={busy} onClick={() => togglePago(p)}>
+                      {p.active ? 'Pausar' : 'Activar'}
+                    </button>
+                    <IconButton label={`Borrar ${p.name}`} onClick={() => borrarPago(p)} disabled={busy}>
+                      <span aria-hidden>✕</span>
+                    </IconButton>
+                  </span>
+                ),
+              },
+            ]}
+          />
+
+          <div className="mt-4 rounded-xl border border-border-subtle bg-overlay/2 p-4">
+            <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-neutral-500">
+              {editPago === null ? 'Cargar pago programado' : 'Editar pago programado'}
+            </p>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <label className="flex flex-col gap-1 text-xs text-neutral-500">
+                Nombre
+                <input
+                  className={inputCls}
+                  maxLength={80}
+                  placeholder="Alquiler de la oficina"
+                  value={pagoForm.name}
+                  onChange={(e) => setPagoForm({ ...pagoForm, name: e.target.value })}
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-xs text-neutral-500">
+                Categoría
+                <select
+                  className={inputCls}
+                  value={pagoForm.category}
+                  onChange={(e) => setPagoForm({ ...pagoForm, category: e.target.value as FinanceCategory })}
                 >
                   {CATEGORIES.map((c) => (
                     <option key={c} value={c}>{c}</option>
                   ))}
                 </select>
               </label>
-            ) : (
-              <div className="flex flex-col gap-1 text-xs text-neutral-500">
-                Categoría
-                <p className="self-end pb-2 text-xs text-neutral-600">No aplica</p>
-              </div>
-            )}
-            <label className="flex flex-col gap-1 text-xs text-neutral-500">
-              Monto (EUR)
-              <span className="flex items-center gap-1">
-                {movForm.kind === 'ajuste' ? (
-                  <>
-                    {/* El toggle +/− es solo del armado del payload: el campo
-                        siempre se tipea en positivo y el signo se aplica al
-                        mandar. */}
-                    <button
-                      type="button"
-                      className={`${btnCls} ${ajusteNegativo ? 'bg-warn-500/15 text-warn-300' : 'border border-border-strong text-neutral-300'}`}
-                      onClick={() => setAjusteNegativo(!ajusteNegativo)}
-                      aria-pressed={ajusteNegativo}
-                    >
-                      {ajusteNegativo ? '−' : '+'}
-                    </button>
-                  </>
-                ) : null}
+              <label className="flex flex-col gap-1 text-xs text-neutral-500">
+                Monto (EUR, siempre positivo)
                 <input
                   className={inputCls}
                   inputMode="decimal"
-                  placeholder="0.00"
-                  value={movForm.amount}
-                  onChange={(e) => setMovForm({ ...movForm, amount: e.target.value })}
+                  placeholder="400"
+                  value={pagoForm.amount}
+                  onChange={(e) => setPagoForm({ ...pagoForm, amount: e.target.value })}
                 />
-              </span>
-            </label>
-            <label className="flex flex-col gap-1 text-xs text-neutral-500">
-              Nota
-              <input
-                className={inputCls}
-                maxLength={200}
-                placeholder="¿En qué se fue?"
-                value={movForm.note}
-                onChange={(e) => setMovForm({ ...movForm, note: e.target.value })}
-              />
-            </label>
-            <label className="flex flex-col gap-1 text-xs text-neutral-500">
-              Día (el que corresponde al movimiento)
-              <input
-                className={inputCls}
-                type="date"
-                value={movForm.day}
-                onChange={(e) => setMovForm({ ...movForm, day: e.target.value })}
-              />
-            </label>
-          </div>
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            <button type="button" className={btnPrimary} disabled={busy} onClick={guardarMovimiento}>
-              {editMov === null ? 'Cargar' : 'Guardar cambios'}
-            </button>
-            {editMov !== null && (
-              <button
-                type="button"
-                className={btnGhost}
-                disabled={busy}
-                onClick={() => {
-                  setEditMov(null);
-                  setMovForm(movFormVacio);
-                  setAjusteNegativo(false);
-                }}
-              >
-                Cancelar
+              </label>
+              <label className="flex flex-col gap-1 text-xs text-neutral-500">
+                Día del mes (1-28)
+                <select
+                  className={inputCls}
+                  value={pagoForm.dayOfMonth}
+                  onChange={(e) => setPagoForm({ ...pagoForm, dayOfMonth: Number(e.target.value) })}
+                >
+                  {Array.from({ length: 28 }, (_, i) => i + 1).map((d) => (
+                    <option key={d} value={d}>{d}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <button type="button" className={btnPrimary} disabled={busy} onClick={guardarPago}>
+                {editPago === null ? 'Cargar' : 'Guardar cambios'}
               </button>
-            )}
-            {/* El motivo, al lado del botón, mientras el formulario no está
-                listo. `aria-live` para que un lector de pantalla lo anuncie
-                cuando cambia sin que se recargue nada. */}
-            {faltaMov !== null && movForm.amount.trim().length > 0 && (
-              <span className="text-xs text-warn-300" aria-live="polite">
-                {faltaMov}
-              </span>
-            )}
-          </div>
-          <p className="mt-2 text-xs text-neutral-500">
-            El monto se escribe con coma para los decimales: <span className="text-neutral-400">1234,56</span>.
-          </p>
-          {movForm.kind === 'ajuste' && (
-            <p className="mt-2 text-xs text-neutral-500">
-              El ajuste se carga con el signo del toggle (+/−) y puede ir en cualquier dirección.
-            </p>
-          )}
-        </div>
-      </Card>
-
-      <Card title="Pagos programados" hint="La plantilla de un gasto recurrente mensual. Cada mes, el día indicado, el cron genera el gasto automáticamente.">
-        <Table
-          rows={scheduled}
-          empty="Todavía no hay pagos programados."
-          columns={[
-            { key: 'name', header: 'Nombre', render: (p) => <span className="text-neutral-200">{p.name}</span> },
-            { key: 'category', header: 'Categoría', render: (p) => <Badge tone="neutral">{p.category}</Badge> },
-            {
-              key: 'amount',
-              header: 'Monto',
-              align: 'right',
-              render: (p) => <span className="tabular-nums">{fmtMoney(p.amountEur, 'EUR')}</span>,
-            },
-            { key: 'day', header: 'Día del mes', align: 'right', render: (p) => <span className="tabular-nums">{p.dayOfMonth}</span> },
-            {
-              key: 'estado',
-              header: 'Estado',
-              render: (p) => (
-                <span className="flex items-center gap-1.5">
-                  <Badge tone={p.active ? 'good' : 'neutral'}>{p.active ? 'Activo' : 'Pausado'}</Badge>
-                  {p.atrasado && <Badge tone="warn">Atrasado</Badge>}
+              {editPago !== null && (
+                <button
+                  type="button"
+                  className={btnGhost}
+                  disabled={busy}
+                  onClick={() => {
+                    setEditPago(null);
+                    setPagoForm(pagoFormVacio);
+                  }}
+                >
+                  Cancelar
+                </button>
+              )}
+              {faltaPago !== null && pagoForm.amount.trim().length > 0 && (
+                <span className="text-xs text-warn-300" aria-live="polite">
+                  {faltaPago}
                 </span>
-              ),
-            },
-            {
-              key: 'acciones',
-              header: '',
-              align: 'right',
-              render: (p) => (
-                <span className="flex justify-end gap-1.5">
-                  <button type="button" className={btnGhost} disabled={busy} onClick={() => editarPago(p)}>
-                    Editar
-                  </button>
-                  <button type="button" className={btnGhost} disabled={busy} onClick={() => togglePago(p)}>
-                    {p.active ? 'Pausar' : 'Activar'}
-                  </button>
-                  <IconButton label={`Borrar ${p.name}`} onClick={() => borrarPago(p)} disabled={busy}>
-                    <span aria-hidden>✕</span>
-                  </IconButton>
-                </span>
-              ),
-            },
-          ]}
-        />
-
-        <div className="mt-4 rounded-xl border border-border-subtle bg-overlay/2 p-4">
-          <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-neutral-500">
-            {editPago === null ? 'Cargar pago programado' : 'Editar pago programado'}
-          </p>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <label className="flex flex-col gap-1 text-xs text-neutral-500">
-              Nombre
-              <input
-                className={inputCls}
-                maxLength={80}
-                placeholder="Alquiler de la oficina"
-                value={pagoForm.name}
-                onChange={(e) => setPagoForm({ ...pagoForm, name: e.target.value })}
-              />
-            </label>
-            <label className="flex flex-col gap-1 text-xs text-neutral-500">
-              Categoría
-              <select
-                className={inputCls}
-                value={pagoForm.category}
-                onChange={(e) => setPagoForm({ ...pagoForm, category: e.target.value as FinanceCategory })}
-              >
-                {CATEGORIES.map((c) => (
-                  <option key={c} value={c}>{c}</option>
-                ))}
-              </select>
-            </label>
-            <label className="flex flex-col gap-1 text-xs text-neutral-500">
-              Monto (EUR, siempre positivo)
-              <input
-                className={inputCls}
-                inputMode="decimal"
-                placeholder="400"
-                value={pagoForm.amount}
-                onChange={(e) => setPagoForm({ ...pagoForm, amount: e.target.value })}
-              />
-            </label>
-            <label className="flex flex-col gap-1 text-xs text-neutral-500">
-              Día del mes (1-28)
-              <select
-                className={inputCls}
-                value={pagoForm.dayOfMonth}
-                onChange={(e) => setPagoForm({ ...pagoForm, dayOfMonth: Number(e.target.value) })}
-              >
-                {Array.from({ length: 28 }, (_, i) => i + 1).map((d) => (
-                  <option key={d} value={d}>{d}</option>
-                ))}
-              </select>
-            </label>
+              )}
+            </div>
           </div>
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            <button type="button" className={btnPrimary} disabled={busy} onClick={guardarPago}>
-              {editPago === null ? 'Cargar' : 'Guardar cambios'}
-            </button>
-            {editPago !== null && (
-              <button
-                type="button"
-                className={btnGhost}
-                disabled={busy}
-                onClick={() => {
-                  setEditPago(null);
-                  setPagoForm(pagoFormVacio);
-                }}
-              >
-                Cancelar
-              </button>
-            )}
-            {faltaPago !== null && pagoForm.amount.trim().length > 0 && (
-              <span className="text-xs text-warn-300" aria-live="polite">
-                {faltaPago}
-              </span>
-            )}
-          </div>
-        </div>
-      </Card>
+        </Modal>
+      )}
 
-      {/* Las cuentas van AL FINAL: es configuración, no algo que se mire todos
-          los días. La acción principal de esta sección es CERRAR una cuenta, no
-          borrarla — borrarla se lleva sus saldos en cascada y cambia el
-          patrimonio de todos esos días hacia atrás (plan SALDO D10). */}
-      <CuentasSection cuentas={cuentas} onCambio={() => router.refresh()} />
+      {vista === 'cuentas' && (
+        <Modal
+          titulo="Cuentas"
+          descripcion="Donde vive la plata. Cerrar una cuenta conserva su historial; borrarla lo reescribe."
+          ancho="lg"
+          onCerrar={cerrarVista}
+        >
+          <CuentasSection cuentas={cuentas} onCambio={() => router.refresh()} />
+        </Modal>
+      )}
     </div>
   );
 }
