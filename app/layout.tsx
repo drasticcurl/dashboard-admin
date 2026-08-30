@@ -2,6 +2,7 @@ import './globals.css';
 import type { ReactNode } from 'react';
 import { GeistSans } from 'geist/font/sans';
 import { GeistMono } from 'geist/font/mono';
+import { PANEL_TITLE } from '@/lib/brand';
 
 export const metadata = {
   /*
@@ -9,8 +10,11 @@ export const metadata = {
     lo agregue el layout. `robots: noindex` se queda: esto es un panel privado
     y no tiene nada que hacer en un buscador (por eso tampoco lleva og:image ni
     tags de compartir en redes: no hay nada que compartir).
+
+    El nombre sale de `PANEL_BRAND` (lib/brand.ts): varias instancias deployan
+    de este mismo repo y cada una tiene que decir el nombre de su proyecto.
   */
-  title: { default: 'Panel · Hilvan', template: '%s · Panel' },
+  title: { default: PANEL_TITLE, template: '%s · Panel' },
   description: 'Panel interno de métricas, ventas y anuncios.',
   robots: { index: false, follow: false },
 };

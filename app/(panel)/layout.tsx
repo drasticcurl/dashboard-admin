@@ -24,6 +24,7 @@ import {
   isAuthenticated,
 } from '@/lib/auth';
 import { faltanSaldosDeHoy } from '@/lib/queries/saldo';
+import { PANEL_TITLE } from '@/lib/brand';
 import { AvisoSaldo } from '@/components/AvisoSaldo';
 import { Nav } from '@/components/Nav';
 import { PanelLogo } from '@/components/PanelLogo';
@@ -91,7 +92,9 @@ export default async function PanelLayout({ children }: { children: ReactNode })
             className="flex shrink-0 items-center gap-2.5 text-sm font-semibold tracking-tight text-neutral-100 transition-colors hover:text-neutral-50"
           >
             <PanelLogo />
-            <span className="hidden sm:inline">Panel · Hilvan</span>
+            {/* El nombre sale de PANEL_BRAND (lib/brand.ts): varias instancias
+                deployan de este mismo repo y cada una muestra su proyecto. */}
+            <span className="hidden sm:inline">{PANEL_TITLE}</span>
             <span className="sm:hidden">Panel</span>
           </Link>
 
