@@ -219,7 +219,7 @@ function StackedTooltip({
       <p className="tabular-nums text-neutral-300">Total: {fmtMoney(d.netEur, MONEDA_REPORTE)}</p>
       {bands.map((p) => (
         <p key={p.name} className="tabular-nums" style={{ color: p.color }}>
-          {p.name}: {fmtMoney(Number(p.value), 'EUR')}
+          {p.name}: {fmtMoney(Number(p.value), MONEDA_REPORTE)}
         </p>
       ))}
       <p className="tabular-nums text-neutral-400">

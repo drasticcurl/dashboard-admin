@@ -223,7 +223,9 @@ async function main(): Promise<void> {
     }
   }
 
-  console.log('\nSOSPECHOSO, NO ERROR. Un techo de €1 escrito a propósito es indistinguible de un «1.000»');
+  console.log(
+    `\nSOSPECHOSO, NO ERROR. Un techo de ${SIMBOLO_REPORTE}1 escrito a propósito es indistinguible de un «1.000»`,
+  );
   console.log('corrompido, así que el script no corrige nada y no propone ningún UPDATE: la decisión de');
   console.log('cada línea es de una persona, mirando la regla. Este script no modificó ninguna fila.');
 
@@ -234,7 +236,7 @@ async function main(): Promise<void> {
   );
   console.log(
     `  · condiciones de ${METRICAS_NO_AUDITABLES.join(', ')}: no se auditan.\n` +
-      '    Un CPA de €8, un CPC de €0,30 y un ROI de 1,3 son valores normales; reportarlos sería\n' +
+      `    Un CPA de ${SIMBOLO_REPORTE}8, un CPC de ${SIMBOLO_REPORTE}0,30 y un ROI de 1,3 son valores normales; reportarlos sería\n` +
       '    ruido que entierra las sospechas reales.',
   );
   console.log(`  · sólo se auditan las condiciones de ${METRICAS_EUR_AUDITABLES.join(', ')}, que están en EUR.`);

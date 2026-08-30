@@ -318,7 +318,7 @@ export function CargaDiaria({
                   value={raw}
                   onChange={(e) => setValores({ ...valores, [c.id]: e.target.value })}
                 />
-                <span className="w-8 text-xs text-neutral-600">EUR</span>
+                <span className="w-8 text-xs text-neutral-600">{MONEDA_REPORTE}</span>
               </div>
 
               <div className="text-xs sm:text-right">
@@ -332,7 +332,7 @@ export function CargaDiaria({
                       c.kind === 'deuda' ? 'text-bad-300' : 'text-neutral-300'
                     }`}
                   >
-                    {fmtMoney(signoDeSaldo(c.kind, n.valor), 'EUR')}
+                    {fmtMoney(signoDeSaldo(c.kind, n.valor), MONEDA_REPORTE)}
                   </span>
                 ) : (
                   <span className="text-pretty text-warn-300" aria-live="polite">

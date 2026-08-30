@@ -10,6 +10,7 @@
 import type { PanelSettings } from '@/app/api/config/_lib';
 import { Card } from '@/components/ui';
 import { btnPrimary, inputCls, type ConfigShell } from '../kit';
+import { MONEDA_REPORTE } from '@/lib/moneda-reporte';
 
 export function AjustesSection({
   settings,
@@ -50,8 +51,8 @@ export function AjustesSection({
         </label>
         <label className="flex flex-col gap-1 text-xs text-neutral-500">
           Moneda por defecto en Ventas
-          <select className={inputCls} value={settings.defaultCurrencyView} onChange={(e) => setSettings({ ...settings, defaultCurrencyView: e.target.value as 'EUR' | 'ARS' })}>
-            <option value="EUR" className="bg-surface">EUR</option>
+          <select className={inputCls} value={settings.defaultCurrencyView} onChange={(e) => setSettings({ ...settings, defaultCurrencyView: e.target.value })}>
+            <option value={MONEDA_REPORTE} className="bg-surface">{MONEDA_REPORTE}</option>
             <option value="ARS" className="bg-surface">ARS</option>
           </select>
         </label>

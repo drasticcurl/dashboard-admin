@@ -194,7 +194,7 @@ export async function syncAdSpend(opts: {
           rates.set(k, 1);
           return 1;
         }
-        const fx = await getRate(day, currency, 'EUR');
+        const fx = await getRate(day, currency, MONEDA_REPORTE);
         rates.set(k, fx?.rate ?? null);
         return fx?.rate ?? null;
       };

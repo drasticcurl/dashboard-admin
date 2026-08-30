@@ -547,7 +547,7 @@ async function escribirCuenta(
            synced_at = now()`,
         [
           accountId,
-          'EUR',
+          MONEDA_REPORTE,
           campanias.map((c) => c.campaignId),
           campanias.map((c) => c.name),
           campanias.map((c) => c.objective),
@@ -603,7 +603,7 @@ async function escribirCuenta(
            synced_at = now()`,
         [
           accountId,
-          'EUR',
+          MONEDA_REPORTE,
           dsaCheckedAt,
           conjuntos.map((s) => s.adsetId),
           conjuntos.map((s) => s.campaignId),

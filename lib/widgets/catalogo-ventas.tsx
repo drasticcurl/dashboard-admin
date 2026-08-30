@@ -71,7 +71,7 @@ export type VentasWidgetData = {
 
 /** La moneda de visualización resuelta: 'EUR' o la del funnel. */
 function curDe(t: SalesTotals, showEur: boolean): string {
-  return showEur ? 'EUR' : t.currency;
+  return showEur ? MONEDA_REPORTE : t.currency;
 }
 
 /** Formatea el par Orig/Eur eligiendo según el toggle. El asterisco en EUR
@@ -863,8 +863,11 @@ export const catalogoVentas: WidgetCatalogo<VentasWidgetData> = {
             render: (r) => <span className="text-neutral-300">{fmtMoney(r.amount, r.currency)}</span>,
           },
           {
+            // La `key` queda 'eur' porque es el identificador de la columna (y
+            // el nombre del campo que viene de la base); el ENCABEZADO es lo que
+            // lee el usuario y tiene que decir la moneda real.
             key: 'eur',
-            header: 'EUR',
+            header: MONEDA_REPORTE,
             align: 'right',
             render: (r) =>
               r.amountEur === null ? (

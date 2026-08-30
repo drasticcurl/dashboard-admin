@@ -13,6 +13,7 @@
 import type { AccionAds, MetricasObjeto, NivelAds } from './tipos';
 import { aplicarRenombre, LARGO_MAX_NOMBRE, nombresDeCopias, type ModoRenombre } from './nombres';
 import { MAX_SELECCION } from './seleccion';
+import { MONEDA_REPORTE } from '@/lib/moneda-reporte';
 
 export type MotivoOmisionLote =
   | 'ya_esta_en_ese_estado' // R14 c6
@@ -133,7 +134,7 @@ export const ESTADOS_NO_ESCRIBIBLES = new Set([
 
 const eur = new Intl.NumberFormat('es-AR', {
   style: 'currency',
-  currency: 'EUR',
+  currency: MONEDA_REPORTE,
   minimumFractionDigits: 2,
   maximumFractionDigits: 2,
 });
