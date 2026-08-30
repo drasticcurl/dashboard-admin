@@ -14,9 +14,11 @@
  * en un solo bloque: órdenes sin tier, FX provisoria y el cajón sin atribuir
  * (que además es el único camino a esas órdenes, así que conserva su link).
  *
- * El toggle EUR/ARS vive en `?cur=` (D-R14): query string si está, si no el
+ * El toggle entre la moneda de REPORTE y la de venta vive en `?cur=` (D-R14):
+ * query string si está, si no el
  * setting default_currency_view (lo resuelve el server y baja como prop), si
- * no EUR. Cambiarlo NO refetchea: es de visualización, los pares Orig/Eur ya
+ * no la de reporte. Cambiarlo NO refetchea: es de visualización, los pares
+ * Orig/Eur ya
  * vienen calculados con la cotización de cada día.
  *
  * No se importa nada en runtime desde lib/queries/sales.ts a propósito: ese
@@ -64,7 +66,7 @@ export function VentasView({
   const fParam = funnel ? funnel.slug : UNATTRIBUTED;
 
   // ?cur= manda sobre el setting (D-R14). El server ya resolvió el valor
-  // inicial (query → setting → EUR) y lo pasó en `defaultCurrency`; acá la
+  // inicial (query → setting → moneda de reporte) y lo pasó en `defaultCurrency`; acá la
   // URL es la única fuente de verdad, así el toggle sobrevive a un refresh y
   // al back/forward sin estado local que desincronizar.
   // Se compara SOLO contra la moneda de reporte, y cualquier otro valor
@@ -268,7 +270,7 @@ export function VentasView({
               showEur ? 'bg-overlay/8 text-neutral-50' : 'text-neutral-400 hover:bg-overlay/5 hover:text-neutral-200'
             }`}
           >
-            EUR
+            {MONEDA_REPORTE}
           </button>
           <button
             type="button"
