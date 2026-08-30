@@ -12,6 +12,7 @@ import { useState } from 'react';
 import type { FxRateRow } from '@/app/api/config/_lib';
 import { Badge, Card, Table, fmtDateTime, fmtInt } from '@/components/ui';
 import { btnPrimary, inputCls, type ConfigShell } from '../kit';
+import { MONEDA_REPORTE } from '@/lib/moneda-reporte';
 
 export function CotizacionesSection({
   fx,
@@ -54,8 +55,8 @@ export function CotizacionesSection({
         empty="Todavía no hay cotizaciones (corré scripts/fetch-fx.ts o cargá una a mano)"
         columns={[
           { key: 'day', header: 'Día', render: (r) => <span className="tabular-nums text-neutral-300">{r.day}</span> },
-          { key: 'ars', header: 'Pesos por euro', align: 'right', render: (r) => <span className="tabular-nums text-neutral-200">{fmtInt(Math.round(r.arsPerEuro))}</span> },
-          { key: 'rate', header: '1 ARS → EUR', align: 'right', render: (r) => <span className="tabular-nums text-neutral-400">{Number(r.rate).toFixed(7)}</span> },
+          { key: 'ars', header: `Pesos por ${MONEDA_REPORTE}`, align: 'right', render: (r) => <span className="tabular-nums text-neutral-200">{fmtInt(Math.round(r.arsPerEuro))}</span> },
+          { key: 'rate', header: `1 ARS → ${MONEDA_REPORTE}`, align: 'right', render: (r) => <span className="tabular-nums text-neutral-400">{Number(r.rate).toFixed(7)}</span> },
           { key: 'source', header: 'Fuente', render: (r) => <Badge tone={r.source === 'manual' ? 'info' : r.source === 'dolarapi' ? 'good' : 'neutral'}>{r.source}</Badge> },
           { key: 'fetched', header: 'Obtenida', render: (r) => <span className="text-neutral-400">{fmtDateTime(r.fetchedAt)}</span> },
         ]}
@@ -66,8 +67,8 @@ export function CotizacionesSection({
           <input type="date" className={inputCls} value={fxForm.day} onChange={(e) => setFxForm({ ...fxForm, day: e.target.value })} />
         </label>
         <label className="flex flex-col gap-1 text-xs text-neutral-500">
-          Pesos por euro
-          <input type="number" step="0.01" className={inputCls} value={fxForm.arsPerEuro} onChange={(e) => setFxForm({ ...fxForm, arsPerEuro: e.target.value })} placeholder="1728.65" />
+          Pesos por {MONEDA_REPORTE}
+          <input type="number" step="0.01" className={inputCls} value={fxForm.arsPerEuro} onChange={(e) => setFxForm({ ...fxForm, arsPerEuro: e.target.value })} />
         </label>
         <button type="button" className={btnPrimary} onClick={saveFx} disabled={!fxForm.day || !fxForm.arsPerEuro}>
           Cargar cotización

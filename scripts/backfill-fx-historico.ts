@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
- * Carga cotizaciones ARS→EUR de días YA PASADOS, para que el histórico
+ * Carga cotizaciones ARS→moneda de reporte de días YA PASADOS, para que el
+ * histórico
  * importado (el CSV de Shopify arranca el 2026-06-02) tenga importe en euros.
  *
  * Por qué existe aparte de fetch-fx.ts: ese script pide la cotización de HOY.
@@ -38,6 +39,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { getPool, q, q1, tx } from '../lib/db';
 import { assertPlausible } from '../lib/fx-fetch';
+import { MONEDA_REPORTE } from '../lib/moneda-reporte';
 
 // tsx no carga .env solo; en dev el env vive en el archivo, en producción
 // viene de PM2 y no existe (process.loadEnvFile es de Node >= 20.12).
@@ -51,7 +53,11 @@ const ECB_URL = 'https://api.frankfurter.dev/v1';
 const FETCH_TIMEOUT_MS = 30_000;
 
 /** Etiqueta de procedencia: la fila se calculó con USD del BNA y cruce del BCE. */
-export const SOURCE_LABEL = 'oficial-usd-ecb';
+// La etiqueta dice cuantos saltos se usaron, y eso depende de la moneda de
+// reporte: para dolares el BNA ya publica ARS/USD y no hay cruce del BCE.
+// Queda en la columna `source` de fx_rates para que en Config se vea de donde
+// salio cada fila.
+export const SOURCE_LABEL = MONEDA_REPORTE === 'USD' ? 'oficial-usd' : 'oficial-usd-ecb';
 
 const DAY_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
 
@@ -183,7 +189,8 @@ export async function runHistorico(opts: {
   if (!from || !to) {
     const r = await q1<{ min_day: Date | string | null; max_day: Date | string | null }>(
       `SELECT min(day) AS min_day, max(day) AS max_day FROM orders
-       WHERE currency <> 'EUR' AND (amount_eur IS NULL OR fx_stale = true)`,
+       WHERE currency <> $1 AND (amount_eur IS NULL OR fx_stale = true)`,
+      [MONEDA_REPORTE],
     );
     if (!r?.min_day || !r?.max_day) {
       console.log('fx histórico: no hay ventas sin convertir, nada que hacer');
@@ -200,13 +207,19 @@ export async function runHistorico(opts: {
   // Se saltean de entrada los días que ya tienen fila: no se pisa ni la del
   // cron ni la que el usuario cargó a mano.
   const existingRows = await q<{ day: Date | string }>(
-    `SELECT day FROM fx_rates WHERE base = 'ARS' AND quote = 'EUR' AND day BETWEEN $1 AND $2`,
-    [from, to],
+    `SELECT day FROM fx_rates WHERE base = 'ARS' AND quote = $3 AND day BETWEEN $1 AND $2`,
+    [from, to, MONEDA_REPORTE],
   );
   const existing: Record<string, true> = {};
   for (const row of existingRows) existing[dayStr(row.day)] = true;
 
-  const [usdArs, eurUsd] = await Promise.all([fetchUsdArs(), fetchEurUsd(from, to)]);
+  // Para USD el segundo salto NO EXISTE: `fetchUsdArs` ya devuelve pesos por
+  // dolar, que es exactamente el par que hay que guardar. Pedirle el cruce
+  // EUR/USD al BCE y multiplicar daria un rate ARS->EUR archivado bajo
+  // quote='USD' (saveRate usa MONEDA_REPORTE), o sea el histórico entero mal por
+  // un ~13% sin que nada falle.
+  const usdArs = await fetchUsdArs();
+  const eurUsd = MONEDA_REPORTE === 'EUR' ? await fetchEurUsd(from, to) : null;
 
   const todo: Array<{ day: string; rate: number; usd: number; usdDay: string; ecbDay: string }> = [];
   const missing: string[] = [];
@@ -219,7 +232,9 @@ export async function runHistorico(opts: {
       continue;
     }
     const usd = lookupCarry(usdArs, day);
-    const ecb = lookupCarry(eurUsd, day);
+    // Con USD no hay segundo salto: se usa un factor 1 para que el resto del
+    // cuerpo (el arrastre, el dry-run, el reporte) no necesite ramas.
+    const ecb = eurUsd ? lookupCarry(eurUsd, day) : { value: 1, fromDay: day };
     if (!usd || !ecb) {
       missing.push(day);
       continue;
@@ -241,9 +256,15 @@ export async function runHistorico(opts: {
   if (opts.dryRun) {
     for (const t of todo) {
       const arsPorEur = 1 / t.rate;
-      const nota = t.usdDay !== t.day || t.ecbDay !== t.day ? ` [arrastre usd=${t.usdDay} bce=${t.ecbDay}]` : '';
+      const nota =
+        t.usdDay !== t.day || t.ecbDay !== t.day
+          ? MONEDA_REPORTE === 'EUR'
+            ? ` [arrastre usd=${t.usdDay} bce=${t.ecbDay}]`
+            : ` [arrastre usd=${t.usdDay}]`
+          : '';
       console.log(
-        `[dry-run] ${t.day} ARS→EUR ${fmtRate(t.rate)} (1 EUR = ${arsPorEur.toFixed(2)} ARS, USD ${t.usd})${nota}`,
+        `[dry-run] ${t.day} ARS→${MONEDA_REPORTE} ${fmtRate(t.rate)} ` +
+          `(1 ${MONEDA_REPORTE} = ${arsPorEur.toFixed(2)} ARS, USD ${t.usd})${nota}`,
       );
     }
   } else if (todo.length > 0) {
@@ -253,9 +274,9 @@ export async function runHistorico(opts: {
       for (const t of todo) {
         await c.query(
           `INSERT INTO fx_rates (day, base, quote, rate, source, fetched_at)
-           VALUES ($1, 'ARS', 'EUR', $2, $3, now())
+           VALUES ($1, 'ARS', $4, $2, $3, now())
            ON CONFLICT (day, base, quote) DO NOTHING`,
-          [t.day, t.rate, SOURCE_LABEL],
+          [t.day, t.rate, SOURCE_LABEL, MONEDA_REPORTE],
         );
       }
     });

@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 /**
- * Cron diario de la cotización ARS→EUR (T03, D12/D13 del plan).
+ * Cron diario de la cotización ARS→moneda de reporte (T03, D12/D13 del plan).
+ * El par lo decide NEXT_PUBLIC_REPORT_CURRENCY (ver lib/moneda-reporte.ts).
  *
  * Línea de cron (la instalación de la máquina la escribe T12):
- *   # Cotización ARS→EUR, todos los días a las 03:10 hora de Argentina
+ *   # Cotización ARS→moneda de reporte, todos los días a las 03:10 hora de Argentina
  *   10 3 * * * cd /srv/panel/current && /usr/bin/node scripts/fetch-fx.js >> /var/log/panel/fx.log 2>&1
  *
  * 03:10 y no medianoche: dolarapi publica el valor del día hábil y a las
@@ -112,7 +113,7 @@ export async function main(args: string[] = process.argv.slice(2)): Promise<void
   } else {
     await saveRate(day, rate.rate, rate.source);
     console.log(
-      `${day} ARS→EUR ${fmtRate(rate.rate)} (${rate.source}, 1 EUR = ${(1 / rate.rate).toFixed(2)} ARS)`,
+      `${day} ARS→${MONEDA_REPORTE} ${fmtRate(rate.rate)} (${rate.source}, 1 ${MONEDA_REPORTE} = ${(1 / rate.rate).toFixed(2)} ARS)`,
     );
   }
 
