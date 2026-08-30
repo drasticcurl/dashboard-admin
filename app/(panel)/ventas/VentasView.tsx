@@ -37,6 +37,7 @@ import { usePollingGasto } from '@/lib/ads/polling';
 import { catalogoVentas, LAYOUT_VENTAS_POR_DEFECTO } from '@/lib/widgets/catalogo-ventas';
 import type { VentasWidgetData } from '@/lib/widgets/catalogo-ventas';
 import type { WidgetLayout } from '@/lib/widgets/tipos';
+import { MONEDA_REPORTE } from '@/lib/moneda-reporte';
 
 // El mismo valor que UNATTRIBUTED_FUNNEL en lib/queries/sales.ts: no se puede
 // importar desde acá sin arrastrar pg al bundle del client.
@@ -51,7 +52,8 @@ export function VentasView({
 }: {
   funnel: Funnel | null; // null = cajón "sin atribuir"
   initialData: SalesData;
-  defaultCurrency: 'EUR' | 'ARS';
+  /** Moneda de reporte de la instancia, o 'ARS' = mostrar la de venta. */
+  defaultCurrency: string;
   adsFreshness: FrescuraAds;
   layoutGuardado: WidgetLayout | null;
 }) {
@@ -65,9 +67,18 @@ export function VentasView({
   // inicial (query → setting → EUR) y lo pasó en `defaultCurrency`; acá la
   // URL es la única fuente de verdad, así el toggle sobrevive a un refresh y
   // al back/forward sin estado local que desincronizar.
+  // Se compara SOLO contra la moneda de reporte, y cualquier otro valor
+  // significa "mostrar la moneda de venta". Antes era
+  // `curParam === 'EUR' || curParam === 'ARS'`, con los dos códigos literales, y
+  // eso tenía un bug: en un funnel que vende en una moneda distinta de ARS (el
+  // de LATAM vende en USD) el toggle escribía `?cur=USD`, ninguna de las dos
+  // ramas matcheaba, y caía al default — o sea que el botón "moneda original"
+  // no hacía nada. Comparando contra una sola moneda conocida el resto de los
+  // valores caen del lado correcto solos.
   const curParam = searchParams.get('cur');
-  const showEur =
-    curParam === 'EUR' || curParam === 'ARS' ? curParam === 'EUR' : defaultCurrency === 'EUR';
+  const showEur = curParam
+    ? curParam === MONEDA_REPORTE
+    : defaultCurrency === MONEDA_REPORTE;
 
   const [data, setData] = useState<SalesData>(initialData);
   const [frescura, setFrescura] = useState<FrescuraAds>(adsFreshness);
@@ -178,7 +189,7 @@ export function VentasView({
 
   const toggleCur = (eur: boolean): void => {
     const params = new URLSearchParams(searchParams.toString());
-    params.set('cur', eur ? 'EUR' : data.totals.currency);
+    params.set('cur', eur ? MONEDA_REPORTE : data.totals.currency);
     router.replace(`${pathname}?${params.toString()}`, { scroll: false });
   };
 
@@ -216,7 +227,7 @@ export function VentasView({
   if (!unattributed && data.unattributed.orders > 0) {
     avisos.push(
       <>
-        {fmtInt(data.unattributed.orders)} ventas sin funnel asignado ({fmtMoney(data.unattributed.netEur, 'EUR')}) —{' '}
+        {fmtInt(data.unattributed.orders)} ventas sin funnel asignado ({fmtMoney(data.unattributed.netEur, MONEDA_REPORTE)}) —{' '}
         <Link href={`/ventas?f=${UNATTRIBUTED}`} className="underline underline-offset-2">
           ver el cajón sin atribuir
         </Link>

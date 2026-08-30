@@ -1,4 +1,5 @@
 import { q, q1 } from './db';
+import { MONEDA_REPORTE, type MonedaReporte } from './moneda-reporte';
 
 export type FxFetchResult = { rate: number; source: 'dolarapi' | 'er-api'; asOf: Date };
 
@@ -7,24 +8,47 @@ export type FxFetchResult = { rate: number; source: 'dolarapi' | 'er-api'; asOf:
 // fuente muerta.
 const FETCH_TIMEOUT_MS = 8_000;
 
-const DOLARAPI_URL = 'https://dolarapi.com/v1/cotizaciones/eur';
+/**
+ * Endpoint de la fuente primaria por moneda de reporte.
+ *
+ * Los dos devuelven la MISMA forma (`{ venta, fechaActualizacion }`, con
+ * `venta` = cuántos pesos vale una unidad), así que `fetchDolarapi` no necesita
+ * ramas: solo cambia la URL. Ojo que son dos familias distintas de ruta en la
+ * API — `/cotizaciones/<moneda>` para el euro y `/dolares/<casa>` para el
+ * dólar — y no se pueden generar concatenando el código de moneda.
+ */
+const DOLARAPI_URL: Record<MonedaReporte, string> = {
+  EUR: 'https://dolarapi.com/v1/cotizaciones/eur',
+  USD: 'https://dolarapi.com/v1/dolares/oficial',
+};
+
+// Respaldo: devuelve un objeto `rates` con TODAS las monedas contra el peso, así
+// que la misma URL sirve para las dos y lo único que cambia es qué clave se lee.
 const ERAPI_URL = 'https://open.er-api.com/v6/latest/ARS';
 
 /**
  * Sanidad: rechaza valores absurdos antes de escribir. Una API que devuelve
  * 0, null, un string o un número con la coma corrida escribiría todas las
- * ventas del día en 0 euros (o con órdenes de magnitud de error) y el reporte
+ * ventas del día en 0 (o con órdenes de magnitud de error) y el reporte
  * quedaría mudo sin que nada falle: esta defensa corre antes de cada
  * escritura, en el fetcher y también en saveRate.
+ *
+ * LA BANDA SIRVE PARA LAS DOS MONEDAS, y no por casualidad: el euro y el dólar
+ * están en el mismo orden de magnitud contra el peso (hoy ~1753 y ~1535 pesos
+ * respectivamente, o sea rates de 5,7e-4 y 6,5e-4), y la banda cubre de 100 a
+ * 1.000.000 pesos por unidad. Lo que NO hace es distinguir un par del otro: un
+ * rate ARS→USD pasa igual el chequeo escrito para ARS→EUR. Esa confusión la
+ * ataja `saveRate`, que escribe el `quote` desde MONEDA_REPORTE y no desde lo
+ * que devolvió la fuente.
  */
 export function assertPlausible(rate: number): void {
   if (typeof rate !== 'number' || !Number.isFinite(rate)) {
     throw new Error(`fx: cotización absurda: ${String(rate)} (no es un número finito)`);
   }
-  // Rango aceptado para ARS→EUR: entre 100 y 1.000.000 pesos por euro.
   if (!(rate > 1e-6 && rate < 1e-2)) {
     throw new Error(
-      `fx: cotización absurda: ${rate} (esperada entre 1e-6 y 1e-2, o sea entre 100 y 1.000.000 ARS por EUR)`,
+      `fx: cotización absurda: ${rate} (esperada entre 1e-6 y 1e-2, o sea entre 100 y ` +
+        `1.000.000 ARS por ${MONEDA_REPORTE})`,
     );
   }
 }
@@ -48,8 +72,8 @@ async function getJson(url: string): Promise<Record<string, unknown>> {
 }
 
 async function fetchDolarapi(): Promise<FxFetchResult> {
-  const body = await getJson(DOLARAPI_URL);
-  // dolarapi devuelve "cuántos pesos vale un euro" (venta): la tabla guarda
+  const body = await getJson(DOLARAPI_URL[MONEDA_REPORTE]);
+  // dolarapi devuelve "cuántos pesos vale una unidad" (venta): la tabla guarda
   // lo inverso, así que se invierte. venta=0 daría Infinity y assertPlausible
   // lo frena antes de escribir.
   const venta = Number(body.venta);
@@ -62,11 +86,12 @@ async function fetchDolarapi(): Promise<FxFetchResult> {
 async function fetchErApi(): Promise<FxFetchResult> {
   const body = await getJson(ERAPI_URL);
   if (body.result !== 'success') throw new Error(`er-api: result='${String(body.result)}'`);
-  // rates.EUR YA es "cuántos euros vale un peso": acá NO se invierte, es el
-  // error fácil de este task. El test de coherencia del 5% entre fuentes es
-  // el que lo atrapa si alguien lo toca.
-  const eur = (body.rates as Record<string, unknown> | null | undefined)?.EUR;
-  const rate = round10(Number(eur));
+  // rates[MONEDA] YA es "cuántas unidades de esa moneda vale un peso": acá NO se
+  // invierte, es el error fácil de este archivo (la fuente primaria sí se
+  // invierte, dos líneas arriba). El test de coherencia del 5% entre las dos
+  // fuentes es el que lo atrapa si alguien lo toca.
+  const valor = (body.rates as Record<string, unknown> | null | undefined)?.[MONEDA_REPORTE];
+  const rate = round10(Number(valor));
   assertPlausible(rate);
   const unix = Number(body.time_last_update_unix);
   const asOf = Number.isFinite(unix) ? new Date(unix * 1000) : new Date();
@@ -100,14 +125,20 @@ export async function fetchRate(fxSource: string): Promise<FxFetchResult> {
   }
 }
 
-/** Guarda (o pisa) la fila del día. */
+/**
+ * Guarda (o pisa) la fila del día para el par ARS → moneda de reporte.
+ *
+ * El `quote` sale de MONEDA_REPORTE y no de lo que devolvió la fuente: es el
+ * único lugar donde se decide bajo qué par se archiva la cotización, así que un
+ * cambio de moneda no puede dejar filas mezcladas en la misma clave.
+ */
 export async function saveRate(day: string, rate: number, source: string): Promise<void> {
   assertPlausible(rate);
   // Una fila manual es una decisión del usuario y le gana al cron (D13): se
   // verifica antes del INSERT y ni siquiera --force la pisa (T03 §3).
   const existing = await q1<{ source: string }>(
     `SELECT source FROM fx_rates WHERE day = $1 AND base = $2 AND quote = $3`,
-    [day, 'ARS', 'EUR'],
+    [day, 'ARS', MONEDA_REPORTE],
   );
   if (existing?.source === 'manual') return;
   await q(
@@ -115,6 +146,6 @@ export async function saveRate(day: string, rate: number, source: string): Promi
      VALUES ($1, $2, $3, $4, $5, now())
      ON CONFLICT (day, base, quote)
      DO UPDATE SET rate = EXCLUDED.rate, source = EXCLUDED.source, fetched_at = now()`,
-    [day, 'ARS', 'EUR', rate, source],
+    [day, 'ARS', MONEDA_REPORTE, rate, source],
   );
 }

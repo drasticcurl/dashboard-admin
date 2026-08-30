@@ -48,6 +48,7 @@ import {
 } from '@/components/ui';
 import type { FunnelSummary, OverviewData } from '@/lib/queries/overview';
 import type { WidgetCatalogo, WidgetSize } from './tipos';
+import { MONEDA_REPORTE, SIMBOLO_REPORTE } from '@/lib/moneda-reporte';
 
 // El trend es (actual − anterior) ÷ anterior. Sin período anterior (rango
 // 'all') o con anterior en 0 no hay comparación posible: undefined, y el KPI
@@ -166,7 +167,7 @@ function FunnelCard({ f }: { f: FunnelSummary }): JSX.Element {
       </div>
       <div className="mt-2 flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
         <span className="text-lg font-semibold tabular-nums tracking-tight text-neutral-50">
-          {fmtMoney(f.netEur, 'EUR')}
+          {fmtMoney(f.netEur, MONEDA_REPORTE)}
         </span>
         <span className="text-xs tabular-nums text-neutral-400">
           {fmtMoney(f.netOrig, f.sellCurrency)}
@@ -174,7 +175,7 @@ function FunnelCard({ f }: { f: FunnelSummary }): JSX.Element {
       </div>
       <p className="mt-1 text-xs tabular-nums text-neutral-500">
         {fmtInt(f.orders)} órdenes · {fmtInt(f.sessions)} sesiones · conv{' '}
-        {fmtPct(f.convSessionToSale * 100, 1)} · ticket {fmtMoney(f.avgTicketEur, 'EUR')}
+        {fmtPct(f.convSessionToSale * 100, 1)} · ticket {fmtMoney(f.avgTicketEur, MONEDA_REPORTE)}
       </p>
       <div className="mt-2.5 flex gap-2">
         <Link href={`/embudo?f=${f.slug}`} className={LINK_CLS}>
@@ -215,7 +216,7 @@ function StackedTooltip({
   return (
     <div className="rounded-lg border border-border-strong bg-surface-raised px-3 py-2 text-xs shadow-float">
       <p className="mb-1 font-semibold text-neutral-100">{d.day}</p>
-      <p className="tabular-nums text-neutral-300">Total: {fmtMoney(d.netEur, 'EUR')}</p>
+      <p className="tabular-nums text-neutral-300">Total: {fmtMoney(d.netEur, MONEDA_REPORTE)}</p>
       {bands.map((p) => (
         <p key={p.name} className="tabular-nums" style={{ color: p.color }}>
           {p.name}: {fmtMoney(Number(p.value), 'EUR')}
@@ -417,7 +418,7 @@ export const catalogoResumen: WidgetCatalogo<OverviewData> = {
       <Kpi
         size={size}
         k={{
-          valor: fmtMoney(d.totals.netEur, 'EUR'),
+          valor: fmtMoney(d.totals.netEur, MONEDA_REPORTE),
           sub: 'EUR · bruto − devuelto',
           trend: trendPct(d.totals.netEur, d.prev?.netEur),
           tone: 'good',
@@ -441,7 +442,7 @@ export const catalogoResumen: WidgetCatalogo<OverviewData> = {
       <Kpi
         size={size}
         k={{
-          valor: fmtMoney(d.totals.resultEur, 'EUR'),
+          valor: fmtMoney(d.totals.resultEur, MONEDA_REPORTE),
           sub: 'neto − gasto en ads',
           trend: trendPct(d.totals.resultEur, d.prev?.resultEur),
           tone: d.totals.resultEur < 0 ? 'bad' : 'good',
@@ -463,7 +464,7 @@ export const catalogoResumen: WidgetCatalogo<OverviewData> = {
       <Kpi
         size={size}
         k={{
-          valor: fmtMoney(d.totals.grossEur, 'EUR'),
+          valor: fmtMoney(d.totals.grossEur, MONEDA_REPORTE),
           sub: 'antes de devoluciones y costos',
         }}
       />
@@ -483,7 +484,7 @@ export const catalogoResumen: WidgetCatalogo<OverviewData> = {
       <Kpi
         size={size}
         k={{
-          valor: fmtMoney(d.totals.adSpendEur, 'EUR'),
+          valor: fmtMoney(d.totals.adSpendEur, MONEDA_REPORTE),
           sub: 'gasto en publicidad',
           trend: trendPct(d.totals.adSpendEur, d.prev?.adSpendEur),
         }}
@@ -504,7 +505,7 @@ export const catalogoResumen: WidgetCatalogo<OverviewData> = {
       <Kpi
         size={size}
         k={{
-          valor: fmtMoney(d.totals.refundedEur, 'EUR'),
+          valor: fmtMoney(d.totals.refundedEur, MONEDA_REPORTE),
           sub: `${fmtInt(d.totals.ordersRefunded)} órdenes devueltas`,
         }}
       />
@@ -525,7 +526,7 @@ export const catalogoResumen: WidgetCatalogo<OverviewData> = {
       <Kpi
         size={size}
         k={{
-          valor: fmtMoney(d.totals.avgTicketEur, 'EUR'),
+          valor: fmtMoney(d.totals.avgTicketEur, MONEDA_REPORTE),
           sub: 'neto ÷ órdenes',
           trend: trendPct(d.totals.avgTicketEur, d.prev?.avgTicketEur),
           spark: byDayTicket(d),
@@ -631,7 +632,7 @@ export const catalogoResumen: WidgetCatalogo<OverviewData> = {
   roas: {
     id: 'roas',
     label: 'ROAS',
-    hint: 'Bruto ÷ gasto en ads: por cada € de publicidad, cuánto € bruto volvió. 0 sin gasto cargado.',
+    hint: `Bruto ÷ gasto en ads: por cada ${SIMBOLO_REPORTE} de publicidad, cuánto ${SIMBOLO_REPORTE} bruto volvió. 0 sin gasto cargado.`,
     grupo: 'eficiencia',
     tamañoPorDefecto: { w: 1, h: 1 },
     tamañosPermitidos: [
@@ -641,7 +642,7 @@ export const catalogoResumen: WidgetCatalogo<OverviewData> = {
     render: (d, size) => (
       <Kpi
         size={size}
-        k={{ valor: fmtMoney(d.totals.roas, 'EUR'), sub: 'bruto ÷ gasto en ads' }}
+        k={{ valor: fmtMoney(d.totals.roas, MONEDA_REPORTE), sub: 'bruto ÷ gasto en ads' }}
       />
     ),
   },
@@ -658,7 +659,7 @@ export const catalogoResumen: WidgetCatalogo<OverviewData> = {
     render: (d, size) => (
       <Kpi
         size={size}
-        k={{ valor: fmtMoney(d.totals.cpa ?? NaN, 'EUR'), sub: 'gasto en ads ÷ órdenes' }}
+        k={{ valor: fmtMoney(d.totals.cpa ?? NaN, MONEDA_REPORTE), sub: 'gasto en ads ÷ órdenes' }}
       />
     ),
   },
@@ -709,7 +710,7 @@ export const catalogoResumen: WidgetCatalogo<OverviewData> = {
     render: (d, size) => (
       <Kpi
         size={size}
-        k={{ valor: fmtMoney(d.totals.revPerSession ?? NaN, 'EUR'), sub: 'neto ÷ sesiones' }}
+        k={{ valor: fmtMoney(d.totals.revPerSession ?? NaN, MONEDA_REPORTE), sub: 'neto ÷ sesiones' }}
       />
     ),
   },

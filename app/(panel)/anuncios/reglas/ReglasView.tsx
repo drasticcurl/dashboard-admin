@@ -43,6 +43,7 @@ import { sospechasDeRegla, type Sospecha } from '@/lib/ads/reglas/sospecha';
 import { importarCsvUtmify } from '@/lib/ads/reglas/utmify';
 import { Badge, Banner, Card, EmptyState, Table, fmtDateTime } from '@/components/ui';
 import type { Tone } from '@/components/ui';
+import { MONEDA_REPORTE, SIMBOLO_REPORTE } from '@/lib/moneda-reporte';
 
 // ─── Etiquetas y formateadores ───────────────────────────────────────────────
 
@@ -163,7 +164,7 @@ const sinDecimales = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 0 }
 
 function eur(n: number): string {
   if (!Number.isFinite(n)) return '—';
-  return `€${dosDecimales.format(n)}`;
+  return `${SIMBOLO_REPORTE}${dosDecimales.format(n)}`;
 }
 
 function numero(n: number): string {
@@ -2329,7 +2330,7 @@ function FormularioRegla({
           {ep && (
             <>
               <label className="flex flex-col gap-1 text-xs text-neutral-500">
-                {f.actionUnit === 'percent' ? 'Escalar al % del presupuesto actual' : f.action === 'budget_increase' ? 'Sumar € al presupuesto actual' : 'Restar € al presupuesto actual'}
+                {f.actionUnit === 'percent' ? 'Escalar al % del presupuesto actual' : f.action === 'budget_increase' ? `Sumar ${SIMBOLO_REPORTE} al presupuesto actual` : `Restar ${SIMBOLO_REPORTE} al presupuesto actual`}
                 <input
                   className={`${inputCls} tabular-nums`}
                   inputMode="decimal"
@@ -2342,7 +2343,7 @@ function FormularioRegla({
                 Unidad
                 <select className={inputCls} value={f.actionUnit} onChange={(e) => set({ actionUnit: e.target.value as 'percent' | 'fixed' })}>
                   <option value="percent">escalar al %</option>
-                  <option value="fixed">sumar/restar €</option>
+                  <option value="fixed">sumar/restar {SIMBOLO_REPORTE}</option>
                 </select>
               </label>
               {f.actionUnit === 'percent' && (
@@ -2459,7 +2460,7 @@ function FormularioRegla({
                       {METRICAS.map((m) => (
                         <option key={m.value} value={m.value}>
                           {m.label}
-                          {METRICA_UNIDAD[m.value] === 'euro' ? ' (€)' : METRICA_UNIDAD[m.value] === 'numero' ? ' (múltiplo)' : ' (cantidad)'}
+                          {METRICA_UNIDAD[m.value] === 'euro' ? ` (${SIMBOLO_REPORTE})` : METRICA_UNIDAD[m.value] === 'numero' ? ' (múltiplo)' : ' (cantidad)'}
                         </option>
                       ))}
                     </select>

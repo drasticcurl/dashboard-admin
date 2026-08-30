@@ -33,6 +33,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { getPool, q } from '../lib/db';
 import { today } from '../lib/day';
+import { MONEDA_REPORTE } from '../lib/moneda-reporte';
 
 // tsx no carga .env solo; en dev el env vive en el archivo, en producción
 // viene de PM2 y no existe (process.loadEnvFile es de Node >= 20.12).
@@ -178,10 +179,10 @@ export async function rollupRange(opts: { from: string; to: string }): Promise<R
   const adsRows = await q<{ funnelId: number; day: string; spend: string; spendEur: string }>(
     `SELECT a.funnel_id AS "funnelId", a.day::text AS day,
             COALESCE(sum(
-              CASE WHEN f.sell_currency = 'EUR' THEN a.spend_eur
+              CASE WHEN f.sell_currency = $3 THEN a.spend_eur
                    ELSE a.spend_eur / NULLIF((
                           SELECT fr.rate FROM fx_rates fr
-                          WHERE fr.base = f.sell_currency AND fr.quote = 'EUR' AND fr.day <= a.day
+                          WHERE fr.base = f.sell_currency AND fr.quote = $3 AND fr.day <= a.day
                           ORDER BY fr.day DESC LIMIT 1), 0)
               END), 0)::text AS spend,
             COALESCE(sum(a.spend_eur), 0)::text AS "spendEur"
@@ -189,7 +190,7 @@ export async function rollupRange(opts: { from: string; to: string }): Promise<R
      JOIN funnels f ON f.id = a.funnel_id
      WHERE a.day BETWEEN $1::date AND $2::date AND a.funnel_id IS NOT NULL
      GROUP BY 1, 2`,
-    [opts.from, opts.to],
+    [opts.from, opts.to, MONEDA_REPORTE],
   );
   const adsByDay = new Map<string, { spend: string; spendEur: string }>();
   for (const r of adsRows) adsByDay.set(`${r.funnelId}:${r.day}`, r);

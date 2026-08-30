@@ -104,10 +104,11 @@ export default async function VentasPage({ searchParams }: { searchParams: Searc
     status,
   });
 
-  // ?cur= si está, si no el setting, si no EUR (T06 §5).
+  // ?cur= si está, si no el setting, si no la moneda de reporte (T06 §5).
+  // El valor viaja como string y no como un enum de dos códigos: la moneda de
+  // reporte se configura por instancia (lib/moneda-reporte.ts).
   const curParam = single(searchParams.cur);
-  const defaultCurrency: 'EUR' | 'ARS' =
-    curParam === 'EUR' || curParam === 'ARS' ? curParam : await getDefaultCurrencyView();
+  const defaultCurrency: string = curParam ?? (await getDefaultCurrencyView());
 
   // El layout guardado de la pantalla (D-R04). WidgetGrid normaliza y nunca
   // tira, así que lo que venga de la base se le pasa tal cual.

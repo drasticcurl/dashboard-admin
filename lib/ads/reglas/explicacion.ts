@@ -14,6 +14,7 @@
  */
 
 import type { Condicion, Decision, MetricasObjeto, MotivoOmision, Regla } from '../tipos';
+import { MONEDA_REPORTE, SIMBOLO_REPORTE } from '@/lib/moneda-reporte';
 
 // ─── Formateadores ──────────────────────────────────────────────────────────
 // Igual que fmtMoney de components/ui.tsx (leído, no importado: este archivo es
@@ -30,7 +31,7 @@ const dosDecimales = new Intl.NumberFormat('es-AR', {
 export function formatearEur(n: number): string {
   if (!Number.isFinite(n)) return '—';
   const signo = n < 0 ? '-' : '';
-  return `${signo}€${dosDecimales.format(Math.abs(n))}`;
+  return `${signo}${SIMBOLO_REPORTE}${dosDecimales.format(Math.abs(n))}`;
 }
 
 /** "1,52" — para ROI/ROAS/CTR/CPC, que son múltiplos o ratios, no importes. */

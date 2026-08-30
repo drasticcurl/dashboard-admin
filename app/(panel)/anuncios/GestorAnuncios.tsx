@@ -87,6 +87,7 @@ import {
   type Vista,
 } from '@/lib/ads/vistas';
 import { siguienteOrden, ORDEN_DEFAULT, type EstadoOrden } from '@/lib/ads/orden';
+import { MONEDA_REPORTE } from '@/lib/moneda-reporte';
 
 type Respuesta = ResultadoMetricas & {
   adsFreshness?: FrescuraAds;
@@ -111,7 +112,7 @@ const NIVEL_LABEL: Record<NivelAds, string> = {
 };
 
 function money(n: number): string {
-  return fmtMoney(n, 'EUR');
+  return fmtMoney(n, MONEDA_REPORTE);
 }
 
 /**

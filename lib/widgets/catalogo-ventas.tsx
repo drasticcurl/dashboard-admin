@@ -56,6 +56,7 @@ import type { FrescuraAds } from '@/lib/ads/live';
 import { textoEdad } from '@/lib/ads/polling';
 import type { OrderRow, SalesData, SalesTotals, TierRow } from '@/lib/queries/sales';
 import type { WidgetCatalogo, WidgetDef, WidgetGrupo, WidgetPlacement, WidgetSize } from './tipos';
+import { MONEDA_REPORTE } from '@/lib/moneda-reporte';
 
 /** Los datos que el WidgetGrid reparte entre los widgets de Ventas. */
 export type VentasWidgetData = {
@@ -870,7 +871,7 @@ export const catalogoVentas: WidgetCatalogo<VentasWidgetData> = {
                 <span className="text-neutral-600">—</span>
               ) : (
                 <span className="text-neutral-300">
-                  {fmtMoney(r.amountEur, 'EUR')}
+                  {fmtMoney(r.amountEur, MONEDA_REPORTE)}
                   {r.fxStale ? ' *' : ''}
                 </span>
               ),

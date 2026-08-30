@@ -1,6 +1,6 @@
 import { tx, q1 } from '../db';
 import { getFunnelById } from '../funnels';
-import { toEur } from '../fx';
+import { toReportCurrency } from '../fx';
 import { applyCommissions, rulesForFunnel } from '../commissions';
 import { applyCosts, costsForShop } from '../costs';
 import type { Tier } from '../types';
@@ -126,7 +126,7 @@ export async function upsertOrder(
 
   // Conversión a EUR congelada en la fila (D12/D13). Sin cotización no se
   // falla la venta: amount_eur NULL + fx_stale, y backfill-fx (T03) completa.
-  const fx = await toEur(amount, currency, day);
+  const fx = await toReportCurrency(amount, currency, day);
 
   const principal = principalTier(items, tiers);
 

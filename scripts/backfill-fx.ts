@@ -14,7 +14,8 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { getPool, q, tx } from '../lib/db';
-import { toEur } from '../lib/fx';
+import { toReportCurrency } from '../lib/fx';
+import { MONEDA_REPORTE } from '../lib/moneda-reporte';
 
 // tsx no carga .env solo; en dev el env vive en el archivo, en producción
 // viene de PM2 y no existe (process.loadEnvFile es de Node >= 20.12).
@@ -48,15 +49,20 @@ function fmtRate(rate: number): string {
 }
 
 export async function runBackfill(opts: { limit: number; dryRun: boolean }): Promise<BackfillResult> {
-  // El plan define el WHERE como contrato: monedas que no son EUR (la regla
-  // "no recalcular lo ya congelado" vive en que fx_stale=true solo lo pone
+  // El plan define el WHERE como contrato: monedas que no son la de reporte (la
+  // regla "no recalcular lo ya congelado" vive en que fx_stale=true solo lo pone
   // quien convirtió sin cotización del día).
+  //
+  // OJO SI ALGUN DIA SE CAMBIA LA MONEDA DE REPORTE EN UNA BASE CON HISTORIAL:
+  // este WHERE saltea todo lo que ya tiene amount_eur, así que NO sirve para
+  // reconvertir ventas viejas de una moneda a otra. Para eso hay que nulificar
+  // amount_eur primero, o escribir un script aparte.
   const rows = await q<OrderRow>(
     `SELECT id, amount, currency, day FROM orders
-     WHERE currency <> 'EUR' AND (amount_eur IS NULL OR fx_stale = true)
+     WHERE currency <> $2 AND (amount_eur IS NULL OR fx_stale = true)
      ORDER BY day
      LIMIT $1`,
-    [opts.limit],
+    [opts.limit, MONEDA_REPORTE],
   );
 
   // Se actualiza solo con la cotización exacta del día: toEur devuelve
@@ -74,7 +80,7 @@ export async function runBackfill(opts: { limit: number; dryRun: boolean }): Pro
   let stillStale = 0;
   for (const row of rows) {
     const day = dayStr(row.day);
-    const conv = await toEur(Number(row.amount), row.currency, day);
+    const conv = await toReportCurrency(Number(row.amount), row.currency, day);
     if (conv && !conv.stale) {
       todo.push({
         id: row.id,

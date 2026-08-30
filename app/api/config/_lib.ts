@@ -18,6 +18,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { isAuthenticated } from '@/lib/auth';
 import { q, q1 } from '@/lib/db';
+import { MONEDA_REPORTE } from '@/lib/moneda-reporte';
 
 export function json(status: number, body: unknown): NextResponse {
   return NextResponse.json(body, { status });
@@ -168,7 +169,13 @@ export async function listShopMappings(): Promise<ShopMapping[]> {
 
 export type PanelSettings = {
   fxSource: 'oficial' | 'blue';
-  defaultCurrencyView: 'EUR' | 'ARS';
+  /**
+   * Qué moneda muestra el toggle de Ventas por defecto: la de REPORTE (el valor
+   * de MONEDA_REPORTE) o 'ARS', que significa "la moneda de venta del funnel".
+   * No es un enum cerrado de dos códigos porque la moneda de reporte se
+   * configura por instancia.
+   */
+  defaultCurrencyView: string;
   retentionDaysEvents: number;
 };
 
@@ -183,7 +190,9 @@ export async function getSettingsRecord(): Promise<PanelSettings> {
   const map = new Map(rows.map((r) => [r.key, r.value]));
   return {
     fxSource: map.get('fx_source') === 'blue' ? 'blue' : 'oficial',
-    defaultCurrencyView: map.get('default_currency_view') === 'ARS' ? 'ARS' : 'EUR',
+    // 'ARS' se conserva como el valor guardado que significa "moneda de venta";
+    // cualquier otra cosa cae en la moneda de reporte de esta instancia.
+    defaultCurrencyView: map.get('default_currency_view') === 'ARS' ? 'ARS' : MONEDA_REPORTE,
     retentionDaysEvents:
       typeof map.get('retention_days_events') === 'number'
         ? (map.get('retention_days_events') as number)

@@ -39,7 +39,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { getPool, q1, q, tx } from '../lib/db';
 import { getFunnelBySlug } from '../lib/funnels';
-import { toEur } from '../lib/fx';
+import { toReportCurrency } from '../lib/fx';
 import { resolveTier } from '../lib/orders/resolve';
 import type { Tier } from '../lib/types';
 
@@ -261,7 +261,7 @@ async function main(args: string[] = process.argv.slice(2)): Promise<void> {
     // fx_stale = true. Es lo honesto — inventar una cotización retroactiva
     // es peor. El histórico se lee en ARS; si se quiere en euros, se cargan
     // filas en fx_rates y corre `npm run fx:backfill` (task T12 §Parte A).
-    const fx = await toEur(amount, currency, day);
+    const fx = await toReportCurrency(amount, currency, day);
 
     const utm = (v: string | null): string => v ?? '(directo)';
     todo.push({

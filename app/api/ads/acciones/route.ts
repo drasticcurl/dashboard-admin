@@ -69,6 +69,7 @@ import { sincronizarJerarquia } from '@/lib/ads/jerarquia';
 import { verificarCupoObjetos } from '@/lib/ads/cupo';
 import { reconciliarDuplicaciones } from '@/lib/ads/reconciliacion';
 import { resolverInicio } from '@/lib/ads/programacion';
+import { MONEDA_REPORTE, SIMBOLO_REPORTE } from '@/lib/moneda-reporte';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -386,7 +387,7 @@ const dosDec = new Intl.NumberFormat('es-AR', {
   minimumFractionDigits: 2,
   maximumFractionDigits: 2,
 });
-const eur = (n: number): string => `€${dosDec.format(n)}`;
+const eur = (n: number): string => `${SIMBOLO_REPORTE}${dosDec.format(n)}`;
 
 export async function POST(req: NextRequest): Promise<Response> {
   // 1. Guard ANTES de deserializar (R17 c1): sin cookie, 401, nada de nada.

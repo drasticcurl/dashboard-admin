@@ -40,6 +40,7 @@ import { CargaDiaria } from './CargaDiaria';
 import { CuentasSection } from './CuentasSection';
 import { GraficoSaldo } from './GraficoSaldo';
 import { Modal } from './Modal';
+import { MONEDA_REPORTE } from '@/lib/moneda-reporte';
 
 // Este archivo ya NO importa recharts. El gráfico vive en GraficoSaldo.tsx, que
 // además es el único que lo necesita: dejarlo acá arrastraba la librería a un
@@ -261,7 +262,7 @@ function PatrimonioCard({ overview }: { overview: FinanceOverview }): JSX.Elemen
           negativo ? 'text-bad-400' : 'text-neutral-50'
         }`}
       >
-        {fmtMoney(total, 'EUR')}
+        {fmtMoney(total, MONEDA_REPORTE)}
       </div>
       <div className="mt-1 text-xs text-neutral-500">
         Medido{overview.diaPatrimonio ? ` al ${fmtDate(overview.diaPatrimonio)}` : ''} · el último día
@@ -277,19 +278,19 @@ function PatrimonioCard({ overview }: { overview: FinanceOverview }): JSX.Elemen
           <span className="flex items-center gap-1.5">
             <span className="text-neutral-500">Disponible</span>
             <span className="font-mono tabular-nums text-neutral-200">
-              {fmtMoney(d.dineroEur, 'EUR')}
+              {fmtMoney(d.dineroEur, MONEDA_REPORTE)}
             </span>
           </span>
           <span className="flex items-center gap-1.5">
             <span className="text-neutral-500">Retenido</span>
             <span className="font-mono tabular-nums text-neutral-300">
-              {fmtMoney(d.retenidoEur, 'EUR')}
+              {fmtMoney(d.retenidoEur, MONEDA_REPORTE)}
             </span>
           </span>
           <span className="flex items-center gap-1.5">
             <span className="text-neutral-500">Deuda</span>
             <span className="font-mono tabular-nums text-bad-300">
-              −{fmtMoney(d.deudaEur, 'EUR')}
+              −{fmtMoney(d.deudaEur, MONEDA_REPORTE)}
             </span>
           </span>
         </div>
@@ -460,7 +461,7 @@ export function FinanzasView({
   }
 
   async function borrarMovimiento(m: FinanceMovement): Promise<void> {
-    if (!confirm(`Borrar el movimiento "${m.note}" por ${fmtMoney(m.amountEur, 'EUR')}?`)) return;
+    if (!confirm(`Borrar el movimiento "${m.note}" por ${fmtMoney(m.amountEur, MONEDA_REPORTE)}?`)) return;
     await conBusy(async () => {
       await api(`/api/finanzas/movimientos?id=${m.id}`, { method: 'DELETE' });
       show('good', 'Movimiento borrado');
@@ -674,7 +675,7 @@ export function FinanzasView({
                 align: 'right',
                 render: (m) => (
                   <span className={m.amountEur < 0 ? 'text-bad-300' : 'text-good-300'}>
-                    {fmtMoney(m.amountEur, 'EUR')}
+                    {fmtMoney(m.amountEur, MONEDA_REPORTE)}
                   </span>
                 ),
               },
@@ -846,7 +847,7 @@ export function FinanzasView({
                 key: 'amount',
                 header: 'Monto',
                 align: 'right',
-                render: (p) => <span className="tabular-nums">{fmtMoney(p.amountEur, 'EUR')}</span>,
+                render: (p) => <span className="tabular-nums">{fmtMoney(p.amountEur, MONEDA_REPORTE)}</span>,
               },
               { key: 'day', header: 'Día del mes', align: 'right', render: (p) => <span className="tabular-nums">{p.dayOfMonth}</span> },
               {

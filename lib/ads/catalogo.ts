@@ -21,6 +21,7 @@
 
 import { fmtDateTime, fmtInt, fmtMoney, fmtPct } from '@/components/ui';
 import type { ClaveOrden, MetricasObjeto, NivelAds } from './tipos';
+import { MONEDA_REPORTE } from '@/lib/moneda-reporte';
 
 export type FormatoMetrica = 'texto' | 'fecha' | 'entero' | 'eur' | 'porcentaje' | 'multiplicador';
 export type AlineacionMetrica = 'izquierda' | 'derecha' | 'centro';
@@ -375,7 +376,7 @@ export function formatear(e: EntradaCatalogo, valor: unknown): string {
     case 'entero':
       return typeof valor === 'number' ? fmtInt(valor) : '—';
     case 'eur':
-      return typeof valor === 'number' ? fmtMoney(valor, 'EUR') : '—';
+      return typeof valor === 'number' ? fmtMoney(valor, MONEDA_REPORTE) : '—';
     case 'porcentaje':
       // Presentación ×100: el contrato guarda el cociente (D-06, R7 c1).
       return typeof valor === 'number' ? fmtPct(valor * 100, 2) : '—';

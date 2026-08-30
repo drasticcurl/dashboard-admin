@@ -34,6 +34,7 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { getPool, q } from '../lib/db';
+import { MONEDA_REPORTE, SIMBOLO_REPORTE } from '../lib/moneda-reporte';
 import {
   METRICAS_EUR_AUDITABLES,
   METRICAS_NO_AUDITABLES,
@@ -137,7 +138,7 @@ function agrupar(filas: readonly Fila[]): ReglaLeida[] {
   return orden.map((id) => porId.get(id)!);
 }
 
-const eur = (n: number): string => `€${n.toFixed(2)}`;
+const eur = (n: number): string => `${SIMBOLO_REPORTE}${n.toFixed(2)}`;
 
 /** Los nombres de las bandas, tal como los define §Decisión 5 del diseño. */
 const NOMBRE_BANDA: Record<Sospecha['banda'], string> = {

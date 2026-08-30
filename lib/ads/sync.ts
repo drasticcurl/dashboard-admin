@@ -19,6 +19,7 @@
 import { q, tx } from '../db';
 import { fetchInsights, listAccounts, MetaAdsError, type MetaInsightRow } from './meta';
 import { getRate } from '../fx';
+import { MONEDA_REPORTE, SIMBOLO_REPORTE } from '@/lib/moneda-reporte';
 
 export type CuentaSync = {
   accountId: string;
@@ -189,7 +190,7 @@ export async function syncAdSpend(opts: {
       const rateDe = async (day: string, currency: string): Promise<number | null> => {
         const k = `${day}:${currency}`;
         if (rates.has(k)) return rates.get(k) ?? null;
-        if (currency === 'EUR') {
+        if (currency === MONEDA_REPORTE) {
           rates.set(k, 1);
           return 1;
         }

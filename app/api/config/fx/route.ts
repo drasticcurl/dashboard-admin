@@ -15,6 +15,7 @@
 import { NextRequest } from 'next/server';
 import { z } from 'zod';
 import { q } from '@/lib/db';
+import { MONEDA_REPORTE } from '@/lib/moneda-reporte';
 import { guard, json, listFxRates, parseJson } from '../_lib';
 
 export const runtime = 'nodejs';
@@ -43,15 +44,18 @@ export async function POST(req: NextRequest) {
   }
   const { day, arsPerEuro } = parsed.data;
 
-  // 1 ARS = (1 / arsPerEuro) EUR, con 10 decimales como el resto de la tabla.
+  // 1 ARS = (1 / arsPerEuro) unidades de la moneda de reporte, con 10 decimales
+  // como el resto de la tabla. El nombre del campo sigue siendo `arsPerEuro`
+  // porque es el contrato del endpoint y lo manda la UI; lo que significa es
+  // "pesos por unidad de la moneda de reporte".
   const rate = 1 / arsPerEuro;
   const res = await q(
     `INSERT INTO fx_rates (day, base, quote, rate, source, fetched_at)
-     VALUES ($1::date, 'ARS', 'EUR', $2::numeric, 'manual', now())
+     VALUES ($1::date, 'ARS', $3, $2::numeric, 'manual', now())
      ON CONFLICT (day, base, quote)
      DO UPDATE SET rate = EXCLUDED.rate, source = 'manual', fetched_at = now()
      RETURNING day::text AS day, rate::text AS rate, source`,
-    [day, rate.toFixed(10)],
+    [day, rate.toFixed(10), MONEDA_REPORTE],
   );
   return json(200, { ok: true, rate: res[0] });
 }

@@ -21,6 +21,7 @@ import { pathToFileURL } from 'node:url';
 import { getPool, q, q1 } from '../lib/db';
 import { today } from '../lib/day';
 import { fetchRate, saveRate, type FxFetchResult } from '../lib/fx-fetch';
+import { MONEDA_REPORTE } from '../lib/moneda-reporte';
 import { runBackfill } from './backfill-fx';
 
 // tsx no carga .env solo; en dev el env vive en el archivo, en producción
@@ -101,7 +102,7 @@ export async function main(args: string[] = process.argv.slice(2)): Promise<void
   // verifica de nuevo saveRate por si este chequeo se saltea algún día.
   const existing = await q1<{ source: string }>(
     `SELECT source FROM fx_rates WHERE day = $1 AND base = $2 AND quote = $3`,
-    [day, 'ARS', 'EUR'],
+    [day, 'ARS', MONEDA_REPORTE],
   );
 
   if (existing?.source === 'manual') {

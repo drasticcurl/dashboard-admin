@@ -14,6 +14,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Badge, Banner, Card, EmptyState, Skeleton, Table, fmtDateTime } from '@/components/ui';
 import type { Tone } from '@/components/ui';
 import { ROTULO_ACCION } from '@/lib/ads/previsualizacion';
+import { MONEDA_REPORTE, SIMBOLO_REPORTE } from '@/lib/moneda-reporte';
 
 const ESTADOS = ['confirmado', 'simulado', 'omitido', 'fallido', 'indeterminado', 'pendiente'] as const;
 const SOURCES = ['rule', 'manual', 'system'] as const;
@@ -86,7 +87,7 @@ const dosDecimales = new Intl.NumberFormat('es-AR', { minimumFractionDigits: 2, 
 const sinDecimales = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 0 });
 
 function eur(n: number): string {
-  return `€${dosDecimales.format(n)}`;
+  return `${SIMBOLO_REPORTE}${dosDecimales.format(n)}`;
 }
 function numero(n: number): string {
   return dosDecimales.format(n);

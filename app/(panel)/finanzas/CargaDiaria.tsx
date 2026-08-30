@@ -40,6 +40,7 @@ import {
   totalTipeado,
   type FilaTipeada,
 } from './serie';
+import { MONEDA_REPORTE } from '@/lib/moneda-reporte';
 
 const KIND_LABEL: Record<AccountWithBalance['kind'], string> = {
   dinero: 'Dinero',
@@ -194,7 +195,7 @@ export function CargaDiaria({
       // que el día ya cuenta cuando el gráfico todavía no lo va a dibujar (D5).
       setOk(
         res.completo && res.totalEur !== null
-          ? `Guardado. El ${day} queda en ${fmtMoney(res.totalEur, 'EUR')}.`
+          ? `Guardado. El ${day} queda en ${fmtMoney(res.totalEur, MONEDA_REPORTE)}.`
           : `Guardado, pero el ${day} sigue incompleto: falta el saldo de ${res.faltan.join(', ')}. ` +
               'Hasta que estén todas, ese día no tiene patrimonio y no aparece en el gráfico.',
       );
@@ -373,7 +374,7 @@ export function CargaDiaria({
               : 'text-neutral-400'
           }`}
         >
-          {fmtMoney(total.totalEur, 'EUR')}
+          {fmtMoney(total.totalEur, MONEDA_REPORTE)}
         </p>
       </div>
 

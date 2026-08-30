@@ -53,6 +53,7 @@ import { TZ_DEFAULT } from './zona';
 import type { AccionAds, MetaObjetoLeido, MetricasObjeto, NivelAds } from './tipos';
 import { calcularPrevisualizacion, type ParametrosAccion, type Previsualizacion } from './previsualizacion';
 import type { ModoRenombre } from './nombres';
+import { MONEDA_REPORTE, SIMBOLO_REPORTE } from '@/lib/moneda-reporte';
 
 export type ObjetoPreflight = {
   objectId: string;
@@ -515,7 +516,7 @@ const dosDecimales = new Intl.NumberFormat('es-AR', {
   minimumFractionDigits: 2,
   maximumFractionDigits: 2,
 });
-const eur = (n: number): string => `€${dosDecimales.format(n)}`;
+const eur = (n: number): string => `${SIMBOLO_REPORTE}${dosDecimales.format(n)}`;
 
 // ─── Topes de settings (la ÚNICA fuente, R17 c7) ─────────────────────────────
 
@@ -1158,7 +1159,7 @@ export async function preflight(d: {
           },
         };
       }
-      if (o.currency !== 'EUR') {
+      if (o.currency !== MONEDA_REPORTE) {
         return {
           ok: false,
           error: {

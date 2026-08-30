@@ -25,6 +25,7 @@ import { correrRegla } from '@/lib/ads/reglas/ejecutor';
 import { motivoIncoherente } from '@/lib/ads/reglas/coherencia';
 import { interruptores, reglaPorId } from '@/lib/ads/reglas/repo';
 import { listarReglas } from '@/app/(panel)/anuncios/reglas/_server';
+import { MONEDA_REPORTE, SIMBOLO_REPORTE } from '@/lib/moneda-reporte';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -120,7 +121,7 @@ const reglaSchema = z
         });
       }
       if (!d.actionUnit) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Falta la unidad del valor (% o €)', path: ['actionUnit'] });
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: `Falta la unidad del valor (% o ${SIMBOLO_REPORTE})`, path: ['actionUnit'] });
       }
       if (d.action === 'budget_increase' && d.budgetMax == null) {
         ctx.addIssue({

@@ -21,6 +21,7 @@
 
 import type { MetricasObjeto } from '@/lib/ads/tipos';
 import { Badge, fmtInt, fmtMoney } from '@/components/ui';
+import { MONEDA_REPORTE } from '@/lib/moneda-reporte';
 
 // Estados que Meta muestra pero que no se pueden escribir: no son toggleables.
 const NO_TOGGLEABLE = new Set(['ARCHIVED', 'DELETED', 'DISAPPROVED', 'WITH_ISSUES', 'PENDING_REVIEW', 'IN_PROCESS']);
@@ -40,7 +41,7 @@ export function etiquetaEffective(s: string): string {
 }
 
 function money(n: number): string {
-  return fmtMoney(n, 'EUR');
+  return fmtMoney(n, MONEDA_REPORTE);
 }
 
 // ─── Marca_Frescura de una fila (task 8, R3.1 y R3.3) ───────────────────────

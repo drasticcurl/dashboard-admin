@@ -24,6 +24,7 @@
 
 import { q } from '../lib/db';
 import { MetaAdsError, setStatus, verificarPermisos } from '../lib/ads/meta';
+import { MONEDA_REPORTE, SIMBOLO_REPORTE } from '../lib/moneda-reporte';
 
 function token(): string {
   const t = process.env.META_ADS_TOKEN;
@@ -66,7 +67,8 @@ async function main(): Promise<void> {
   );
   for (const c of cuentas) {
     const avisos: string[] = [];
-    if (c.currency !== 'EUR') avisos.push(`moneda ${c.currency ?? 'NULL'} ≠ EUR (no se procesa)`);
+    if (c.currency !== MONEDA_REPORTE)
+      avisos.push(`moneda ${c.currency ?? 'NULL'} ≠ ${MONEDA_REPORTE} (no se procesa)`);
     if (c.timezone === null) avisos.push('timezone NULL (las métricas agrupan mal el día)');
     console.log(
       `cuenta ${c.account_id}: ${c.currency ?? '?'} / ${c.timezone ?? 'sin zona'}${avisos.length ? `  ⚠ ${avisos.join(' · ')}` : ''}`,

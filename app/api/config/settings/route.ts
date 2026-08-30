@@ -12,13 +12,18 @@
 import { NextRequest } from 'next/server';
 import { z } from 'zod';
 import { getSettingsRecord, guard, json, parseJson, setSetting } from '../_lib';
+import { MONEDA_REPORTE } from '@/lib/moneda-reporte';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const patchSchema = z.object({
   fxSource: z.enum(['oficial', 'blue']).optional(),
-  defaultCurrencyView: z.enum(['EUR', 'ARS']).optional(),
+  // Acepta la moneda de reporte de ESTA instancia o 'ARS' (que significa
+  // "mostrar la moneda de venta del funnel"). Antes era un enum fijo
+  // ['EUR','ARS'], que en una instancia que consolida en dólares rechazaba el
+  // único valor válido.
+  defaultCurrencyView: z.enum([MONEDA_REPORTE, 'ARS']).optional(),
   retentionDaysEvents: z.number().int().min(1).max(3650).optional(),
 });
 

@@ -26,6 +26,7 @@
  */
 
 import { q, q1 } from '@/lib/db';
+import { MONEDA_REPORTE } from '@/lib/moneda-reporte';
 
 /** El valor especial de `?f=` para el cajón de ventas sin funnel (T07 §3). */
 export const UNATTRIBUTED_FUNNEL = '__unattributed__';
@@ -317,12 +318,16 @@ const DAY_SQL = `
 // Se convierte a la moneda del funnel dividiendo el importe en euros por la
 // cotización de ese día (`fx_rates` guarda 1 unidad de base en euros). Si no hay
 // cotización del día exacto se toma la más reciente anterior, igual que `toEur`.
+// $5 es la moneda de reporte: entra como parámetro y no literal para que una
+// instancia que consolida en dólares no compare contra filas de fx_rates que
+// nadie escribe (el fetcher archiva el par ARS→moneda de reporte, ver
+// lib/fx-fetch.ts:saveRate).
 const AD_SPEND_SQL = `
   SELECT COALESCE(sum(
-           CASE WHEN $4 = 'EUR' THEN spend_eur
+           CASE WHEN $4 = $5 THEN spend_eur
                 ELSE spend_eur / NULLIF((
                        SELECT fr.rate FROM fx_rates fr
-                       WHERE fr.base = $4 AND fr.quote = 'EUR' AND fr.day <= ad_spend.day
+                       WHERE fr.base = $4 AND fr.quote = $5 AND fr.day <= ad_spend.day
                        ORDER BY fr.day DESC LIMIT 1), 0)
            END), 0) AS "adSpendOrig",
          COALESCE(sum(spend_eur), 0) AS "adSpendEur"
@@ -336,10 +341,10 @@ const AD_SPEND_SQL = `
 const CAMPAIGN_SPEND_SQL = `
   SELECT campaign_id AS id,
          COALESCE(sum(
-           CASE WHEN $4 = 'EUR' THEN spend_eur
+           CASE WHEN $4 = $5 THEN spend_eur
                 ELSE spend_eur / NULLIF((
                        SELECT fr.rate FROM fx_rates fr
-                       WHERE fr.base = $4 AND fr.quote = 'EUR' AND fr.day <= ad_spend.day
+                       WHERE fr.base = $4 AND fr.quote = $5 AND fr.day <= ad_spend.day
                        ORDER BY fr.day DESC LIMIT 1), 0)
            END), 0) AS "spendOrig",
          COALESCE(sum(spend_eur), 0) AS "spendEur"
@@ -473,8 +478,9 @@ export async function getSalesData(f: SalesFilters): Promise<SalesData> {
 
   // El gasto usa (funnelId, from, to) en ese orden: es su propio WHERE, no el de
   // orders, porque ad_spend no comparte los filtros de tier ni de status.
-  // La moneda del funnel va como 4º parámetro: es el destino de la conversión.
-  const spendParams = [f.funnelId, f.from, f.to, currency];
+  // La moneda del funnel va como 4º parámetro (destino de la conversión) y la
+  // moneda de reporte como 5º (origen: es la unidad en la que está spend_eur).
+  const spendParams = [f.funnelId, f.from, f.to, currency, MONEDA_REPORTE];
   const [
     totalsRow, tierRows, campaignRows, sourceRows, dayRows, recentRows, unattRow,
     spendRow, campaignSpendRows,
@@ -681,12 +687,22 @@ export function realAov(byTier: TierRow[], net: number): number {
 
 // ─── Ajustes de la sección ──────────────────────────────────────────────────
 
-/** Moneda por defecto del toggle EUR/ARS, de settings (plan §3.10). */
-export async function getDefaultCurrencyView(): Promise<'EUR' | 'ARS'> {
+/**
+ * Moneda por defecto del toggle, de settings (plan §3.10).
+ *
+ * El toggle elige entre la moneda de REPORTE y la moneda de VENTA del funnel.
+ * Antes devolvía `'EUR' | 'ARS'` literales; ahora la primera sale de
+ * MONEDA_REPORTE, porque en una instancia que consolida en dólares el valor
+ * 'EUR' guardado en settings no significa nada.
+ *
+ * 'ARS' se sigue aceptando tal cual por compatibilidad con las filas ya
+ * guardadas: significa "mostrar la moneda de venta", que es lo que era.
+ */
+export async function getDefaultCurrencyView(): Promise<string> {
   const row = await q1<{ value: unknown }>(
     `SELECT value FROM settings WHERE key = 'default_currency_view'`,
   );
-  return row?.value === 'ARS' ? 'ARS' : 'EUR';
+  return row?.value === 'ARS' ? 'ARS' : MONEDA_REPORTE;
 }
 
 /** TZ del dashboard para el cajón sin atribuir (D19): no hay funnel que la defina. */

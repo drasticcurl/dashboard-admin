@@ -7,6 +7,7 @@ import { Bar, BarChart, CartesianGrid, ResponsiveContainer, XAxis, YAxis } from 
 import { panelColors } from '@/tailwind.config';
 import { fmtAxis, fmtMoney } from '@/components/ui';
 import type { WidgetCatalogo } from './tipos';
+import { MONEDA_REPORTE } from '@/lib/moneda-reporte';
 
 /** Los datos que T03 le pasa al WidgetGrid para probar el runtime. */
 export type DemoData = Record<string, unknown>;
@@ -33,7 +34,7 @@ export const catalogoDemo: WidgetCatalogo<DemoData> = {
       { w: 2, h: 1 },
     ],
     render: (_data, size) => {
-      const value = fmtMoney(1024.5, 'EUR');
+      const value = fmtMoney(1024.5, MONEDA_REPORTE);
       if (size.w === 2) {
         return (
           <div>
@@ -76,7 +77,7 @@ export const catalogoDemo: WidgetCatalogo<DemoData> = {
           <li key={d.day} className="flex items-center justify-between gap-4 text-sm">
             <span className="text-neutral-400">{d.day}</span>
             <span className="font-mono tabular-nums text-neutral-200">
-              {fmtMoney(d.net, 'EUR')}
+              {fmtMoney(d.net, MONEDA_REPORTE)}
             </span>
           </li>
         ))}

@@ -30,6 +30,7 @@ import { q, tx } from '../db';
 import { fetchAds, fetchAdSets, fetchCampaigns, fetchCuenta, fetchDsaConjuntos, MetaAdsError } from './meta';
 import { cuentasActivas, type CuentaSync } from './sync';
 import type { DsaConjunto, MetaAd, MetaAdSet, MetaCampaign } from './tipos';
+import { MONEDA_REPORTE, SIMBOLO_REPORTE } from '@/lib/moneda-reporte';
 
 export type ResultadoNivel = { traidos: number; guardados: number; huerfanos: number };
 
@@ -356,12 +357,12 @@ async function sincronizarCuenta(
   // refrescarse. Es el lado barato del error: esas filas conservan su propio
   // `synced_at`, que es el dato por fila con el que la tabla las marca como
   // viejas (T8), así que la condición sigue siendo visible donde importa.
-  if (cuenta.currency != null && cuenta.currency !== 'EUR') {
+  if (cuenta.currency != null && cuenta.currency !== MONEDA_REPORTE) {
     r.monedaNoSoportada = cuenta.currency;
     return;
   }
   const meta = await fetchCuenta(cuenta.accountId);
-  if (meta.currency !== 'EUR') {
+  if (meta.currency !== MONEDA_REPORTE) {
     r.monedaNoSoportada = meta.currency ?? 'desconocida';
     return;
   }

@@ -15,6 +15,7 @@ import type {
 } from '@/app/api/config/_lib';
 import { Badge, Card, StatCard, Table, fmtDateTime, fmtInt } from '@/components/ui';
 import { inputCls, type ConfigShell } from '../kit';
+import { MONEDA_REPORTE, SIMBOLO_REPORTE } from '@/lib/moneda-reporte';
 
 const STATUS_TONE: Record<string, 'neutral' | 'good' | 'warn' | 'bad' | 'info'> = {
   ok: 'good',
@@ -63,7 +64,7 @@ export function SaludSection({
         <StatCard label="Último rollup" value={system.lastRollupAt ? fmtDateTime(system.lastRollupAt) : '—'} sub="daily_metrics" />
         <StatCard
           label="Última cotización"
-          value={system.lastFx ? `${fmtInt(Math.round(system.lastFx.arsPerEuro))} $/€` : '—'}
+          value={system.lastFx ? `${fmtInt(Math.round(system.lastFx.arsPerEuro))} $/${SIMBOLO_REPORTE}` : '—'}
           sub={system.lastFx ? `${system.lastFx.day} · ${system.lastFx.source}` : undefined}
         />
         <StatCard label="Particiones de events" value={fmtInt(system.partitions)} sub="incluye events_default" />

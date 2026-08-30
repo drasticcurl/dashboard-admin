@@ -42,6 +42,7 @@ import { panelColors } from '@/tailwind.config';
 import { Card, ChartFrame, EmptyState, fmtAxis, fmtMoney } from '@/components/ui';
 import type { PuntoDiario, PuntoMensual } from '@/lib/queries/saldo';
 import { etiquetaDia, etiquetaMes, offsetDelCero, textoSinDato } from './serie';
+import { MONEDA_REPORTE } from '@/lib/moneda-reporte';
 
 type Vista = 'diario' | 'mensual';
 
@@ -59,7 +60,7 @@ type Fila =
 
 /**
  * El tooltip propio. El `ChartTip` compartido de `components/ui.tsx` formatea
- * con `fmtInt` y esto es plata, así que va `fmtMoney(v, 'EUR')`.
+ * con `fmtInt` y esto es plata, así que va `fmtMoney(v, MONEDA_REPORTE)`.
  *
  * `ChartFrame` inyecta el tooltip compartido sólo si el chart no trae uno
  * (`injectSharedTooltip`, vía `cloneElement`): como acá se pasa este, no lo pisa.
@@ -97,7 +98,7 @@ function SaldoTooltip({
           ) : (
             <p className="font-mono tabular-nums text-neutral-100">
               <span className="mr-1.5 font-sans text-neutral-400">Patrimonio</span>
-              {fmtMoney(fila.punto.totalEur, 'EUR')}
+              {fmtMoney(fila.punto.totalEur, MONEDA_REPORTE)}
             </p>
           )}
         </>
@@ -116,14 +117,14 @@ function SaldoTooltip({
             <>
               <p className="font-mono tabular-nums text-neutral-100">
                 <span className="mr-1.5 font-sans text-neutral-400">Ganancia</span>
-                {fmtMoney(fila.punto.gananciaEur, 'EUR')}
+                {fmtMoney(fila.punto.gananciaEur, MONEDA_REPORTE)}
               </p>
               {/* De dónde sale ese número. Es la fila que evita la pregunta
                   "¿por qué dice 700 si el patrimonio subió 3.500?" (D7). */}
               {fila.punto.cierreEur !== null && (
                 <p className="mt-1 font-mono tabular-nums text-neutral-400">
                   <span className="mr-1.5 font-sans">Cierre</span>
-                  {fmtMoney(fila.punto.cierreEur, 'EUR')}
+                  {fmtMoney(fila.punto.cierreEur, MONEDA_REPORTE)}
                   {fila.punto.diaCierre !== null && (
                     <span className="ml-1 font-sans text-neutral-500">
                       (el {etiquetaDia(fila.punto.diaCierre)})
@@ -134,14 +135,14 @@ function SaldoTooltip({
               {fila.punto.retirosEur !== 0 && (
                 <p className="font-mono tabular-nums text-neutral-400">
                   <span className="mr-1.5 font-sans">Retiros</span>
-                  {fmtMoney(fila.punto.retirosEur, 'EUR')}
+                  {fmtMoney(fila.punto.retirosEur, MONEDA_REPORTE)}
                   <span className="ml-1 font-sans text-neutral-500">(no son pérdida)</span>
                 </p>
               )}
               {fila.punto.aportesEur !== 0 && (
                 <p className="font-mono tabular-nums text-neutral-400">
                   <span className="mr-1.5 font-sans">Aportes</span>
-                  {fmtMoney(fila.punto.aportesEur, 'EUR')}
+                  {fmtMoney(fila.punto.aportesEur, MONEDA_REPORTE)}
                   <span className="ml-1 font-sans text-neutral-500">(no son ganancia)</span>
                 </p>
               )}

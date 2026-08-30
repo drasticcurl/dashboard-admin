@@ -28,6 +28,7 @@ import { guard, json } from '@/app/api/config/_lib';
 import { interruptores } from '@/lib/ads/reglas/repo';
 import { listarReglas } from '@/app/(panel)/anuncios/reglas/_server';
 import { avisosDeExport, exportarCsvUtmify, importarCsvUtmify } from '@/lib/ads/reglas/utmify';
+import { MONEDA_REPORTE, SIMBOLO_REPORTE } from '@/lib/moneda-reporte';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -244,7 +245,7 @@ export async function POST(req: NextRequest): Promise<Response> {
   const sobreTecho = reglas.filter((r) => r.budgetMax != null && r.budgetMax > sw.maxDailyBudgetEur);
   if (sobreTecho.length > 0) {
     extra.push(
-      `${sobreTecho.length} regla(s) tienen un techo por encima del máximo absoluto por objeto (€${sw.maxDailyBudgetEur}): las subidas se van a cortar siempre en ese tope. Se cambia en Config → Publicidad.`,
+      `${sobreTecho.length} regla(s) tienen un techo por encima del máximo absoluto por objeto (${SIMBOLO_REPORTE}${sw.maxDailyBudgetEur}): las subidas se van a cortar siempre en ese tope. Se cambia en Config → Publicidad.`,
     );
   }
 

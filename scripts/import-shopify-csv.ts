@@ -38,7 +38,7 @@ import { q, tx } from '../lib/db';
 import { listFunnels } from '../lib/funnels';
 import { applyCommissions, rulesForFunnel, type CommissionRule } from '../lib/commissions';
 import { applyCosts, costsForShop, type ProductCost } from '../lib/costs';
-import { toEur } from '../lib/fx';
+import { toReportCurrency } from '../lib/fx';
 
 // ─── CSV ────────────────────────────────────────────────────────────────────
 /**
@@ -283,7 +283,7 @@ async function main(): Promise<void> {
     );
     const day = dayRow[0]!.day;
 
-    const fx = await toEur(o.amount, o.currency, day);
+    const fx = await toReportCurrency(o.amount, o.currency, day);
     if (!fx || fx.stale) sinFx++;
 
     const com = applyCommissions({
