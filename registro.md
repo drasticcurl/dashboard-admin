@@ -10,6 +10,106 @@ Lo más nuevo va arriba. Las reglas de cómo se escribe una entrada están en
 
 ---
 
+## 2026-09-02 — Una cuenta sin gasto se quedaba con el error de sync pegado para siempre
+
+Sin commitear todavía. Toca `lib/ads/sync.ts` y `lib/ads/sync.creativo.test.ts`.
+
+**Qué pasaba.** El panel mostraba «gasto sync con error — TypeError: fetch failed»
+mientras al lado decía que la jerarquía estaba al día. El error era de la cuenta
+`act_2120381458824082` («Protocolo reset»), con `last_sync_at` congelado en
+**2026-09-01 14:27:38**: casi 10 horas antes, aunque el cron de gasto corre cada
+hora y la otra cuenta estaba sincronizada hacía 0 minutos.
+
+La clave está en esta línea de `syncAdSpend`:
+
+```ts
+if (dryRun || relevantes.length === 0) continue;
+```
+
+El `UPDATE ad_accounts SET last_sync_at = now(), last_sync_error = NULL` vive al
+final del `tx` que escribe las filas, o sea **después** de ese `continue`. Una
+cuenta que devuelve cero filas relevantes se va de la iteración sin marcar la
+corrida, así que:
+
+1. El 2026-09-01 a las 14:27 hubo un `TypeError: fetch failed` genuino y
+   transitorio (error de red de undici). El `catch` escribió el error y la fecha.
+2. Esa cuenta no tiene gasto desde el **2026-08-26** (0 filas en `ad_spend` de
+   ayer u hoy, 32 filas históricas). Todas las corridas siguientes anduvieron
+   bien y devolvieron cero filas.
+3. Con cero filas nunca se limpió el error ni avanzó el reloj. El panel mostró
+   un fallo de 10 horas atrás para un sync que funcionaba.
+
+**Y no era sólo cosmético.** Las dos puertas de frescura del módulo miran
+`min(last_sync_at)` de todas las cuentas activas —`live.ts:93` y `refrescarGasto`
+en `run-ad-rules.ts:308`— y eso es deliberado: con `max` un fallo se vería como un
+dato fresco. Pero con una cuenta clavada en el pasado ese mínimo nunca sube. Medido
+en producción: el worker veía una edad de **35 491 segundos contra un TTL de 55**,
+así que el TTL de insights estaba permanentemente vencido y **cada carga de pantalla
+del panel disparaba un `syncAdSpend` completo contra Meta**.
+
+**Por qué se resolvió así.**
+
+**Cero filas es una corrida exitosa y se marca como tal.** Se separó el `continue`
+del `dryRun` del de las filas, y el caso de cero filas ahora hace su propio
+`UPDATE` (sin transacción: no hay nada que escribir junto).
+
+**El `dryRun` sigue sin tocar el reloj**, y hay un test de esa mitad: una corrida
+que no sincronizó nada no puede afirmar que la cuenta está fresca. Meterlos en el
+mismo `if` fue justamente el origen del bug.
+
+**No se tocó `min(last_sync_at)`.** La tentación era pasarlo a `max`, y sería peor:
+el comentario de `live.ts:92` explica que con `max` un fallo de una cuenta se
+esconde detrás del éxito de la otra. El mínimo está bien; lo que estaba mal era que
+una cuenta no actualizara su fila.
+
+**La jerarquía ya tenía esto resuelto** y sirvió de modelo: `anotarCorrida` se
+llama en un punto donde convergen todos los desenlaces, y por eso
+`last_hierarchy_sync_at` sí estaba al día. Era la asimetría que el usuario vio
+desde el panel sin saber que era una asimetría.
+
+**Lo que se decidió NO hacer:** no se limpió el error a mano en producción. Con el
+arreglo deployado, la primera corrida de esa cuenta lo limpia sola; un `UPDATE`
+manual taparía el síntoma sin dejar registro de que el arreglo funcionó.
+
+**Qué se verificó.** El test nuevo falla sin el arreglo con exactamente el mensaje
+que se veía en pantalla: `expected 'TypeError: fetch failed' to be null`. Con el
+arreglo, los 6 de `sync.creativo.test.ts` pasan. `tsc --noEmit` limpio y 162 tests
+de `lib/ads` + `lib/queries/ads.filtros` en verde. **Sin verificar:** que el panel
+deje de mostrar el error, porque eso pasa recién después de deployar y de la
+primera corrida de esa cuenta.
+
+---
+
+## 2026-09-02 — Nota: el aviso de «revisar N importes» es un falso positivo esperado
+
+Sin cambios de código. Se registra porque la pregunta va a volver.
+
+El usuario preguntó por qué casi todas sus reglas muestran «revisar 1/2/3 importes
+en acción y condición». Es `sospechasDeRegla` (`lib/ads/reglas/sospecha.ts`),
+el detector del bug viejo de parseo donde `numeroDeTexto` leía `"1.000"` como `1`.
+Marca **todo importe en EUR entre 0 y 100**, porque cualquiera de esos pudo haber
+sido un número mil veces más grande, y el propio módulo declara que sus falsos
+positivos son esperados y no se filtran.
+
+Toda la operación de esta cuenta vive entre €4 y €100, o sea exactamente dentro de
+la ventana del detector. De ahí que salte en casi todas.
+
+**Se verificó que el caso peligroso NO existe en estas reglas**, y es el único de
+esta familia que hace daño: un `budget_decrease` con `action_unit = 'percent'`
+donde un `1.500` que quería decir 150% queda guardado como 1,5 y significa «bajá el
+presupuesto al 1,5% del actual». El CHECK `ad_rules_percent_direccion` no lo atrapa
+porque para bajar exige `< 100`. En producción los 5 porcentajes son todos
+`budget_increase` con `action_value = 200`, y el reseteo usa importe fijo.
+
+Si en algún momento molesta, la opción menos mala es filtrar por fecha: el parseo
+ya está arreglado, así que una regla creada o editada después del arreglo no puede
+tener valores corrompidos, y eso silenciaría las nuevas sin perder la detección en
+las viejas. Bajar `UMBRAL_BAJO_EUR` de 100 a 10 también reduce el ruido, pero pierde
+la familia de cinco dígitos (`25.000` → 25), que es justo la que este panel podría
+tener.
+
+---
+
 ## 2026-09-01 — Dos bugs del motor de reglas: la escalera clavada en €100 y el bucle de pausas
 
 Commit `c1e73bb`. Deployado a hilvanapp el 2026-09-02 00:00 (release

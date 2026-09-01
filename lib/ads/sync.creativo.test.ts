@@ -236,3 +236,92 @@ describe.skipIf(!dbAvailable)('sync de creativo — ejemplos (R7 c11, c13, c15)'
     }
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// El error pegajoso de una cuenta sin gasto (2026-09-02)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// El UPDATE de `last_sync_at` / `last_sync_error` vive al final del `tx` que
+// escribe las filas, y antes había un `continue` que se iba de la iteración
+// cuando la cuenta devolvía cero filas relevantes. Resultado: una cuenta sin
+// gasto quedaba congelada en el último instante en que tuvo filas o falló, y un
+// error viejo no se limpiaba nunca.
+//
+// Se vio en producción con la cuenta «Protocolo reset», sin gasto desde el
+// 2026-08-26: un `TypeError: fetch failed` transitorio del 2026-09-01 a las
+// 14:27 seguía en pantalla 10 horas después, con `min(last_sync_at)` clavado en
+// el pasado — y ese mínimo es la puerta de frescura de `live.ts` y del worker,
+// así que el TTL de insights quedaba vencido para siempre.
+describe.skipIf(!dbAvailable)('una corrida sin filas es exitosa igual', () => {
+  const SIN_GASTO = `P9-CERO-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+
+  afterAll(async () => {
+    if (!dbAvailable) return;
+    await q('DELETE FROM ad_spend WHERE account_id = $1', [SIN_GASTO]);
+    await q('DELETE FROM ad_accounts WHERE account_id = $1', [SIN_GASTO]);
+  });
+
+  it('cero filas limpia el last_sync_error viejo y adelanta last_sync_at', async () => {
+    // La cuenta arranca como quedó en producción: con un error viejo y el reloj
+    // detenido hace dos horas.
+    await q(
+      `INSERT INTO ad_accounts (account_id, platform, name, currency, timezone, active,
+                                last_sync_at, last_sync_error)
+       VALUES ($1, 'meta', 'sin gasto', 'EUR', 'Europe/Lisbon', true,
+               now() - interval '2 hours', 'TypeError: fetch failed')`,
+      [SIN_GASTO],
+    );
+
+    // Meta responde OK pero sin nada relevante: la cuenta no gastó.
+    mockFetch.mockResolvedValue([]);
+
+    const r = await syncAdSpend({
+      from: DESDE,
+      to: HASTA,
+      cuentas: [{ accountId: SIN_GASTO, funnelId: null, currency: 'EUR', name: 'sin gasto' }],
+    });
+
+    // Para el resultado es una corrida sana, no un fallo.
+    expect(r.cuentas[0]!.error).toBeNull();
+    expect(r.cuentas[0]!.filas).toBe(0);
+
+    const fila = await q<{ last_sync_error: string | null; edad_seg: number }>(
+      `SELECT last_sync_error,
+              extract(epoch FROM (now() - last_sync_at))::int AS edad_seg
+         FROM ad_accounts WHERE account_id = $1`,
+      [SIN_GASTO],
+    );
+    // El error viejo se fue...
+    expect(fila[0]!.last_sync_error).toBeNull();
+    // ...y el reloj avanzó: sin esto `min(last_sync_at)` deja el TTL vencido.
+    expect(Number(fila[0]!.edad_seg)).toBeLessThan(60);
+  });
+
+  it('un dry-run con cero filas NO toca el reloj ni el error', async () => {
+    // La otra mitad: una corrida que no sincronizó nada no puede afirmar que la
+    // cuenta está fresca.
+    await q(
+      `UPDATE ad_accounts SET last_sync_at = now() - interval '2 hours',
+                              last_sync_error = 'error previo'
+        WHERE account_id = $1`,
+      [SIN_GASTO],
+    );
+    mockFetch.mockResolvedValue([]);
+
+    await syncAdSpend({
+      from: DESDE,
+      to: HASTA,
+      dryRun: true,
+      cuentas: [{ accountId: SIN_GASTO, funnelId: null, currency: 'EUR', name: 'sin gasto' }],
+    });
+
+    const fila = await q<{ last_sync_error: string | null; edad_seg: number }>(
+      `SELECT last_sync_error,
+              extract(epoch FROM (now() - last_sync_at))::int AS edad_seg
+         FROM ad_accounts WHERE account_id = $1`,
+      [SIN_GASTO],
+    );
+    expect(fila[0]!.last_sync_error).toBe('error previo');
+    expect(Number(fila[0]!.edad_seg)).toBeGreaterThan(3000);
+  });
+});

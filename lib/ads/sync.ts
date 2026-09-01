@@ -183,7 +183,41 @@ export async function syncAdSpend(opts: {
       });
       out.filas += relevantes.length;
 
-      if (dryRun || relevantes.length === 0) continue;
+      if (dryRun) continue;
+
+      // ┌───────────────────────────────────────────────────────────────────────┐
+      // │ CERO FILAS ES UNA CORRIDA EXITOSA Y SE MARCA COMO TAL.                │
+      // └───────────────────────────────────────────────────────────────────────┘
+      // Hasta el 2026-09-02 este `continue` estaba pegado al de `dryRun`, así que
+      // una cuenta sin gasto se iba de la iteración ANTES del UPDATE de
+      // `last_sync_at` / `last_sync_error` que está al final del `tx` de abajo.
+      // Consecuencia: la cuenta quedaba congelada en el último instante en que
+      // tuvo filas o falló, y un `last_sync_error` viejo NO SE LIMPIABA NUNCA.
+      //
+      // Lo que se veía en producción: la cuenta «Protocolo reset», sin gasto
+      // desde el 2026-08-26, tuvo un `TypeError: fetch failed` transitorio a las
+      // 14:27:38 del 2026-09-01. Las corridas siguientes anduvieron perfecto y
+      // devolvieron cero filas, así que el panel siguió mostrando ese error 10
+      // horas después, con una frescura de 10 horas para un sync que estaba
+      // corriendo cada hora sin problemas.
+      //
+      // Y el daño no era sólo cosmético: las dos puertas de frescura del módulo
+      // (`live.ts` y `refrescarGasto` en `run-ad-rules.ts`) miran
+      // `min(last_sync_at)` de TODAS las cuentas activas, a propósito, para que un
+      // fallo no se vea como un dato fresco. Con una cuenta clavada en el pasado
+      // ese mínimo nunca sube, el TTL de insights queda permanentemente vencido y
+      // cada carga del panel dispara un `syncAdSpend` completo contra Meta.
+      //
+      // La jerarquía ya tenía esto bien: `anotarCorrida` se llama en un punto
+      // donde convergen TODOS los desenlaces, y por eso
+      // `last_hierarchy_sync_at` sí estaba al día. Esto lo alinea.
+      if (relevantes.length === 0) {
+        await q(
+          `UPDATE ad_accounts SET last_sync_at = now(), last_sync_error = NULL WHERE account_id = $1`,
+          [c.accountId],
+        );
+        continue;
+      }
 
       // La cotización se resuelve por día, una vez por día y no por fila.
       const rates = new Map<string, number | null>();
