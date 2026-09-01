@@ -12,7 +12,9 @@ Lo más nuevo va arriba. Las reglas de cómo se escribe una entrada están en
 
 ## 2026-09-01 — Dos bugs del motor de reglas: la escalera clavada en €100 y el bucle de pausas
 
-Sin commitear todavía. Toca `lib/ads/reglas/repo.ts`, `lib/ads/reglas/motor.ts`,
+Commit `c1e73bb`. Deployado a hilvanapp el 2026-09-02 00:00 (release
+`20260901234928`); la anterior era `20260829120140`. Toca
+`lib/ads/reglas/repo.ts`, `lib/ads/reglas/motor.ts`,
 `lib/ads/reglas/explicacion.ts`, `lib/ads/reglas/utmify.ts`, `lib/ads/tipos.ts`,
 `lib/queries/ads.ts`, cinco archivos de test, y agrega
 `docs/reglas-escalera-2026-09-01.csv`.
@@ -267,12 +269,47 @@ bloquearla sería inventar un freno que nadie pidió. Hay un test de eso.
   `finance.test.ts` («Hook timed out in 10000ms») que pasa sola dos veces al
   correrla aislada y no toca nada de lo cambiado. `tsc --noEmit` limpio,
   `npm run build` OK.
-- **Sin verificar:** que la escalera suba de verdad en Meta y que el bucle no
-  vuelva. Lo primero depende de subir los dos `settings` y de que el conjunto
-  gaste la mitad de su presupuesto con el ROI pedido; lo segundo se confirma
-  mirando que `ad_actions` deje de acumular pausas con `before_value` en NULL
-  después del deploy. El diagnóstico salió de consultas de **LECTURA** sobre la
-  base de producción; no se escribió nada ahí.
+**Qué pasó en el deploy (2026-09-02 00:00).**
+
+Deploy limpio: 1470 tests en el server, 0 migraciones nuevas, `verificar-token-ads`
+OK, `panel-3005` y `panel-reglas` recargados, health check 200.
+
+Y se subieron los dos topes en `settings`, con el OK del usuario:
+`ads_max_daily_budget_eur` **200 → 900** y `ads_max_delta_por_tick_eur`
+**300 → 800**. Los 900 dejan margen sobre el peldaño de €800; los 800 del delta
+son porque el salto €400→€800 son €400 de una sola vez y con 300 se rechazaba
+todos los ticks. Se verificó que `jsonb_typeof(value) = 'number'` en los dos:
+`repo.interruptores()` exige `typeof v === 'number'` y con cualquier otra cosa cae
+al default **0**, que deja al módulo sin poder subir nada.
+
+**La prueba del bug 2 sobre datos reales.** Se reprodujeron las dos versiones del
+anti-join en SQL contra la cuenta de HIlvanapp, preguntando "activos": de **30
+conjuntos con gasto en la ventana, el anti-join viejo reinyectaba los 30** con
+`status = NULL`; el nuevo reinyecta **0**. Los 30 estaban PAUSADOS y con fila
+vigente en la jerarquía.
+
+**El tamaño real del bucle, que era peor de lo estimado:** **2746 pausas
+confirmadas con `before_value` en NULL sobre 90 conjuntos desde el 2026-08-20**, la
+última a las 23:53:21, cuatro minutos antes del deploy. En las 24 h previas fueron
+349 de 354 pausas, o sea el **98,6 %** de lo que hacía el apagador. Cada una era un
+POST a Meta que no cambiaba nada.
+
+- **Sin verificar todavía, y por qué no se puede esta noche:** que el bucle no
+  vuelva. El deploy cayó justo con el cambio de día en `Europe/Lisbon`, así que el
+  gasto de "hoy" volvió a cero y las reglas de apagar piden `gasto > €4,50`: esta
+  noche no se reproduce ni con el bug ni sin él. La primera corrida después del
+  deploy es consistente («Apagar - Gasto +$4 sin ventas»: 125 objetos evaluados, 0
+  que cumplen, 0 acciones) pero **no es concluyente por sí sola**. Lo concluyente
+  es la comparación de anti-joins de arriba, más los tests. La confirmación en
+  vivo es mañana: que `ad_actions` no acumule pausas con `before_value` en NULL
+  cuando los conjuntos vuelvan a gastar.
+- **Sin verificar:** que la escalera suba de verdad en Meta. Depende de que un
+  conjunto gaste la mitad de su presupuesto con el ROI pedido, y de que el usuario
+  importe el CSV nuevo — hasta entonces siguen corriendo las reglas viejas (24
+  filas, 9 prendidas), cuyos techos son 25/50/100/200, así que el techo absoluto
+  en 900 no les habilita nada que no pudieran hacer antes.
+- El diagnóstico salió de consultas de **LECTURA** sobre la base de producción. Lo
+  único que se escribió ahí fueron los dos `UPDATE settings` de más arriba.
 
 ---
 
