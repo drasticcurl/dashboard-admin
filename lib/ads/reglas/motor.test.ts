@@ -140,6 +140,58 @@ describe('evaluar — condiciones (AND, null, operadores)', () => {
   });
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Paso 2 con el estado en NULL: el bucle de pausas del 2026-09-01
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// `status` en null no es un hueco defensivo: el Lector lo emite cuando el objeto
+// tiene gasto pero no una fila vigente en la jerarquía. Antes de este freno,
+// `null !== 'PAUSED'` pasaba de largo el chequeo de `ya_esta_en_ese_estado` y una
+// regla de pausar volvía a pausar lo ya pausado una vez por tick: 23 a 57 pausas
+// diarias sobre los mismos 15 conjuntos, todas confirmadas por Meta (pausar algo
+// pausado es un no-op que la API acepta) y todas con `before_value` en NULL.
+describe('evaluar — estado desconocido (status null)', () => {
+  it('pausar con status null NO actúa: estado_desconocido', () => {
+    const d = evaluar(regla({ action: 'pause' }), [], fila({ status: null }), ctx());
+    expect(d.cumple).toBe(true);
+    expect(d.aplicar).toBe(false);
+    expect(d.motivo).toBe('estado_desconocido');
+  });
+
+  it('activar con status null tampoco actúa', () => {
+    const d = evaluar(regla({ action: 'activate' }), [], fila({ status: null }), ctx());
+    expect(d.aplicar).toBe(false);
+    expect(d.motivo).toBe('estado_desconocido');
+  });
+
+  it('con el estado conocido el freno no se mete: ACTIVE se pausa y PAUSED se descarta', () => {
+    expect(evaluar(regla({ action: 'pause' }), [], fila({ status: 'ACTIVE' }), ctx()).aplicar).toBe(true);
+    expect(evaluar(regla({ action: 'pause' }), [], fila({ status: 'PAUSED' }), ctx()).motivo).toBe(
+      'ya_esta_en_ese_estado',
+    );
+  });
+
+  it('una regla de PRESUPUESTO con status null sí actúa: no depende del estado', () => {
+    // El freno es sólo para pause/activate. Una subida de presupuesto sobre un
+    // objeto cuyo estado no se conoce sigue siendo válida (y el alcance ya
+    // decidió que el objeto entra), así que bloquearla sería inventar un freno
+    // que nadie pidió.
+    const d = evaluar(
+      regla({
+        action: 'budget_increase',
+        actionValue: 200,
+        actionUnit: 'percent',
+        budgetMax: 50,
+      }),
+      [],
+      fila({ status: null, dailyBudgetEur: 25 }),
+      ctx(),
+    );
+    expect(d.aplicar).toBe(true);
+    expect(d.presupuestoDespues).toBe(5000);
+  });
+});
+
 describe('evaluar — frenos', () => {
   it('cooldown de 60 min con última acción hace 12 → cooldown; hace 61 → aplica', () => {
     const ahora = new Date('2026-08-12T12:00:00Z');

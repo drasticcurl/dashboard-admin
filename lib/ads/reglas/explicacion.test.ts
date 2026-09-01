@@ -158,6 +158,7 @@ describe('explicacion', () => {
       'zonas_horarias_mezcladas',
       'tope_absoluto',
       'resultado_indeterminado_previo',
+      'estado_desconocido',
     ];
     // Verificación de exhaustividad en tiempo de compilación: si un motivo no
     // está en la lista, `_Falta` deja de ser never y `true` no le asigna a never.

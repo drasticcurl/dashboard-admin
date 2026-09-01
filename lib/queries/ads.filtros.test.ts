@@ -129,4 +129,90 @@ describe.skipIf(!dbAvailable)('filtros de ruido (ocultarSinDatos, ocultarPadreAp
     const con = await pedir({ level: 'campaign', ocultarPadreApagado: true });
     expect(con.filas.map((f) => f.objectId).sort()).toEqual(sin.filas.map((f) => f.objectId).sort());
   });
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // El bucle de pausas del 2026-09-01
+  // ───────────────────────────────────────────────────────────────────────────
+  //
+  // `objetos` es la unión de la jerarquía con los objetos que SÓLO tienen gasto,
+  // y el anti-join decide quién entra por la segunda rama. Cuando ese anti-join
+  // apuntaba a la jerarquía YA FILTRADA por estado, un conjunto pausado con gasto
+  // salía de la primera rama y volvía a entrar por la segunda con `status` en
+  // NULL: o sea que pedir "activos" devolvía un pausado, disfrazado de "no sé".
+  //
+  // Con eso, la regla «Apagar - Gasto +$4 sin ventas» pausó los mismos 15
+  // conjuntos entre 23 y 57 veces por día, porque el chequeo de
+  // `ya_esta_en_ese_estado` compara contra 'PAUSED' y NULL no es 'PAUSED'.
+  //
+  // Los dos tests son las dos mitades del invariante y hay que leerlos juntos: el
+  // primero pide que el filtro de estado se respete, el segundo que la rama de
+  // solo-gasto siga existiendo. Arreglar uno rompiendo el otro es el error que
+  // este par previene.
+  describe('el filtro de estado y la rama de solo-gasto', () => {
+    beforeAll(async () => {
+      // 8004: PAUSADO, en la jerarquía, CON gasto. El caso del bucle.
+      await q(
+        `INSERT INTO ad_sets (adset_id, campaign_id, account_id, name, status, effective_status,
+                              currency, synced_at)
+         VALUES ('8004', '9001', $1, 'S 8004 pausado con gasto', 'PAUSED', 'PAUSED', 'EUR', now())
+         ON CONFLICT (adset_id) DO UPDATE SET status = 'PAUSED', effective_status = 'PAUSED'`,
+        [CUENTA],
+      );
+      // 8005: NO existe en ad_sets, sólo tiene gasto. Es para lo que la rama existe.
+      await q(
+        `INSERT INTO ad_spend (platform, account_id, day, level, campaign_id, campaign_name,
+                               adset_id, adset_name, ad_id, ad_name, spend, currency, spend_eur,
+                               impressions, clicks, synced_at)
+         SELECT 'meta', $1, $2::date, 'ad', '9001', 'C', u.sid, 'S', u.aid, 'A',
+                u.gasto, 'EUR', u.gasto, 10, 1, now()
+           FROM unnest($3::text[], $4::text[], $5::numeric[]) AS u(sid, aid, gasto)`,
+        [CUENTA, dia, ['8004', '8005'], ['7004', '7005'], [7.18, 3]],
+      );
+    });
+
+    it('un conjunto PAUSADO con gasto NO aparece al pedir los activos', async () => {
+      const activos = await pedir({ status: 'active' });
+      // Ni presente, ni colado con el estado en NULL por la otra rama.
+      expect(activos.filas.map((f) => f.objectId)).not.toContain('8004');
+      // Ningún objeto QUE ESTÁ EN LA JERARQUÍA se cuela con otro estado.
+      expect(activos.filas.filter((f) => f.status !== null).every((f) => f.status === 'ACTIVE')).toBe(true);
+    });
+
+    it('lo que sí se cuela con estado NULL es sólo lo que no está en la jerarquía', async () => {
+      // Y no es un agujero del filtro: la rama de solo-gasto es deliberadamente
+      // ciega al estado, porque esconder gasto por no conocer el estado es peor
+      // que mostrarlo. La consecuencia es que una regla de pausar PUEDE recibir
+      // un objeto con `status` en null incluso pidiendo "activos", y por eso el
+      // freno `estado_desconocido` de `motor.ts` es la segunda mitad del
+      // arreglo, no un adorno.
+      const activos = await pedir({ status: 'active' });
+      const sinEstado = activos.filas.filter((f) => f.status === null).map((f) => f.objectId);
+      expect(sinEstado).toEqual(['8005']);
+      const enJerarquia = await q1<{ n: string }>(
+        `SELECT count(*)::int AS n FROM ad_sets WHERE adset_id = '8005'`,
+      );
+      expect(Number(enJerarquia!.n)).toBe(0);
+    });
+
+    it('el mismo conjunto SÍ aparece al pedir los pausados, con su estado real', async () => {
+      const pausados = await pedir({ status: 'paused' });
+      const f = pausados.filas.find((x) => x.objectId === '8004');
+      expect(f).toBeDefined();
+      // Y con el estado de verdad, no en NULL: es lo que hace que el motor pueda
+      // descartarlo con 'ya_esta_en_ese_estado' en vez de volver a pausarlo.
+      expect(f!.status).toBe('PAUSED');
+      expect(f!.spendEur).toBeGreaterThan(0);
+    });
+
+    it('un objeto que SÓLO tiene gasto sigue apareciendo, con estado NULL', async () => {
+      // La razón de ser de la rama: gasto que no se puede esconder porque el
+      // objeto no está en la jerarquía. Si se borrara la rama para arreglar lo de
+      // arriba, este gasto desaparecería del panel sin que nadie se entere.
+      const todos = await pedir({ status: 'any' });
+      const f = todos.filas.find((x) => x.objectId === '8005');
+      expect(f).toBeDefined();
+      expect(f!.status).toBeNull();
+      expect(f!.spendEur).toBeGreaterThan(0);
+    });
+  });
 });

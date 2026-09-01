@@ -534,14 +534,42 @@ export async function getMetricasAds(f: FiltrosAds): Promise<ResultadoMetricas> 
   const pHasta = p(hasta);
   const pTz = p(tz);
 
-  // Filtro de estado sobre la jerarquía. La cascada NO se filtra acá: va al
-  // WHERE de `base` (ver la nota de correctitud en la cadena de CTEs).
-  const aliasStatus = level === 'campaign' ? 'c' : level === 'adset' ? 's' : 'a';
-  const statusFiltro =
+  // ┌─────────────────────────────────────────────────────────────────────────┐
+  // │ EL FILTRO DE ESTADO VA AFUERA DE LA JERARQUÍA. LEER ANTES DE MOVERLO.    │
+  // └─────────────────────────────────────────────────────────────────────────┘
+  // Se aplica sobre la columna YA PROYECTADA por `jerarquia_vigentes`, no con el
+  // alias de la tabla adentro de esa CTE, y eso no es estilo: es lo que hace que
+  // el anti-join de `objetos` signifique lo que dice.
+  //
+  // El anti-join pregunta "¿este objeto con gasto NO está en la jerarquía?". Si
+  // el filtro de estado vive adentro de la CTE que el anti-join usa como
+  // referencia, la pregunta se convierte en "¿no está entre los ACTIVOS?", y
+  // entonces TODO objeto que el filtro excluye reaparece por la rama de
+  // solo-gasto con `status = NULL`.
+  //
+  // El modo de falla que eso causó (medido en producción el 2026-09-01): la
+  // regla «Apagar - Gasto +$4 sin ventas» pausó los mismos 15 conjuntos entre 23
+  // y 57 veces por día. El ciclo era:
+  //
+  //   1. El conjunto está ACTIVE, entra por la jerarquía, la regla lo pausa.
+  //   2. `ad_sets.status` pasa a PAUSED, así que sale de la jerarquía filtrada.
+  //   3. El anti-join lo considera "no está en la jerarquía" y lo reinyecta por
+  //      la rama de gasto (sigue teniendo filas en `ad_spend` del período), con
+  //      `status = NULL`.
+  //   4. El paso 2 de `motor.ts` compara `fila.status === 'PAUSED'`: NULL no es
+  //      PAUSED, así que no descarta nada y vuelve a pausar. Para siempre.
+  //
+  // La huella que lo prueba: cada conjunto tiene exactamente UNA fila de pausa
+  // con `before_value = 'ACTIVE'` (la legítima) y entre 49 y 56 con
+  // `before_value = NULL`, y cero acciones de `activate` que pudieran explicarlo.
+  //
+  // La cascada tampoco se filtra adentro de la jerarquía, por el mismo motivo:
+  // va al WHERE de `base` (ver la nota de correctitud en la cadena de CTEs).
+  const filtroEstado =
     f.status === 'active'
-      ? ` AND ${aliasStatus}.status = 'ACTIVE'`
+      ? ` WHERE status = 'ACTIVE'`
       : f.status === 'paused'
-        ? ` AND ${aliasStatus}.status = 'PAUSED'`
+        ? ` WHERE status = 'PAUSED'`
         : '';
 
   // Filtro_Cascada: los arrays nuevos (R8 c11). Los campos singulares
@@ -565,7 +593,8 @@ export async function getMetricasAds(f: FiltrosAds): Promise<ResultadoMetricas> 
   const pNivel = p(level);
 
   const com = comun(pAccounts, pDesde, pHasta, pTz, frag);
-  const jerObj = jerarquiaObjetos(level, { status: statusFiltro });
+  // Sin filtro de estado: ésta es la referencia de EXISTENCIA en la jerarquía.
+  const jerObj = jerarquiaObjetos(level, { status: '' });
 
   // ── La cadena de CTEs. `base` es el SELECT final de antes, sin ORDER BY ni
   // LIMIT, y con el Filtro_Cascada aplicado sobre las columnas
@@ -599,7 +628,11 @@ export async function getMetricasAds(f: FiltrosAds): Promise<ResultadoMetricas> 
        AND ${frag.gastoIdCond}
      GROUP BY ${frag.gastoGroupBy}
   ),
-  jerarquia_objetos AS (${jerObj}),
+  -- Todos los objetos VIGENTES del nivel, sin mirar el estado. Es la referencia
+  -- del anti-join de abajo: "estar en la jerarquía" no puede depender del filtro
+  -- de estado (ver el comentario largo de filtroEstado en el TypeScript).
+  jerarquia_vigentes AS (${jerObj}),
+  jerarquia_objetos AS (SELECT * FROM jerarquia_vigentes${filtroEstado}),
   objetos AS (
     SELECT * FROM jerarquia_objetos
     UNION ALL
@@ -616,7 +649,11 @@ export async function getMetricasAds(f: FiltrosAds): Promise<ResultadoMetricas> 
            NULL::timestamptz AS "syncedAt", NULL::timestamptz AS "desaparecidoAt"
       FROM gasto g
       JOIN cuenta cu ON cu."accountId" = g."accountId"
-     WHERE NOT EXISTS (SELECT 1 FROM jerarquia_objetos h
+     -- Contra jerarquia_VIGENTES, no contra jerarquia_objetos: un conjunto
+     -- pausado SÍ está en la jerarquía, así que no se reinyecta acá con el
+     -- estado en NULL. Volver a apuntar esto a jerarquia_objetos reabre el
+     -- bucle de pausas del 2026-09-01.
+     WHERE NOT EXISTS (SELECT 1 FROM jerarquia_vigentes h
                         WHERE h."objectId" = g."objectId" AND h."accountId" = g."accountId")
   ),
   ventas AS (

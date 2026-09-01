@@ -236,6 +236,8 @@ function motivoTexto(motivo: MotivoOmision, regla: Regla): string {
       return 'el pedido supera el tope absoluto de presupuesto diario (ads_max_daily_budget_eur)';
     case 'resultado_indeterminado_previo':
       return 'quedó una acción sin cerrar de una corrida anterior: primero hay que reconciliar';
+    case 'estado_desconocido':
+      return 'no se sabe si está activo o pausado (tiene gasto pero no figura en la jerarquía sincronizada), así que no se lo toca';
     default: {
       const _exhaustivo: never = motivo;
       return `motivo no contemplado: ${String(_exhaustivo)}`;

@@ -370,7 +370,19 @@ export type MotivoOmision =
   /** El pedido pasa `ads_max_daily_budget_eur` o el delta del tick (D-A9c). */
   | 'tope_absoluto'
   /** Quedó una mutación sin cerrar sobre este objeto: hay que reconciliar antes. */
-  | 'resultado_indeterminado_previo';
+  | 'resultado_indeterminado_previo'
+  /**
+   * No se sabe en qué estado está el objeto (`fila.status === null`), así que no
+   * se lo pausa ni se lo activa.
+   *
+   * `status` en null es un dato real, no un hueco defensivo: el Lector lo emite
+   * cuando el objeto tiene gasto en `ad_spend` pero no una fila vigente en la
+   * jerarquía. Sin este freno, `pause` con estado desconocido pasa de largo el
+   * chequeo de `ya_esta_en_ese_estado` (porque `null !== 'PAUSED'`) y vuelve a
+   * pausar algo que ya está pausado, una vez por tick. Eso es exactamente lo que
+   * pasó el 2026-09-01: 23 a 57 pausas por día sobre los mismos 15 conjuntos.
+   */
+  | 'estado_desconocido';
 
 export type ContextoEvaluar = {
   ahora: Date;

@@ -151,6 +151,38 @@ export async function reglaPorId(
  * `sinCerrar` sale de la misma consulta: si hay una fila 'pendiente' o
  * 'indeterminado' para el objeto, no se decide sobre él hasta reconciliar
  * (§6b). Se pide en lote (un solo `= ANY($1)`), no de a uno.
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ EL FILTER DE `ultima_at` NO ES DECORATIVO: SIN ÉL LA ESCALERA NO SUBE.     │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ * `ultima_at` alimenta el cooldown de `motor.ts` (paso 4), y el cooldown existe
+ * para separar dos acciones REALES sobre el mismo objeto. Hasta el 2026-09-01
+ * este `max(created_at)` no llevaba el FILTER que sí lleva `cuenta`, así que
+ * cualquier fila de `ad_actions` del día reiniciaba el reloj — incluidas las
+ * `omitido`, que no tocan Meta, no consumen cupo y no son acciones.
+ *
+ * El modo de falla es una escalera de presupuesto que se clava en un peldaño y
+ * no se ve en ningún lado, porque cada regla por separado parece correcta:
+ *
+ *   1. Un conjunto llega a €100.
+ *   2. La regla «Duplicar a $100» lo evalúa, ve que ya está en su techo y
+ *      escribe una fila `omitido / techo_alcanzado`. No llama a Meta.
+ *   3. En EL MISMO tick, «Duplicar a $200» (que corre después porque el orden es
+ *      `ORDER BY id`) pregunta por la última acción del objeto y recibe el
+ *      timestamp de esa fila, de hace 0 segundos.
+ *   4. Su cooldown de 30 minutos nunca se cumple. Omitida por 'cooldown'.
+ *
+ * Medido en producción antes del arreglo: las 19 omisiones por cooldown del
+ * peldaño de €200 en 3 días estaban precedidas, en el mismo objeto, por un
+ * `techo_alcanzado` del peldaño de €100 escrito entre 0 y 74 segundos antes —
+ * 19 de 19 — mientras la última acción REAL de esos objetos era de 487 a 740
+ * minutos antes. Cero subidas a €200 aplicadas desde el 2026-08-20.
+ *
+ * El peldaño que ya cumplió su trabajo bloqueaba al siguiente, y agregar más
+ * peldaños (€400, €800) sólo agrega más fuentes de bloqueo.
+ *
+ * `sin_cerrar` sí mira TODAS las filas del día a propósito: una 'pendiente' es
+ * exactamente lo que no se puede ignorar.
  */
 export async function historialDeHoy(
   objectIds: string[],
@@ -164,7 +196,7 @@ export async function historialDeHoy(
   }>(
     `SELECT object_id,
             count(*) FILTER (WHERE estado IN ('confirmado', 'indeterminado'))::int AS cuenta,
-            max(created_at) AS ultima_at,
+            max(created_at) FILTER (WHERE estado IN ('confirmado', 'indeterminado')) AS ultima_at,
             bool_or(estado IN ('pendiente', 'indeterminado')) AS sin_cerrar
        FROM ad_actions
       WHERE NOT dry_run

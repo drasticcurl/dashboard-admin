@@ -11,12 +11,19 @@
 import { describe, expect, it } from 'vitest';
 import {
   COLUMNAS_UTMIFY,
+  FRENOS_POR_DEFECTO,
   exportarCsvUtmify,
   importarCsvUtmify,
   parsearCsv,
   type ReglaImportada,
   type ReglaParaExportar,
 } from './utmify';
+
+// El tope por objeto que el import fuerza se lee de la constante y no se
+// repite acá: es un riel de este panel que se ajusta cuando la escalera de
+// presupuesto cambia de largo (subió de 4 a 8 el 2026-09-01), y un literal
+// duplicado convierte ese ajuste en dos tests rojos que no dicen nada.
+const TOPE_POR_OBJETO = FRENOS_POR_DEFECTO.maxAccionesPorObjetoPorDia;
 
 // ─── El CSV real del usuario, tal cual ──────────────────────────────────────
 
@@ -147,7 +154,7 @@ describe('importarCsvUtmify — el CSV real del usuario (12 reglas)', () => {
       windowEnd: '00:59',
       maxRunsPerDay: 1,
       cooldownMinutes: 1440,
-      maxActionsPerObjectPerDay: 4,
+      maxActionsPerObjectPerDay: TOPE_POR_OBJETO,
       conditions: [{ metric: 'roi', op: '>', value: 1.3 }],
     });
   });
@@ -269,7 +276,7 @@ describe('importarCsvUtmify — el CSV real del usuario (12 reglas)', () => {
       windowEnd: '23:59',
       maxRunsPerDay: 1,
       cooldownMinutes: 1440,
-      maxActionsPerObjectPerDay: 4,
+      maxActionsPerObjectPerDay: TOPE_POR_OBJETO,
       conditions: [
         { metric: 'roi', op: '>', value: 1.8 },
         { metric: 'spend', op: '>', value: 20 },

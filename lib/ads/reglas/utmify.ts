@@ -444,10 +444,30 @@ export const FRENOS_POR_DEFECTO = {
   /**
    * El tope de acciones por objeto por día SÍ es un riel de este panel que
    * UTMify no tiene, y se mantiene: es lo que evita que un bug de condiciones
-   * multiplique un presupuesto sin techo durante todo un día. 4 alcanza para la
-   * escalera 25→50→100→200 del set de reglas del usuario.
+   * multiplique un presupuesto sin techo durante todo un día.
+   *
+   * POR QUÉ 8 Y NO 4 (cambiado el 2026-09-01)
+   * Era 4, con el argumento de que «4 alcanza para la escalera 25→50→100→200».
+   * Alcanzaba justo, y por eso no alcanzaba: el cupo se cuenta POR OBJETO y no
+   * por (regla, objeto) —`historialDeHoy` filtra sólo por `object_id`—, así que
+   * cualquier pausa, reactivación o acción manual sobre ese mismo conjunto le
+   * come un peldaño a la escalera. Con 4 exactos, una sola acción ajena la
+   * dejaba clavada un peldaño antes del final, y el síntoma es un presupuesto
+   * que no sube con `skipped_reason = 'max_por_objeto'` enterrado en el
+   * historial.
+   *
+   * Con la escalera extendida a 25→50→100→200→400→800 son 6 subidas. Sumale el
+   * reseteo de las 00:00 que baja a €25 todo lo que pase de €50, y al menos una
+   * pausa: 8 quedaba justo otra vez. 10 es el número que deja la escalera
+   * completa más el reseteo más un par de acciones ajenas.
+   *
+   * Subirlo NO afloja el freno que importa. El que acota la plata es el techo
+   * absoluto (`ads_max_daily_budget_eur`), que rechaza cualquier presupuesto
+   * calculado por encima de él; esto sólo acota la CANTIDAD de ediciones por
+   * día, que es un límite contra el reinicio permanente de la fase de
+   * aprendizaje de Meta, no contra el gasto.
    */
-  maxAccionesPorObjetoPorDia: 4,
+  maxAccionesPorObjetoPorDia: 10,
 } as const;
 
 /**

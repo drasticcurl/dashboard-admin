@@ -10,6 +10,272 @@ Lo más nuevo va arriba. Las reglas de cómo se escribe una entrada están en
 
 ---
 
+## 2026-09-01 — Dos bugs del motor de reglas: la escalera clavada en €100 y el bucle de pausas
+
+Sin commitear todavía. Toca `lib/ads/reglas/repo.ts`, `lib/ads/reglas/motor.ts`,
+`lib/ads/reglas/explicacion.ts`, `lib/ads/reglas/utmify.ts`, `lib/ads/tipos.ts`,
+`lib/queries/ads.ts`, cinco archivos de test, y agrega
+`docs/reglas-escalera-2026-09-01.csv`.
+
+Son **dos bugs independientes** que salieron de la misma sesión, los dos
+diagnosticados con consultas de lectura sobre la base de producción. El primero
+explicaba el síntoma que el usuario reportó; el segundo apareció mirando el
+historial y lo encontré antes de que se notara.
+
+---
+
+### Bug 1 — El cooldown lo movían filas que no eran acciones
+
+**Qué pasaba.** El usuario reportó que sus reglas de subir presupuesto "siempre
+llegan a 100 y no llegan a más". Era literal: la regla «Duplicar a $200 - Gasto
++$50 ROI +1.5» (id 63 en producción) tenía **0 acciones aplicadas desde el
+2026-08-20**, con 142 corridas y 19 objetos que cumplieron las condiciones. Las 19
+se omitieron, todas con `skipped_reason = 'cooldown'`.
+
+No era el techo absoluto ni el cupo por objeto. Era esto, en
+`repo.ts:historialDeHoy`:
+
+```sql
+count(*) FILTER (WHERE estado IN ('confirmado', 'indeterminado')) AS cuenta,
+max(created_at)                                                  AS ultima_at,
+```
+
+El contador de cupo filtraba por estado y `max(created_at)` no. `ultima_at`
+alimenta `ultimaAccionRealAt`, que es contra lo que `motor.ts` (paso 4) mide el
+cooldown, y el cooldown existe para separar dos acciones **reales** sobre el mismo
+objeto. Con ese `max` sin filtrar, **cualquier** fila del día reiniciaba el reloj,
+incluidas las `omitido` — que no llaman a Meta, no consumen cupo y no son acciones.
+
+La secuencia, dentro de un mismo tick:
+
+1. Un conjunto llega a €100.
+2. «Duplicar a $100» lo evalúa, ve que ya está en su techo y escribe una fila
+   `omitido / techo_alcanzado`. No toca Meta.
+3. «Duplicar a $200» corre después (el orden de `reglasActivas()` es `ORDER BY
+   id`, y 60 < 63), pide el historial del objeto y recibe el timestamp de esa
+   fila, de hace 0 segundos.
+4. Cooldown de 30 minutos → omitida. Cada 30 minutos, para siempre.
+
+Medido en la base de producción: las 19 omisiones por cooldown del peldaño de €200
+en 3 días estaban precedidas, sobre el mismo objeto, por un `techo_alcanzado` del
+peldaño de €100 escrito **entre 0 y 74 segundos antes — 19 de 19**, mientras la
+última acción REAL de esos conjuntos era de **487 a 740 minutos antes** o no
+existía en el día. La correlación cierra por el otro lado: los dos peldaños que en
+producción tenían `cooldown_minutes = 0` (€50 y €100) aplicaron 52 y 9 veces; los
+dos con cooldown 30 (€25 y €200) aplicaron 9 de 241 y 0 de 19.
+
+El peldaño que ya había hecho su trabajo bloqueaba al siguiente. Agregar €400 y
+€800 sólo habría agregado dos bloqueadores más.
+
+**Por qué se resolvió así.**
+
+**El arreglo es agregarle a `max(created_at)` el mismo FILTER que ya tenía
+`cuenta`**, y no bajar el cooldown de las reglas. Bajar el cooldown a 0 era el
+workaround que ya estaba aplicado a mano en dos peldaños de producción y es lo que
+enmascaraba el bug: funcionaban por no tener cooldown, no porque el cooldown
+funcionara. Además dejaba sin freno el caso real que el cooldown protege (dos
+reglas peleándose por el mismo conjunto). El índice
+`ad_actions_objeto_idx` de la 016 ya es parcial sobre
+`estado IN ('confirmado','indeterminado')` y su comentario dice que la pregunta que
+sostiene es «¿cuántas acciones REALES tuvo hoy **y cuándo fue la última**?»: el
+FILTER que faltaba era el que hacía verdadera esa frase.
+
+**`sin_cerrar` se dejó mirando TODAS las filas del día**, a propósito: una fila
+`pendiente` es exactamente lo que no se puede ignorar. Sólo se filtró `ultima_at`.
+
+**No se tocó la consulta de la columna «ÚLT. ACTUALIZACIÓN» del gestor**, que usa
+`ad_actions_ultima_idx` (`WHERE NOT dry_run`, sin filtro de estado). Ahí "lo último
+que pasó con este objeto" incluye legítimamente un intento omitido; el bug era
+usar ese criterio para un freno.
+
+**El tope por objeto del importador pasó de 4 a 10** (`FRENOS_POR_DEFECTO` en
+`utmify.ts`). El comentario viejo decía «4 alcanza para la escalera
+25→50→100→200». Alcanzaba justo, y por eso no alcanzaba: el cupo se cuenta **por
+objeto y no por (regla, objeto)** —`historialDeHoy` filtra sólo por `object_id`—,
+así que una pausa, una reactivación o una acción manual sobre el mismo conjunto le
+come un peldaño. La escalera de 6 peldaños son 6 subidas, más el reseteo de las
+00:00, más al menos una pausa: 10 deja todo eso con margen.
+Subirlo no afloja el freno que acota la plata: eso lo hace
+`ads_max_daily_budget_eur`, que **rechaza** (no recorta) cualquier presupuesto
+calculado por encima suyo. Este tope acota la cantidad de ediciones por día, que es
+protección contra reiniciar la fase de aprendizaje de Meta, no contra el gasto.
+
+**El CSV nuevo pone una banda de presupuesto en cada peldaño** (`budget >= mitad` y
+`budget < objetivo`) en vez de dejar que el techo haga sólo de tope. Con la banda,
+`budget >= objetivo/2` implica que `×2 >= objetivo`, así que **cada peldaño aterriza
+exacto en su objetivo** desde cualquier punto de su banda, y un conjunto que ya
+llegó da `cumple = false`: no escribe fila. Eso elimina las **232 filas
+`techo_alcanzado` en 3 días** que ensuciaban el historial y que eran el combustible
+del bug de arriba. Es cinturón y tirantes: el arreglo de `repo.ts` solo ya bastaba,
+pero un historial legible es lo que hizo diagnosticable esto.
+
+**Los peldaños usan factor 2 y no 2.5 ni 5.** Los de producción tenían 2.5 y 5 con
+el techo haciendo el recorte, o sea que el factor era decorativo y el nombre
+"duplicar" era falso. Con la banda, 2 es exacto y el nombre dice la verdad.
+
+**El peldaño de entrada (€25) mantiene el truco de `fixed` enorme** (€900,99 con
+techo €25): tiene que **poner** el presupuesto en 25 desde donde esté (hay
+conjuntos en €3 y €10), y un factor 2 sobre €3 da €6.
+
+**Los dos «resetear presupuesto» de campaña se reemplazaron por UNO a nivel
+conjunto.** El presupuesto de esta cuenta vive en el conjunto: 95 conjuntos con
+`daily_budget` propio contra 3 campañas con presupuesto diario. A nivel campaña
+esas reglas eran un no-op garantizado, y son el origen de los 66
+`sin_presupuesto_en_este_nivel` del historial. El usuario además aclaró que el
+diseño viejo (dos reglas a las 23:00 con condiciones de gasto y ROI, una a €15 y
+otra a €25) no era lo que quería: quería **una sola regla, a las 00:00, que baje a
+€25 todo conjunto que pase de €50**. Eso el sistema sí lo expresa, y es lo que
+está en el CSV: `ReduceBudget` con el truco de `fixed` enorme (€900) y piso €25,
+condición única `budget > €50`, `OncePerDay` a la hora 0. Lo que faltaba no era una
+capacidad, era saber que "bajar a un valor fijo" se escribe como "restar un montón
+con piso en ese valor".
+
+**Lo que se decidió NO hacer en el bug 1:**
+
+- **No se cambió ningún `setting` de producción.** La escalera a €400 y €800
+  necesita subir `ads_max_daily_budget_eur` (hoy **200**) y
+  `ads_max_delta_por_tick_eur` (hoy **300**, y un salto de €400→€800 es un delta de
+  €400 que se rechazaría todos los ticks). El comentario de la 016 dice que ese
+  techo se cambia con un acto consciente y no desde el mismo código que mueve
+  presupuesto; queda pendiente de decisión del usuario. **Con los valores de hoy la
+  escalera llega a €200 y el peldaño 5 sale `tope_absoluto`** — verificado abajo.
+- **No se borró «ACTIVAR A LAS 00 CAMPAÑAS (copia)» aunque el nombre diga
+  "(copia)".** No es una duplicada: la original es `campaign` y la "copia" es
+  `adset`. Borrarla por el nombre se lleva la única regla que reactiva conjuntos.
+  Esto es exactamente el tipo de cosa por la que existe este archivo.
+- **No se tocaron los umbrales de las reglas de apagar.** Las dos cuentas tenían
+  valores distintos para la misma regla (`roi<=1.2 / gasto>€7` en una,
+  `roi<=1.1 / gasto>€9` en la otra) y no hay forma de saber cuál fue intencional.
+  El CSV lleva los de la cuenta que opera (HIlvanapp), byte por byte. El usuario
+  después confirmó que borró todo y que sólo quiere reglas en HIlvanapp, así que la
+  divergencia deja de existir sola.
+
+---
+
+### Bug 2 — El bucle de pausas: un anti-join que preguntaba lo que no quería
+
+**Qué pasaba.** La regla «Apagar - Gasto +$4 sin ventas» pausó los **mismos 15
+conjuntos entre 23 y 57 veces por día** (202 pausas confirmadas en un día), con
+intervalos de ~15 minutos y las `metrics` congeladas siempre idénticas
+(`spendEur: 7.18, sales: 0`). Todas `confirmado`: pausar algo ya pausado es un
+no-op que Meta acepta con 200.
+
+La primera hipótesis —la del usuario y la mía— era que faltaba refrescar el estado
+con un cron. **Es falsa: el cron ya existe** (`*/15 * * * *
+scripts/sync-ads-jerarquia.ts`), corre sin errores, `last_hierarchy_sync_at` estaba
+a 11 minutos y los 15 conjuntos figuraban `status='PAUSED'`, `vigente=true`. Vale
+registrarlo porque es la respuesta que parece obvia y habría costado un cron nuevo
+sin arreglar nada.
+
+La causa está en `getMetricasAds` (`lib/queries/ads.ts`). El alcance de una regla
+es la CTE `objetos`, que une la jerarquía con los objetos que **sólo** tienen gasto
+en `ad_spend`. Esa segunda rama existe con buen motivo (gasto de un objeto sin fila
+en la jerarquía no se puede esconder) y trae `NULL::text AS status`. El problema era
+a quién le preguntaba el anti-join:
+
+```sql
+jerarquia_objetos AS (... WHERE vigencia AND s.status = 'ACTIVE'),  -- ← ya filtrada
+objetos AS (
+  SELECT * FROM jerarquia_objetos
+  UNION ALL
+  SELECT ..., NULL::text AS status, ... FROM gasto g
+   WHERE NOT EXISTS (SELECT 1 FROM jerarquia_objetos h WHERE ...)   -- ← acá
+)
+```
+
+Con el filtro de estado adentro de la CTE que el anti-join usa como referencia, la
+pregunta deja de ser «¿este objeto no está en la jerarquía?» y pasa a ser «¿no está
+entre los ACTIVOS?». Entonces:
+
+1. El conjunto está ACTIVE, entra por la jerarquía, la regla lo pausa.
+2. `ad_sets.status` pasa a PAUSED, así que sale de `jerarquia_objetos`.
+3. El anti-join lo considera «no está en la jerarquía» y lo **reinyecta** por la
+   rama de gasto, con `status = NULL`.
+4. El paso 2 de `motor.ts` compara `fila.status === 'PAUSED'`. `null` no es
+   `'PAUSED'`, así que no descarta nada y vuelve a pausar. Una vez por tick.
+
+**La huella que lo prueba**, y es inequívoca: cada uno de los 15 conjuntos tiene
+**exactamente UNA** fila de pausa con `before_value = 'ACTIVE'` (la legítima) y
+entre **49 y 56** con `before_value = NULL` (`before_value` sale de `fila.status`,
+`ejecutor.ts:457`). Y **cero** acciones `activate` en 48 horas, o sea que nada los
+reactivaba.
+
+**Por qué se resolvió así.**
+
+**El filtro de estado se movió AFUERA de la jerarquía**, aplicado sobre la columna
+ya proyectada, y el anti-join ahora apunta a una CTE `jerarquia_vigentes` sin
+filtrar. Es una línea de SQL y deja las dos preguntas separadas: «¿existe en la
+jerarquía?» y «¿tiene el estado que pedí?».
+
+**No se borró la rama de solo-gasto**, que era la otra salida posible. Existe para
+que el gasto de un objeto sin fila en la jerarquía no desaparezca del panel, hay
+property tests de eso, y esconder plata gastada es peor que el bucle.
+
+**Y se cerró también en el motor, con un motivo nuevo `estado_desconocido`.** Este
+es el punto que el arreglo del SQL solo no cubre, y lo descubrí porque un test que
+escribí falló: **la rama de solo-gasto es deliberadamente ciega al filtro de
+estado**, así que una regla de pausar puede recibir un objeto con `status` en NULL
+incluso pidiendo "activos" — legítimamente, cuando el objeto no está en la
+jerarquía. Con `null !== 'PAUSED'` eso seguiría pasando de largo. Ahora el paso 2
+no actúa con el estado en NULL, con el mismo criterio que el paso 1 aplica a las
+métricas nulas: no se decide con "no sé". Los dos arreglos son mitades, no
+alternativas.
+
+El freno es **sólo para `pause`/`activate`**. Una regla de presupuesto sobre un
+objeto de estado desconocido sigue actuando: el presupuesto no depende del estado y
+bloquearla sería inventar un freno que nadie pidió. Hay un test de eso.
+
+**Lo que se decidió NO hacer en el bug 2:**
+
+- **No se agregó ningún cron.** El de la jerarquía ya corre cada 15 minutos y no
+  era el problema. Un cron cada 5 minutos habría triplicado las llamadas a Meta
+  para tapar un bucle que no se tapa con frescura: el conjunto reinyectado por la
+  rama de gasto viene con `status` NULL **por construcción del SQL**, no por estar
+  desactualizado.
+- **No se le puso `COALESCE` a `actualizarJerarquia`**, que hace
+  `SET status = $2` y puede escribir NULL encima de un ACTIVE si Meta omite el
+  campo. Es una tercera puerta al mismo bucle y ahora la tapa el freno del motor.
+  Cambiar el UPDATE a `COALESCE(status, $2)` mentiría en la otra dirección
+  (conservar un estado viejo como si fuera fresco), y eso es peor. Queda anotado.
+- **No se tocó `marcarJerarquiaVieja`**, que baja `synced_at` sin corregir el
+  estado. Eso expulsa la fila de la ventana de vigencia (`SQL_VIGENTE`) y la manda
+  también a la rama de solo-gasto. Misma tapa: el freno del motor.
+
+**Qué se verificó (los dos bugs).**
+
+- **Los cuatro tests de regresión fallan sin su arreglo.** Se restauró el
+  `max(created_at)` viejo → los dos de `repo.test.ts` fallaron
+  (`expected 2026-09-01T17:19:16.292Z to be null`). Se volvió a apuntar el
+  anti-join a `jerarquia_objetos` → los dos nuevos de `ads.filtros.test.ts`
+  fallaron. Con los arreglos puestos, pasan.
+- Los timestamps del test de `repo.test.ts` se fijan contra
+  `date_trunc('day', now())` y no contra `now()`: con `now() - interval '2 hours'`
+  el test se rompe solo entre las 00:00 y las 02:00.
+- **El CSV entra por el importador real**: 11 reglas, **0 errores**.
+- **La escalera se simuló con `evaluar` de `motor.ts`**, no leyendo el CSV:
+  - con `maxDailyBudgetEur = 900` y ROI 2.5 recorre
+    `10 → 25 → 50 → 100 → 200 → 400 → 800` y para;
+  - con el valor de producción (200) llega a 200 y el peldaño 5 sale
+    `tope_absoluto`;
+  - con **ROI 1.8 para en €100** (el peldaño 4 pide ROI>2) y con **ROI 1.6 para en
+    €50** (el peldaño 3 pide ROI>1.7), que son los umbrales que pidió el usuario;
+  - los 6 peldaños aterrizan **exacto** en su objetivo, y ninguno toca un conjunto
+    que ya está en el objetivo ni por encima;
+  - el reseteo deja €25 y €50 **sin tocar** y manda €51, €100, €200, €400 y €800 a
+    €25.
+- `npm test`: **1423 pasan**, 46 salteados. Una falla intermitente en
+  `finance.test.ts` («Hook timed out in 10000ms») que pasa sola dos veces al
+  correrla aislada y no toca nada de lo cambiado. `tsc --noEmit` limpio,
+  `npm run build` OK.
+- **Sin verificar:** que la escalera suba de verdad en Meta y que el bucle no
+  vuelva. Lo primero depende de subir los dos `settings` y de que el conjunto
+  gaste la mitad de su presupuesto con el ROI pedido; lo segundo se confirma
+  mirando que `ad_actions` deje de acumular pausas con `before_value` en NULL
+  después del deploy. El diagnóstico salió de consultas de **LECTURA** sobre la
+  base de producción; no se escribió nada ahí.
+
+---
+
 ## 2026-08-29 — Finanzas: la pantalla se calla, y el saldo del día persigue al usuario
 
 Rediseño de `/finanzas` y un recordatorio nuevo en todo el panel. Sin commitear

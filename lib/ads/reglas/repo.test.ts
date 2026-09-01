@@ -54,6 +54,8 @@ describe.skipIf(!dbAvailable)('repo (integración)', () => {
   const PREFIJO = 'T16-REPO-';
   const OBJ_SIM = `${PREFIJO}simulado`;
   const OBJ_REAL = `${PREFIJO}real`;
+  const OBJ_OMITIDO = `${PREFIJO}omitido-mas-nuevo`;
+  const OBJ_SOLO_OMITIDO = `${PREFIJO}solo-omitido`;
   const CUENTA_TZ_NULA = `${PREFIJO}cuenta-tz-nula`;
   const CUENTA_INACTIVA = `${PREFIJO}cuenta-inactiva`;
   const CUENTA_REGLA = `${PREFIJO}cuenta-con-regla`;
@@ -88,6 +90,68 @@ describe.skipIf(!dbAvailable)('repo (integración)', () => {
     // Confirmado + indeterminado: dos que consumen cupo; la indeterminada bloquea.
     expect(hist.get(OBJ_REAL)?.cuenta).toBe(2);
     expect(hist.get(OBJ_REAL)?.sinCerrar).toBe(true);
+  });
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // El bug que clavaba la escalera de presupuesto en €100 (2026-09-01)
+  // ───────────────────────────────────────────────────────────────────────────
+  //
+  // `ultimaAt` alimenta el cooldown de motor.ts, que separa dos acciones REALES
+  // sobre el mismo objeto. Antes del arreglo `max(created_at)` no llevaba el
+  // FILTER por estado, así que una fila 'omitido' —que no toca Meta, no consume
+  // cupo y no es una acción— reiniciaba el reloj.
+  //
+  // En producción eso significaba: el peldaño de €100 ve un conjunto que ya está
+  // en €100, escribe 'omitido / techo_alcanzado', y en el MISMO tick el peldaño
+  // de €200 (que corre después, el orden es ORDER BY id) recibe ese timestamp
+  // como "última acción" y se omite por cooldown. 19 de 19 veces en 3 días, con
+  // la última acción real 8 a 12 horas antes. Cero subidas a €200 aplicadas.
+  //
+  // Los timestamps se fijan relativos a date_trunc('day', now()) y no a now():
+  // con `now() - interval '2 hours'` el test se rompe solo entre las 00:00 y las
+  // 02:00, porque la fila cae en el día anterior y el WHERE la descarta.
+  it('historialDeHoy: una fila «omitido» posterior NO refresca ultimaAt (el cooldown sólo lo mueven las acciones reales)', async () => {
+    await q(
+      `INSERT INTO ad_actions (source, account_id, level, object_id, action, dry_run, ok, estado,
+                               skipped_reason, explicacion, metrics, created_at)
+       VALUES
+         ('rule', 'act_1', 'adset', $1, 'budget_increase', false, true,  'confirmado', NULL,
+          'subió de €50 a €100', '{}', date_trunc('day', now()) + interval '1 second'),
+         ('rule', 'act_1', 'adset', $1, 'budget_increase', false, false, 'omitido', 'techo_alcanzado',
+          'ya está en el techo', '{}', date_trunc('day', now()) + interval '2 seconds')`,
+      [OBJ_OMITIDO],
+    );
+
+    const hist = await repo.historialDeHoy([OBJ_OMITIDO]);
+    const h = hist.get(OBJ_OMITIDO);
+
+    // La omitida no consume cupo: una sola acción real.
+    expect(h?.cuenta).toBe(1);
+    // Y no mueve el reloj: ultimaAt es la CONFIRMADA (+1s), no la omitida (+2s).
+    const esperado = await q1<{ t: Date }>(
+      `SELECT date_trunc('day', now()) + interval '1 second' AS t`,
+    );
+    expect(h?.ultimaAt?.getTime()).toBe(esperado!.t.getTime());
+    // Una omitida tampoco es una mutación sin cerrar.
+    expect(h?.sinCerrar).toBe(false);
+  });
+
+  it('historialDeHoy: un objeto con SÓLO filas omitidas no tiene última acción real, así que el cooldown no lo frena', async () => {
+    await q(
+      `INSERT INTO ad_actions (source, account_id, level, object_id, action, dry_run, ok, estado,
+                               skipped_reason, explicacion, metrics)
+       VALUES ('rule', 'act_1', 'adset', $1, 'budget_increase', false, false, 'omitido',
+               'techo_alcanzado', 'ya está en el techo', '{}')`,
+      [OBJ_SOLO_OMITIDO],
+    );
+
+    const h = (await repo.historialDeHoy([OBJ_SOLO_OMITIDO])).get(OBJ_SOLO_OMITIDO);
+
+    expect(h?.cuenta).toBe(0);
+    // null y no una fecha: motor.ts paso 4 sólo mira el cooldown si esto no es
+    // null, y es exactamente lo que destraba el peldaño siguiente de la escalera.
+    expect(h?.ultimaAt).toBeNull();
+    expect(h?.sinCerrar).toBe(false);
   });
 
   it('interruptores(): con la fila ausente devuelve el lado seguro (habilitado false, forzarSombra true, topes 0)', async () => {

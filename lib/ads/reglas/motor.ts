@@ -134,6 +134,18 @@ export function evaluar(
   // ── Paso 2: ¿la acción cambia algo? (higiene, no optimización) ───────────
   // Sin esto, una regla de "pausar si el gasto > €4" llama a la API cada minuto
   // sobre un conjunto ya pausado, gasta cuota y llena el historial.
+  //
+  // EL NULL SE CHEQUEA PRIMERO Y NO ES DEFENSIVO. `fila.status` es null cuando el
+  // Lector emitió el objeto por la rama de solo-gasto: tiene gasto en `ad_spend`
+  // pero no una fila vigente en la jerarquía, así que su estado no se conoce.
+  // `null !== 'PAUSED'` pasaba de largo los dos chequeos de abajo, y una regla de
+  // pausar volvía a pausar lo ya pausado una vez por tick, para siempre (medido:
+  // 23 a 57 pausas diarias sobre los mismos 15 conjuntos, 2026-09-01). Es el
+  // mismo criterio que el paso 1 aplica a las métricas nulas: no se decide con
+  // "no sé".
+  if ((regla.action === 'pause' || regla.action === 'activate') && fila.status === null) {
+    return decidir(fila, true, false, 'estado_desconocido', null, null, metrics);
+  }
   if (regla.action === 'pause' && fila.status === 'PAUSED') {
     return decidir(fila, true, false, 'ya_esta_en_ese_estado', null, null, metrics);
   }
