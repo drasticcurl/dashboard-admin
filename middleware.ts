@@ -121,6 +121,32 @@ export function urlDeLogin(req: NextRequest): URL {
   return local;
 }
 
+/**
+ * `/api/data/ads?...&forzar=1` (el Boton_Actualizar) volvía con la sesión
+ * vencida y el cliente veía «El refresco de gasto falló: The string did not
+ * match the expected pattern» (Safari) o «Unexpected token '<'» (Chrome).
+ *
+ * La causa: el 307 de abajo apunta a `/` (HTML), y hasta este cambio salía
+ * igual para `/api/*` que para una navegación de página. `leerFilas`
+ * (`GestorAnuncios.tsx`) sigue el redirect —es lo que hace `fetch` con una
+ * respuesta 3xx— y le pasa el HTML de la pantalla de login a `res.json()`.
+ * Chrome y Safari fallan ahí con mensajes distintos para el MISMO problema
+ * (`SyntaxError` al parsear HTML como JSON), y ninguno de los dos dice
+ * "tu sesión venció", que es lo único cierto.
+ *
+ * Cada route de `/api/**` (salvo ingest/webhooks, afuera del matcher) ya
+ * hace `isAuthenticated(...)` y devuelve `401 { ok: false, error:
+ * 'unauthorized' }` — es el guard que el plan pide para que un curl sin
+ * cookie no vea datos aunque alguien le toque el matcher a este archivo. Pero
+ * ese guard nunca se ejecuta: el middleware corta antes con el redirect. Este
+ * cambio no le saca protección a ninguna ruta ni cambia QUÉ se bloquea, sólo
+ * la FORMA de la respuesta para las rutas de API: el mismo 401 que cada route
+ * ya devuelve él mismo cuando el middleware no se mete en el medio.
+ */
+function esRutaApi(pathname: string): boolean {
+  return pathname.startsWith('/api/');
+}
+
 export async function middleware(req: NextRequest): Promise<NextResponse> {
   const { pathname } = req.nextUrl;
 
@@ -130,7 +156,12 @@ export async function middleware(req: NextRequest): Promise<NextResponse> {
 
   const res = authed
     ? NextResponse.next()
-    : NextResponse.redirect(urlDeLogin(req));
+    : esRutaApi(pathname)
+      ? NextResponse.json(
+          { ok: false, error: 'unauthorized' },
+          { status: 401 },
+        )
+      : NextResponse.redirect(urlDeLogin(req));
 
   // Panel con datos de ventas en un subdominio público (D16): nada cacheable,
   // nada indexable.

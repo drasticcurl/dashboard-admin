@@ -10,6 +10,72 @@ Lo más nuevo va arriba. Las reglas de cómo se escribe una entrada están en
 
 ---
 
+## 2026-09-02 — El Boton_Actualizar con sesión vencida mostraba un error de parseo en vez de "sesión vencida"
+
+**Qué pasaba.** El usuario reportó, en Safari: «El refresco de gasto falló: The
+string did not match the expected pattern — se muestran las filas guardadas».
+En el log de Caddy de producción (`/var/log/caddy/panel.log`) apareció el
+pedido exacto: `GET /api/data/ads?...&forzar=1` (el Boton_Actualizar) a las
+2026-09-02 11:04:02 UTC, mismo User-Agent Safari, con `"status":307` y
+`"Location":"https://panel.hilvanapp.com/"` — no un 401, no un 500: un
+redirect a la página de login.
+
+La cadena completa: la cookie de sesión (`panel_token`, TTL 12 h) había
+vencido. `middleware.ts` redirige TODO lo que no matchea con un 307 a `/`, sin
+distinguir una navegación de página de un `fetch` de un componente. `fetch`
+sigue ese redirect solo, así que `leerFilas` (`GestorAnuncios.tsx:712`) recibe
+el HTML de la pantalla de login donde esperaba JSON, y `res.json()` tira. El
+mensaje que llegó a pantalla es el de ESE parseo fallido, no el problema real.
+Confirmado con la documentación de WebKit (trackjs.com) y un issue idéntico en
+`strapi/strapi#25274`: Safari tira `SyntaxError: The string did not match the
+expected pattern` al parsear no-JSON como JSON; Chrome, para el mismo caso,
+tira `Unexpected token '<'` (ya documentado en un comentario existente de
+`cuerpoDeAcciones`, para el POST de acciones — este bug era el mismo problema
+en el GET de lectura, que no pasa por esa función).
+
+**Por qué se resolvió así.** Cada route de `/api/**` (salvo `ingest`/
+`webhooks`, ya afuera del matcher) ya hace `isAuthenticated(...)` y devuelve
+`401 { ok: false, error: 'unauthorized' }` — es el guard que varios comentarios
+en esos routes describen como "el que cubre si alguien le toca el matcher al
+middleware". Ese guard nunca corría: el middleware cortaba antes con el
+redirect. El arreglo es que `middleware.ts`, para paths bajo `/api/`, conteste
+él mismo ese mismo 401 JSON en vez de redirigir — la misma respuesta que el
+route de abajo ya da, adelantada un paso.
+
+Se descartó sacar `/api/*` del matcher para que cada route maneje su propio
+401 sin intervención del middleware (que hubiera sido un cambio menor). Un
+grep sobre todos los `route.ts` de `app/api/` mostró que varias rutas GET de
+sólo lectura bajo `/api/config/*` (`funnels`, `products`, `shops`, `fx`) **no
+tienen guard propio** — dependen exclusivamente del middleware para no
+responder sin sesión. Sacarlas del matcher las hubiera dejado abiertas sin
+cookie. La corrección tenía que mantener la protección para TODO bajo
+`/api/`, y sólo cambiar la forma de la respuesta cuando corresponde.
+
+También se descartó "arreglarlo" en el cliente (que `leerFilas` mirara
+`res.redirected` o el content-type antes de parsear): hubiera tapado el
+síntoma en un solo llamador y dejado el mismo problema en cualquier otro
+`fetch` a `/api/*` que no pase por `leerFilas` — el POST de acciones ya tiene
+su propio `cuerpoDeAcciones` para lo mismo, y agregar un tercer parche de
+cliente en vez de arreglarlo una vez en el middleware hubiera sido la
+definición de duplicar la regla.
+
+**Qué se verificó.** `middleware.test.ts` tiene tests nuevos que fijan el
+comportamiento: sin cookie o con cookie vencida, una ruta de API (`/api/data/
+ads`) devuelve 401 con cuerpo JSON parseable y sin header `Location`; una
+ruta de página (`/anuncios`) sigue devolviendo el 307 de siempre; con cookie
+válida, la ruta de API deja pasar. Los 12 tests del archivo (6 nuevos + 6
+existentes de `urlDeLogin`) pasan. `tsc --noEmit` limpio, `npm run build`
+compila y los 1431 tests de la suite completa pasan (0 fallos, 46 skipped por
+falta de base local, igual que antes de este cambio). **No se pudo reproducir
+el 307 contra sesión vencida en un ambiente real post-fix** porque hacerlo
+requeriría esperar 12 h o forzar el reloj del server; la cobertura es la del
+test unitario del middleware, que ejercita la misma función con una cookie
+vencida de verdad. Falta desplegar a producción y confirmar en el próximo
+vencimiento de sesión real que el aviso, si aparece, diga 401/unauthorized y
+no un error de parseo.
+
+---
+
 ## 2026-09-02 — Una cuenta sin gasto se quedaba con el error de sync pegado para siempre
 
 Commit `90bc0c1`. Deployado a hilvanapp el 2026-09-02 10:07 (release
