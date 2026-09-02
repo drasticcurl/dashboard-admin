@@ -65,14 +65,21 @@ ads`) devuelve 401 con cuerpo JSON parseable y sin header `Location`; una
 ruta de página (`/anuncios`) sigue devolviendo el 307 de siempre; con cookie
 válida, la ruta de API deja pasar. Los 12 tests del archivo (6 nuevos + 6
 existentes de `urlDeLogin`) pasan. `tsc --noEmit` limpio, `npm run build`
-compila y los 1431 tests de la suite completa pasan (0 fallos, 46 skipped por
-falta de base local, igual que antes de este cambio). **No se pudo reproducir
-el 307 contra sesión vencida en un ambiente real post-fix** porque hacerlo
-requeriría esperar 12 h o forzar el reloj del server; la cobertura es la del
-test unitario del middleware, que ejercita la misma función con una cookie
-vencida de verdad. Falta desplegar a producción y confirmar en el próximo
-vencimiento de sesión real que el aviso, si aparece, diga 401/unauthorized y
-no un error de parseo.
+compila y los 1431 tests de la suite completa pasan en local (0 fallos, 46
+skipped por falta de base). En el deploy, `npm test` corrió de nuevo contra la
+base real de la VPS y también en verde.
+
+Deployado a hilvanapp el mismo día (release `20260902152843`, commit
+`800a594`; la anterior era `20260902095800`). **Confirmado contra producción,
+no sólo en test**: `curl` sin cookie a `https://panel.hilvanapp.com/api/data/
+ads` devuelve `401` con `content-type: application/json` y cuerpo
+`{"ok":false,"error":"unauthorized"}` — antes de este deploy ese mismo pedido
+daba `307` con `Location: /` y HTML, que es exactamente el caso que rompía
+`res.json()` en el cliente. `curl` a `/` sigue en `200`, así que el login
+normal no cambió. Sigue sin poder confirmarse el caso de un usuario real con
+sesión vencida en el navegador (Safari o Chrome) viendo el aviso nuevo en vez
+del error de parseo — para eso hace falta que alguien tenga el panel abierto
+12 h y apriete Actualizar, que no se puede forzar desde acá.
 
 ---
 
