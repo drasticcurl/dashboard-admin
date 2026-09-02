@@ -12,7 +12,9 @@ Lo más nuevo va arriba. Las reglas de cómo se escribe una entrada están en
 
 ## 2026-09-02 — Una cuenta sin gasto se quedaba con el error de sync pegado para siempre
 
-Sin commitear todavía. Toca `lib/ads/sync.ts` y `lib/ads/sync.creativo.test.ts`.
+Commit `90bc0c1`. Deployado a hilvanapp el 2026-09-02 10:07 (release
+`20260902095800`; la anterior era `20260901234928`). Toca `lib/ads/sync.ts` y
+`lib/ads/sync.creativo.test.ts`.
 
 **Qué pasaba.** El panel mostraba «gasto sync con error — TypeError: fetch failed»
 mientras al lado decía que la jerarquía estaba al día. El error era de la cuenta
@@ -74,9 +76,60 @@ manual taparía el síntoma sin dejar registro de que el arreglo funcionó.
 **Qué se verificó.** El test nuevo falla sin el arreglo con exactamente el mensaje
 que se veía en pantalla: `expected 'TypeError: fetch failed' to be null`. Con el
 arreglo, los 6 de `sync.creativo.test.ts` pasan. `tsc --noEmit` limpio y 162 tests
-de `lib/ads` + `lib/queries/ads.filtros` en verde. **Sin verificar:** que el panel
-deje de mostrar el error, porque eso pasa recién después de deployar y de la
-primera corrida de esa cuenta.
+de `lib/ads` + `lib/queries/ads.filtros` en verde.
+
+**Y verificado en producción después del deploy**, sin ningún `UPDATE` manual:
+`last_sync_error` quedó en NULL en las dos cuentas, y «Protocolo reset» —que sigue
+sin gasto— pasó a sincronizar cada corrida (`last_sync_at` de hace 34 segundos).
+El TTL de insights volvió a funcionar: la edad que ve el worker es **34 segundos
+contra un TTL de 55**, cuando antes eran 35 491.
+
+---
+
+## 2026-09-02 — Confirmación en vivo del deploy anterior, y lo que sigue sin poder confirmarse
+
+Sin cambios de código. Se registra porque cierra la verificación que el 2026-09-01
+quedó abierta, y porque una de las dos cosas **sigue** abierta.
+
+**Las reglas no se tocaron, y está medido.** El usuario pidió explícitamente no
+tocarlas (ya estaban las 11 en real). Se sacó un checksum md5 de las 11 reglas con
+sus condiciones antes del deploy y otro después: **`240b5d6188f120e75b47b5d69b5bc3f7`
+en los dos**. Vale como método para la próxima: el deploy no toca `ad_rules` (no hay
+migraciones nuevas y los tests corren contra `panel_test`), pero medirlo cuesta una
+consulta y evita tener que creerlo.
+
+**Lo que sí quedó confirmado.** El reseteo de las 00:00 hizo su trabajo la primera
+noche: 1 corrida, 450 objetos evaluados, **36 conjuntos bajados a €25** desde €100 y
+€75, 0 omitidas. Y la escalera arrancó: «Escalera 1» subió tres conjuntos de €10 a
+€25 entre las 05:26 y las 07:30. Los peldaños 2 a 6 corrieron 20 veces cada uno con
+0 objetos que cumplen, que es lo correcto a esa hora: los presupuestos estaban en
+€10–€25 y ninguno había gastado la mitad todavía.
+
+**Lo que sigue sin confirmarse, y por qué.** El bucle de pausas. Hoy hay **0 pausas
+en todo el día** (antes eran 23 a 57 por conjunto), pero eso todavía no prueba nada:
+la consulta que importa devolvió **0 conjuntos pausados con gasto de hoy**, y esa es
+justamente la única situación que dispara el bucle. Los 24 conjuntos con gasto están
+todos activos, porque el reseteo los dejó en €25 y ninguno llegó a gastar €5,50 sin
+ventas.
+
+O sea que el bucle no tuvo oportunidad de aparecer, igual que la noche anterior no
+la tuvo por el cambio de día. **Lo que hay que mirar es el momento en que el
+apagador pause a alguien**: con el bug, ese conjunto volvía a aparecer y se pausaba
+otra vez cada 5 minutos; con el arreglo se pausa una sola vez. La consulta que lo
+distingue es contar pausas **por objeto**, no en total:
+
+```sql
+SELECT object_id, count(*) FROM ad_actions
+ WHERE action='pause' AND estado='confirmado' AND NOT dry_run
+   AND created_at >= date_trunc('day', now())
+ GROUP BY 1 HAVING count(*) > 1;
+```
+
+Cero filas = arreglado. Cualquier objeto con más de una pausa en el día = volvió.
+
+Queda anotado también que la regla de apagar ahora corre **cada 5 minutos**
+(el usuario la bajó de 15), así que si el bug estuviera vivo el bucle sería tres
+veces más rápido que el que se midió.
 
 ---
 
