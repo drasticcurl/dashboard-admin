@@ -27,7 +27,18 @@ const patchSchema = z.object({
   retentionDaysEvents: z.number().int().min(1).max(3650).optional(),
 });
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  // Antes de este módulo de permisos, este GET no llamaba a guard() (a
+  // diferencia de su propio PATCH, dos líneas más abajo): cualquiera con la
+  // cookie vieja de "autenticado sin identidad" lo veía, y con permisos por
+  // sección eso pasa a ser cualquiera CON SESIÓN, sin importar si tiene
+  // 'config'. Es exactamente el bug silencioso que D5 existe para evitar,
+  // sólo que en la dirección "ver de más" en vez de "romper una pantalla
+  // ajena". Se descubrió corriendo el checklist de T03 (curl con la cookie
+  // de un usuario sin 'config': daba 200 en vez de 403).
+  const denied = await guard(req);
+  if (denied) return denied;
+
   const settings = await getSettingsRecord();
   return json(200, { ok: true, settings });
 }

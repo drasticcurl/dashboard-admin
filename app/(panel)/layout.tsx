@@ -3,9 +3,14 @@
  * secciones (Resumen, Embudo, Ventas, Leads + Config), sin que la URL diga
  * `(panel)`.
  *
- * - Guard: si la cookie firmada no es válida → redirect a `/`. El middleware
- *   ya cubre esto, pero el guard en el layout es la defensa que queda si
- *   alguien toca el matcher.
+ * - Guard: `sesionActual()` lee la cookie firmada y consulta la base. Sin
+ *   sesión usable → redirect a `/`; con `debeCambiarClave` → `/cambiar-clave`.
+ *   El middleware ya cubre la firma, pero el guard en el layout es la defensa
+ *   que queda si alguien toca el matcher, y además es el ÚNICO que lee la
+ *   identidad (el middleware corre en Edge y no puede consultar Postgres, D3).
+ *   El chequeo de `debeCambiarClave` va acá y no en los layouts de sección: si
+ *   estuviera en cada uno, alguien con la clave por defecto y sin secciones
+ *   caería en /sin-acceso y nunca podría cambiarla (D8).
  * - `force-dynamic`: un panel de métricas cacheado no sirve para nada.
  * - El selector de funnels lo carga el layout (server) y se lo pasa a
  *   `<Nav/>` (client): `listFunnels` toca Postgres, que no existe en el
@@ -21,8 +26,8 @@ import { listFunnels } from '@/lib/funnels';
 import {
   PANEL_COOKIE_NAME,
   clearSessionCookieOptions,
-  isAuthenticated,
 } from '@/lib/auth';
+import { sesionActual } from '@/lib/permisos';
 import { faltanSaldosDeHoy } from '@/lib/queries/saldo';
 import { PANEL_TITLE } from '@/lib/brand';
 import { AvisoSaldo } from '@/components/AvisoSaldo';
@@ -43,9 +48,15 @@ async function logoutAction(): Promise<void> {
 }
 
 export default async function PanelLayout({ children }: { children: ReactNode }) {
-  if (!isAuthenticated(cookies())) {
-    redirect('/');
-  }
+  // `sesionActual()` valida la firma de la cookie Y consulta la base (D3): así
+  // desactivar a alguien o quitarle una pestaña tiene efecto en el request
+  // siguiente, no cuando se le venza la sesión.
+  const sesion = await sesionActual();
+  if (!sesion) redirect('/');
+  // La clave pendiente se chequea acá, en el layout general, y NO en los siete
+  // layouts de sección: si no, alguien con la clave por defecto y sin secciones
+  // caería en /sin-acceso y nunca podría cambiarla (D8).
+  if (sesion.debeCambiarClave) redirect('/cambiar-clave');
 
   // Las dos en paralelo: `faltanSaldosDeHoy` es UNA consulta y corre en cada
   // pantalla del panel, así que no puede sumar latencia en serie.
@@ -99,7 +110,12 @@ export default async function PanelLayout({ children }: { children: ReactNode })
           </Link>
 
           <div className="flex flex-wrap items-center gap-2.5">
-            <Nav funnels={funnels} saldoPendiente={saldo.faltan.length > 0} />
+            <Nav
+              funnels={funnels}
+              saldoPendiente={saldo.faltan.length > 0}
+              seccionesPermitidas={sesion.secciones}
+              nombre={sesion.nombre}
+            />
             <RangePicker />
             <form action={logoutAction}>
               <button

@@ -32,11 +32,12 @@
  * reportó: apretar Actualizar devolvía los mismos números, y lo que el sync
  * traía recién aparecía en el pedido SIGUIENTE.
  *
- * Guard de auth como todos los /api/data/* (plan §9): sin cookie → 401.
+ * Guard como todos los /api/data/* (plan §9): sin cookie → 401, y sin la
+ * pestaña Anuncios → 403 (D5). Delega en `guard()` de config/_lib.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { isAuthenticated } from '@/lib/auth';
+import { guard } from '../../config/_lib';
 import { q, q1 } from '@/lib/db';
 import { getMetricasAds, rangoDePeriodo } from '@/lib/queries/ads';
 import { UMBRAL_FRESCURA_DEFAULT_SEGUNDOS } from '@/lib/ads/frescura';
@@ -75,9 +76,8 @@ function listaIds(vals: string[]): string[] | undefined {
 }
 
 export async function GET(req: NextRequest): Promise<Response> {
-  if (!isAuthenticated(req.cookies)) {
-    return json(401, { ok: false, error: 'unauthorized' });
-  }
+  const denied = await guard(req);
+  if (denied) return denied;
 
   const sp = req.nextUrl.searchParams;
 

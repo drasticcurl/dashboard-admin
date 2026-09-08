@@ -1,4 +1,5 @@
 import { Suspense } from 'react';
+import { requerirSeccion } from '@/lib/permisos';
 import { SubNav } from './SubNav';
 
 /**
@@ -19,11 +20,15 @@ import { SubNav } from './SubNav';
  * fallback de la misma altura: sin eso el primer render deja el hueco vacío y
  * vuelve a haber salto de layout.
  */
-export default function AnunciosLayout({
+export default async function AnunciosLayout({
   children,
 }: {
   children: React.ReactNode;
-}): JSX.Element {
+}): Promise<JSX.Element> {
+  // Guard de permiso de /anuncios (D4). Las otras siete secciones lo tienen en
+  // un layout nuevo de tres líneas; ésta ya tenía layout, así que el guard va
+  // adentro. El chequeo de `debeCambiarClave` lo hace el layout general (D8).
+  await requerirSeccion('anuncios');
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">

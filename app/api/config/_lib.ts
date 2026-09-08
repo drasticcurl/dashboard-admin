@@ -16,7 +16,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { isAuthenticated } from '@/lib/auth';
+import { guardSeccion } from '@/lib/permisos';
 import { q, q1 } from '@/lib/db';
 import { MONEDA_REPORTE } from '@/lib/moneda-reporte';
 
@@ -24,12 +24,20 @@ export function json(status: number, body: unknown): NextResponse {
   return NextResponse.json(body, { status });
 }
 
-/** 401 si no hay cookie válida; null si está OK. */
+/**
+ * El guard de los endpoints de config, y de las siete routes de datos que antes
+ * hacían su `isAuthenticated` inline (T03). Conserva la firma
+ * `Promise<NextResponse | null>` — 23 routes hacen
+ * `const denied = await guard(req); if (denied) return denied;` y ninguna se
+ * toca — pero adentro delega en `guardSeccion(req)` de `lib/permisos.ts`, que
+ * chequea firma, clave pendiente y permiso por sección contra `MAPA_API` (D5).
+ *
+ * `null` cuando puede pasar; el `NextResponse` con el error ya armado (401
+ * unauthorized, 403 clave_pendiente o 403 forbidden) cuando no.
+ */
 export async function guard(req: NextRequest): Promise<NextResponse | null> {
-  if (!isAuthenticated(req.cookies)) {
-    return json(401, { ok: false, error: 'unauthorized' });
-  }
-  return null;
+  const r = await guardSeccion(req);
+  return 'respuesta' in r ? r.respuesta : null;
 }
 
 export async function parseJson(req: NextRequest): Promise<unknown | null> {

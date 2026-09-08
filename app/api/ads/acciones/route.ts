@@ -38,7 +38,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { isAuthenticated, getClientIp } from '@/lib/auth';
+import { getClientIp } from '@/lib/auth';
+import { guard } from '../../config/_lib';
 import { q, q1 } from '@/lib/db';
 import { enviar, fetchObjeto, MetaAdsError, setDailyBudget, setInicio, setNombre } from '@/lib/ads/meta';
 import type { NivelAds, ResultadoEscritura } from '@/lib/ads/tipos';
@@ -390,10 +391,10 @@ const dosDec = new Intl.NumberFormat('es-AR', {
 const eur = (n: number): string => `${SIMBOLO_REPORTE}${dosDec.format(n)}`;
 
 export async function POST(req: NextRequest): Promise<Response> {
-  // 1. Guard ANTES de deserializar (R17 c1): sin cookie, 401, nada de nada.
-  if (!isAuthenticated(req.cookies)) {
-    return json(401, { ok: false, error: 'unauthorized' });
-  }
+  // 1. Guard ANTES de deserializar (R17 c1): sin cookie, 401, nada de nada; y
+  //    sin la pestaña Anuncios, 403, tampoco escribe ni llama a Meta (D5).
+  const denied = await guard(req);
+  if (denied) return denied;
 
   // 2. Esquema cerrado (R17 c3). El `detail` nombra el campo y la regla, porque
   //    es el texto que el cliente muestra tal cual (R1 c6).

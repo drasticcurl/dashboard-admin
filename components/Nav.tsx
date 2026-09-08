@@ -1,12 +1,18 @@
 'use client';
 
 /**
- * Nav — las seis tabs del panel + el selector de funnel.
+ * Nav — las ocho tabs del panel + el selector de funnel.
  *
  * El selector vive acá y no en cada sección porque Embudo y Ventas lo
  * comparten: cambiar de funnel no puede perder el rango elegido, y viceversa.
  * Por eso cada cambio (tab, funnel, rango) preserva TODO el query string
  * actual: `?f=` y `?range=` sobreviven a la navegación.
+ *
+ * Filtrar las tabs por `seccionesPermitidas` es COSMÉTICO (D6): esconde los
+ * links que le darían un redirect a quien no tiene la sección, pero la
+ * seguridad de verdad es el guard del layout y el `guard()` de las routes. Si
+ * este filtro no corriera, nadie vería datos que no debe; sólo vería una tab
+ * que lo rebota.
  *
  * Los iconos son de Phosphor (D-R11), peso `bold` como el resto del panel.
  */
@@ -16,16 +22,26 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { CaretDown } from '@phosphor-icons/react';
 import { nombreVisible } from '@/lib/funnel-nombre';
 import type { Funnel } from '@/lib/funnels';
+// SÓLO el tipo, con `import type`: `lib/permisos.ts` importa `next/headers`
+// (server-only) y este componente es `'use client'`. Un import de valor —traer
+// la constante `SECCIONES`— arrastraría ese módulo al bundle del cliente y el
+// build falla con "You're importing a component that needs next/headers". El
+// tipo se borra en compilación, así que no cruza esa frontera.
+import type { Seccion } from '@/lib/permisos';
 
 const TABS = [
-  { href: '/resumen', label: 'Resumen' },
-  { href: '/embudo', label: 'Embudo' },
-  { href: '/ventas', label: 'Ventas' },
-  { href: '/anuncios', label: 'Anuncios' },
-  { href: '/finanzas', label: 'Finanzas' },
-  { href: '/leads', label: 'Leads' },
-  { href: '/config', label: 'Config' },
-];
+  { href: '/resumen', label: 'Resumen', seccion: 'resumen' },
+  { href: '/embudo', label: 'Embudo', seccion: 'embudo' },
+  { href: '/ventas', label: 'Ventas', seccion: 'ventas' },
+  { href: '/anuncios', label: 'Anuncios', seccion: 'anuncios' },
+  { href: '/finanzas', label: 'Finanzas', seccion: 'finanzas' },
+  { href: '/leads', label: 'Leads', seccion: 'leads' },
+  // Tareas va ANTES de Config: Config es la última porque es configuración, y
+  // Tareas es una pantalla de uso diario. Apunta a /tareas, que existe recién
+  // con T06 (§7 del plan): hasta entonces el link da 404, y es esperado.
+  { href: '/tareas', label: 'Tareas', seccion: 'tareas' },
+  { href: '/config', label: 'Config', seccion: 'config' },
+] satisfies { href: string; label: string; seccion: Seccion }[];
 
 /**
  * El estilo compartido de los dos <select> del header (funnel y período).
@@ -44,6 +60,8 @@ export const SELECT_HEADER =
 export function Nav({
   funnels,
   saldoPendiente = false,
+  seccionesPermitidas,
+  nombre,
 }: {
   funnels: Funnel[];
   /**
@@ -57,10 +75,31 @@ export function Nav({
    * "listo" se volverían indistinguibles.
    */
   saldoPendiente?: boolean;
+  /**
+   * Las secciones que el usuario puede ver. Sólo se muestran esas tabs (D6, y
+   * es cosmético: la seguridad es el guard). Opcional: si NO viene (por ejemplo
+   * si alguien monta el componente sin la prop), se muestran TODAS las tabs,
+   * que es el comportamiento de siempre. El layout de `(panel)` siempre la pasa
+   * con `sesion.secciones`.
+   */
+  seccionesPermitidas?: readonly Seccion[];
+  /**
+   * El nombre del usuario logueado. Con dos personas usando el mismo panel,
+   * saber con cuál estás deja de ser un detalle: es lo que evita crear una
+   * tarea con el dueño equivocado. Va al lado de Salir.
+   */
+  nombre?: string;
 }) {
   const pathname = usePathname() ?? '/';
   const searchParams = useSearchParams();
   const router = useRouter();
+
+  // Sólo las tabs de las secciones permitidas (D6). El filtro es cosmético: el
+  // guard del layout y el `guard()` de las routes son la seguridad de verdad.
+  // Sin la prop (undefined) se muestran todas, que es el comportamiento de siempre.
+  const tabsVisibles = seccionesPermitidas
+    ? TABS.filter((t) => seccionesPermitidas.includes(t.seccion))
+    : TABS;
 
   const onFunnelChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -90,7 +129,7 @@ export function Nav({
         cambiar de sección.
       */}
       <ul className="flex items-center gap-0.5 rounded-xl bg-canvas/60 p-1 shadow-[inset_0_1px_2px_0_rgba(4,6,14,0.6),inset_0_0_0_1px_rgba(255,255,255,0.05)]">
-        {TABS.map((t) => {
+        {tabsVisibles.map((t) => {
           const tab = { ...t, pendiente: t.href === '/finanzas' && saldoPendiente };
           const active =
             pathname === tab.href || pathname.startsWith(`${tab.href}/`);
@@ -175,6 +214,19 @@ export function Nav({
             className="pointer-events-none absolute right-3 text-neutral-400"
           />
         </div>
+      )}
+
+      {/*
+        El nombre del usuario logueado, al lado de los controles del header
+        (Salir queda inmediatamente después, en el layout). Con dos personas
+        usando el mismo panel, saber con cuál estás deja de ser un detalle: es
+        lo que evita crear una tarea con el dueño equivocado. `text-neutral-400`
+        y el mismo tamaño que "Salir".
+      */}
+      {nombre && (
+        <span className="px-2.5 py-1.5 text-sm font-medium text-neutral-400">
+          {nombre}
+        </span>
       )}
     </nav>
   );

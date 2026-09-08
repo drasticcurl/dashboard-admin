@@ -10,8 +10,8 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { isAuthenticated } from '@/lib/auth';
 import { today } from '@/lib/day';
+import { guard } from '../../config/_lib';
 import { ensureFreshAdSpend } from '@/lib/ads/live';
 import { resolveFunnelRange } from '@/lib/queries/funnel';
 import { getDashboardTimezone } from '@/lib/queries/sales';
@@ -25,9 +25,11 @@ function json(status: number, body: unknown): NextResponse {
 }
 
 export async function GET(req: NextRequest) {
-  if (!isAuthenticated(req.cookies)) {
-    return json(401, { ok: false, error: 'unauthorized' });
-  }
+  // Un curl sin cookie tiene que recibir 401 (nunca datos) y quien no tiene la
+  // pestaña Resumen un 403: es el guard que el middleware no cubre si alguien le
+  // toca el matcher (plan §9), y ahora también hace cumplir el permiso (D5).
+  const denied = await guard(req);
+  if (denied) return denied;
 
   const sp = req.nextUrl.searchParams;
   const tz = getDashboardTimezone();

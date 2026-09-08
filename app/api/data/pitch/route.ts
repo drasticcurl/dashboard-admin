@@ -9,8 +9,8 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { isAuthenticated } from '@/lib/auth';
 import { getFunnelBySlug } from '@/lib/funnels';
+import { guard } from '../../config/_lib';
 import { resolveFunnelRange } from '@/lib/queries/funnel';
 import { getPitchData } from '@/lib/queries/pitch';
 
@@ -22,11 +22,11 @@ function json(status: number, body: unknown): NextResponse {
 }
 
 export async function GET(req: NextRequest) {
-  // Un curl sin cookie tiene que recibir 401 y nunca datos: es el guard que el
-  // middleware no cubre si alguien le toca el matcher.
-  if (!isAuthenticated(req.cookies)) {
-    return json(401, { ok: false, error: 'unauthorized' });
-  }
+  // Un curl sin cookie tiene que recibir 401 y nunca datos, y quien no tiene la
+  // pestaña Embudo un 403: es el guard que el middleware no cubre si alguien le
+  // toca el matcher, y ahora también hace cumplir el permiso por sección (D5).
+  const denied = await guard(req);
+  if (denied) return denied;
 
   const sp = req.nextUrl.searchParams;
   const slug = sp.get('f') ?? '';
