@@ -37,9 +37,18 @@ export function Columna({
   const { setNodeRef, isOver } = useDroppable({ id });
 
   return (
+    /*
+      `bg-surface/60` y no `bg-canvas/40`: canvas ES el fondo de la página
+      (#08090d), así que `bg-canvas/40` sobre el canvas es EXACTAMENTE el mismo
+      color — la columna quedaba sin relleno y en PC, con las 4 al lado, no se
+      veía dónde empezaba y terminaba cada una. Tiene que ser translúcida y no
+      `bg-surface` a secas: la columna es el hueco y las tarjetas de adentro son
+      lo que sobresale, y las tarjetas ya son `bg-surface`. Si la columna usa el
+      mismo token opaco, las tarjetas desaparecen contra ella.
+    */
     <section
       aria-label={`Columna ${titulo}`}
-      className="flex flex-col rounded-2xl border border-border-subtle bg-canvas/40 p-3"
+      className="flex flex-col rounded-2xl border border-border-subtle bg-surface/60 p-3"
     >
       <header className="mb-3 flex items-center justify-between gap-2 px-1">
         <h2 className="text-xs font-semibold uppercase tracking-wide text-neutral-400">
@@ -52,10 +61,16 @@ export function Columna({
 
       {/* El contenedor entero es la zona droppable: min-h para que una columna
           vacía tenga superficie. El resaltado va por background/box-shadow, que
-          no tocan el transform de dnd-kit. */}
+          no tocan el transform de dnd-kit.
+
+          El `min-h` sube a 20rem desde `lg`, que es el breakpoint en el que
+          TableroView pasa a 4 columnas: con 8rem fijos el tablero vacío era una
+          tira de 128px arriba de una pantalla de 700px de alto y no se leía como
+          un tablero. En mobile se queda en 8rem porque ahí las 4 columnas van
+          UNA DEBAJO DE OTRA y 20rem cada una serían 80rem de scroll vacío. */}
       <div
         ref={setNodeRef}
-        className={`flex min-h-[8rem] flex-1 flex-col gap-2 rounded-xl p-1 transition-[background-color,box-shadow] duration-150 ${
+        className={`flex min-h-[8rem] flex-1 flex-col gap-2 rounded-xl p-1 transition-[background-color,box-shadow] duration-150 lg:min-h-[20rem] ${
           isOver ? 'bg-good-500/[0.06] shadow-inset-highlight ring-1 ring-inset ring-good-500/30' : ''
         }`}
       >
@@ -70,8 +85,11 @@ export function Columna({
           ))}
         </SortableContext>
 
+        {/* `m-auto` y no `py-6`: es el único hijo del flex-col, así que el margen
+            auto lo centra en los dos ejes. Con `py-6` el texto quedaba pegado
+            arriba y las 20rem de abajo se veían como una columna cortada. */}
         {tareas.length === 0 && (
-          <p className="pointer-events-none select-none py-6 text-center text-xs text-neutral-600">
+          <p className="pointer-events-none m-auto select-none px-2 text-center text-xs text-neutral-600">
             Soltá una tarjeta acá
           </p>
         )}

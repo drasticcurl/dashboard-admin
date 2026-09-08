@@ -10,6 +10,94 @@ Lo más nuevo va arriba. Las reglas de cómo se escribe una entrada están en
 
 ---
 
+## 2026-09-08 — El tablero de Tareas se veía mal en desktop: columnas sin relleno, board achatado y modal sin techo
+
+Toca `app/(panel)/tareas/Columna.tsx`, `app/(panel)/tareas/TableroView.tsx`,
+`app/(panel)/tareas/NuevaTarea.tsx` y `app/(panel)/finanzas/Modal.tsx`.
+
+**Qué pasaba.** Cuatro cosas distintas, todas visibles en la misma captura de
+`/tareas` con el modal de "Nueva tarea" abierto en un viewport de ~1377×670:
+
+1. **Las columnas no tenían relleno.** `Columna.tsx` las pintaba con
+   `bg-canvas/40`, y `canvas` **es** el fondo de la página (`#08090d`, definido
+   en `tailwind.config.ts`). Un color al 40% sobre sí mismo da el mismo color:
+   el `<section>` de cada columna quedaba con la única señal del
+   `border-border-subtle`, que es blanco al 6%. Con las 4 columnas al lado y sin
+   tarjetas, el tablero era una franja de texto gris flotando en negro. Era el
+   único lugar del repo que usaba `bg-canvas/N` como superficie de tarjeta: las
+   otras siete pantallas usan `bg-surface` (`components/ui.tsx:96`, `145`, `532`,
+   `700`; `WidgetGrid.tsx:222`, `300`, `514`; `FinanzasView.tsx:241`;
+   `ConfigView.tsx:191`; `EmbudoView.tsx:248`).
+2. **El board medía 128px de alto.** La zona droppable era `min-h-[8rem]` fija en
+   todos los breakpoints, y el `<main>` del panel arranca en `pt-7`. Un tablero
+   vacío ocupaba los primeros ~260px de una pantalla de 670 y el resto era canvas.
+3. **Las 4 columnas recién aparecían en `xl` (1280px).** Entre 1024 y 1279 el
+   grid era `md:grid-cols-2`, o sea 2 columnas en 2 filas: una lista, no un
+   kanban. Como el `<main>` mide `max-w-7xl` (1280px), el rango que quedaba en 2
+   columnas es justo el de un laptop.
+4. **El modal no tenía techo de alto.** La tarjeta de `finanzas/Modal.tsx` crecía
+   lo que pedía el contenido y el scroll lo hacía el **overlay**. En la captura,
+   "Nueva tarea" se cortaba después del textarea de Notas: no se veían "Asignar
+   a", "Prioridad", "Vence el" ni los botones Cancelar/Crear tarea. `DetalleTarea`
+   es peor —formulario + enlaces + comentarios + confirmación de borrado— y
+   tampoco llegaba a "Guardar cambios". Encima `NuevaTarea` pedía `ancho="lg"`
+   (`max-w-4xl`, 896px) contra el contrato que declara el propio Modal en su
+   prop: *"`lg` para las secciones con tabla; `md` para un formulario solo"*. Y
+   Notas, que es el único campo opcional y el más alto, estaba **segundo**, así
+   que era exactamente lo que empujaba a los otros tres abajo del pliegue.
+
+**Por qué se resolvió así.** Las alternativas descartadas:
+
+- Para la columna se descartó **`bg-surface` a secas**, que es lo que usa el
+  resto del panel. Las tarjetas de adentro ya son `bg-surface` (`#111219`): con
+  el mismo token opaco en el contenedor, las tarjetas desaparecen contra su
+  columna. Quedó `bg-surface/60` → `rgba(17,18,25,.6)`, que sobre canvas resuelve
+  a ~`#0d0e14`: se ve la columna y las tarjetas siguen sobresaliendo. La columna
+  es el hueco, no la tarjeta.
+- Para el alto se descartó **subir el `min-h` en todos los breakpoints**. En
+  mobile las 4 columnas van una debajo de otra, así que 20rem cada una son 80rem
+  de scroll vacío. El `min-h-[20rem]` entra en `lg`, el mismo breakpoint en el
+  que ahora aparecen las 4 columnas: los dos cambios tienen que moverse juntos o
+  queda un estado intermedio raro.
+- Para el modal se descartó **repetir el `max-h` en cada llamador** (los cuatro
+  de finanzas más los dos de tareas) y también **copiar el modal de
+  `anuncios/reglas/ReglasView.tsx:1968`**, que ya resolvía esto con
+  `max-h-[calc(100vh-2rem)] flex-col overflow-hidden`. Copiarlo son dos focus
+  traps que divergen; el arreglo va en el Modal compartido, que es de donde salen
+  los seis. Se usó `dvh` y no `vh` por lo mismo que `min-h-dvh` en
+  `app/(panel)/layout.tsx`: `100vh` en Safari de iOS cuenta la barra de
+  direcciones que se esconde al scrollear. El `-2rem` es el `p-4` del overlay.
+- **El `min-h-0` del contenedor de scroll no es cosmético.** Un hijo de flex
+  tiene `min-height: auto` y se niega a encogerse por debajo de su contenido: sin
+  él, el `overflow-y-auto` no se activa nunca y la tarjeta desborda el `max-h`
+  igual que antes. Si alguien "limpia" esa clase, el bug vuelve entero.
+- Se descartó dar `md:col-span-2` a "Vence el (opcional)". Deja de haber una
+  media fila vacía, pero un `input type="date"` estirado a 536px se ve como un
+  error de layout. La media fila vacía es lo normal en un formulario.
+
+**Consecuencia pendiente:** el cambio del Modal les toca el alto a los cuatro
+modales de `/finanzas` (Saldos, Movimientos, Pagos programados, Cuentas), que son
+los que tienen tabla. Ninguno traía `max-h` ni `overflow` propios —se verificó
+por grep en `app/(panel)/finanzas/**/*.tsx`— así que no hay doble scroll, pero
+esas cuatro pantallas ahora scrollean por dentro en vez de por el overlay y no se
+vieron a ojo.
+
+**Qué se verificó.** `npm run build` OK. `npx vitest --run app/(panel)/tareas` →
+25 tests en verde (`tablero.test.ts` 20, `prioridad.test.ts` 5). Las clases
+nuevas se buscaron en el CSS compilado para confirmar que Tailwind las generó:
+`bg-surface\/60{background-color:rgba(17,18,25,.6)}`,
+`min-h-\[20rem\]{min-height:20rem}`, `100dvh - 2rem`, `lg\:grid-cols-4`,
+`min-h-0`, `m-auto`. **Lo que NO se verificó:** nada de esto se vio renderizado
+en un browser — es un cambio de CSS validado por lectura del código y del CSS
+compilado, no por captura. `npm run test` completo no se puede usar como
+evidencia acá: 148 tests fallan con `connect ECONNREFUSED 127.0.0.1:5433` porque
+no hay Postgres local, y ya fallaban antes. `npx tsc --noEmit` deja un único
+error, `app/(panel)/tareas/tablero.test.ts(18,5): error TS2783: 'id' is specified
+more than once`, que es **preexistente** y en un archivo que esta tanda no toca.
+`npm run lint` se cortó por timeout a los 300s sin llegar a terminar.
+
+---
+
 ## 2026-09-08 — Usuarios con clave propia y permisos por pestaña, tablero de tareas, y ROI en Resumen
 
 Módulo `usuarios-y-tareas`, siete tasks (T01–T07). Toca, entre otros:

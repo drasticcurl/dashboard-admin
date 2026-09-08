@@ -83,13 +83,27 @@ export function NuevaTarea({
   }
 
   return (
-    <Modal titulo="Nueva tarea" onCerrar={onCerrar} ancho="lg">
+    /*
+      `ancho="md"` (max-w-xl, 576px) y no `lg`: es el contrato que declara el
+      propio Modal —`lg` es para las secciones con TABLA, `md` para un formulario
+      solo—. Con `lg` esto eran 896px de modal para cinco campos, un cuadro
+      medio vacío que en PC ocupaba dos tercios de la pantalla. El detalle sí se
+      queda en `lg` porque abajo lleva las listas de enlaces y comentarios.
+    */
+    <Modal titulo="Nueva tarea" onCerrar={onCerrar} ancho="md">
       {error && (
         <div className="mb-3">
           <Banner tone="bad">{error}</Banner>
         </div>
       )}
 
+      {/*
+        Orden: Título → los tres campos cortos → Notas. Notas estaba SEGUNDO y es
+        el único opcional y el más alto de todos: empujaba "Asignar a",
+        "Prioridad", "Vence el" y los botones abajo del pliegue, así que en un
+        laptop se abría el modal y lo único que se veía era un título y un cuadro
+        de texto grande. Lo opcional va al final.
+      */}
       <div className="grid gap-4 md:grid-cols-2">
         <label className={`${labelCls} md:col-span-2`}>
           Título
@@ -101,15 +115,6 @@ export function NuevaTarea({
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) crear();
             }}
-          />
-        </label>
-
-        <label className={`${labelCls} md:col-span-2`}>
-          Notas (opcional)
-          <textarea
-            className={`${inputCls} min-h-[4rem] resize-y`}
-            value={notas}
-            onChange={(e) => setNotas(e.target.value)}
           />
         </label>
 
@@ -144,6 +149,9 @@ export function NuevaTarea({
           </select>
         </label>
 
+        {/* Media columna y no `col-span-2`: un `input type="date"` estirado a
+            todo el ancho del modal se ve como un error. La media fila vacía al
+            lado es lo normal en un formulario; un campo de fecha de 536px no. */}
         <label className={labelCls}>
           Vence el (opcional)
           <input
@@ -151,6 +159,15 @@ export function NuevaTarea({
             className={inputCls}
             value={venceEl}
             onChange={(e) => setVenceEl(e.target.value)}
+          />
+        </label>
+
+        <label className={`${labelCls} md:col-span-2`}>
+          Notas (opcional)
+          <textarea
+            className={`${inputCls} min-h-[4rem] resize-y`}
+            value={notas}
+            onChange={(e) => setNotas(e.target.value)}
           />
         </label>
       </div>

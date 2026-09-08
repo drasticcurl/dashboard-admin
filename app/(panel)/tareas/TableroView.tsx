@@ -407,7 +407,13 @@ export function TableroView({
           },
         }}
       >
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+        {/* Las 4 columnas desde `lg` (1024px) y no desde `xl` (1280px): el
+            `<main>` del layout mide `max-w-7xl` = 1280px, así que en un laptop de
+            1152 o 1280 lógicos —la mitad de las pantallas— el tablero se veía en
+            2 columnas de 2 filas, que es una lista, no un kanban. A 1024px cada
+            columna queda en ~235px y la fila de chips de la tarjeta ya es
+            `flex-wrap`, así que aguanta. */}
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
           {ORDEN_COLUMNAS.map((col) => (
             <Columna
               key={col}

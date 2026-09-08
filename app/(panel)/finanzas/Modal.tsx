@@ -16,8 +16,8 @@
  *
  * Lo que sí se copió de él es el envoltorio visual, para que los dos modales del
  * panel se vean como el mismo objeto: `fixed inset-0` con `bg-canvas/80` y
- * `backdrop-blur-sm`, la tarjeta con `rounded-2xl border-border-strong bg-surface
- * shadow-float`, y `max-h-[90vh] overflow-y-auto`.
+ * `backdrop-blur-sm`, y la tarjeta con `rounded-2xl border-border-strong
+ * bg-surface shadow-float`.
  *
  * Y lo que se AGREGÓ, porque acá adentro van formularios y no un sí/no:
  *
@@ -35,6 +35,9 @@
  *    pueden ver.
  *  · **El scroll del fondo se bloquea.** Sin esto, la rueda del mouse scrollea
  *    la página de atrás y el modal parece pegado.
+ *  · **La tarjeta tiene techo y scrollea POR DENTRO.** Un modal que crece hasta
+ *    donde quiera el contenido deja los botones fuera de pantalla en cualquier
+ *    laptop, y el único scroll disponible era el del overlay: nadie lo busca.
  *
  * No se usó el `<dialog>` nativo (que daría varias de estas gratis) porque su
  * `::backdrop` no acepta las utilidades de Tailwind del panel y habría que
@@ -136,11 +139,30 @@ export function Modal({
         aria-labelledby={idTitulo}
         aria-describedby={descripcion ? idDesc : undefined}
         tabIndex={-1}
-        className={`my-auto w-full ${
+        /*
+          `max-h` + `flex-col` + el scroll ADENTRO, no en el overlay.
+          Antes la tarjeta no tenía techo y crecía todo lo que pedía el
+          contenido: el scroll lo hacía el overlay, así que en un viewport de
+          laptop (~670px de alto) el detalle de una tarea —formulario + enlaces +
+          comentarios + borrar— quedaba con la mitad fuera de pantalla y el botón
+          de guardar sólo aparecía scrolleando el fondo, que es lo que nadie
+          intenta cuando ve un modal. Con el techo, la tarjeta SIEMPRE entra, el
+          encabezado y el botón Cerrar quedan fijos, y lo que se mueve es el
+          contenido.
+
+          `dvh` y no `vh` por lo mismo que `min-h-dvh` en el layout del panel:
+          `100vh` en Safari de iOS cuenta la barra de direcciones que se esconde.
+          El `-2rem` es el `p-4` del overlay: sin restarlo la tarjeta mide el
+          viewport entero y se come su propio margen.
+
+          El molde es el modal de `anuncios/reglas/ReglasView.tsx`, que ya
+          resolvía esto con `max-h-[calc(100vh-2rem)] flex-col overflow-hidden`.
+        */
+        className={`my-auto flex max-h-[calc(100dvh-2rem)] w-full flex-col ${
           ancho === 'lg' ? 'max-w-4xl' : 'max-w-xl'
         } rounded-2xl border border-border-strong bg-surface p-5 shadow-float outline-none`}
       >
-        <div className="mb-4 flex items-start justify-between gap-4">
+        <div className="mb-4 flex shrink-0 items-start justify-between gap-4">
           <div>
             <h2 id={idTitulo} className="text-base font-semibold -tracking-[0.01em] text-neutral-50">
               {titulo}
@@ -164,7 +186,17 @@ export function Modal({
             Cerrar <span aria-hidden className="ml-1 text-neutral-500">Esc</span>
           </button>
         </div>
-        {children}
+        {/*
+          `min-h-0` NO es decorativo y es el 90% de este div: un hijo de flex
+          tiene `min-height: auto`, o sea que se niega a encogerse por debajo de
+          su contenido, así que sin esto el `overflow-y-auto` nunca se activa y la
+          tarjeta desborda el `max-h` igual que antes. Es la trampa clásica de
+          "puse overflow-auto y no scrollea".
+
+          `-mr-2 pr-2` mete la barra de scroll adentro del padding de la tarjeta,
+          para que no corte el borde derecho de los inputs.
+        */}
+        <div className="-mr-2 min-h-0 flex-1 overflow-y-auto pr-2">{children}</div>
       </div>
     </div>
   );
