@@ -1,13 +1,21 @@
 /**
  * `/` — login del panel.
  *
- * Sin auth: form de login (server action `loginAction`), mismo patrón que
- * `app/admin/page.tsx` de los funnels:
+ * Desde la migración 030 el login es por USUARIO + clave (antes era una sola
+ * contraseña compartida). El server action `loginAction`:
  *   - Rate limit por IP (5 intentos / 15 min) en `lib/auth.ts`.
- *   - Comparación timing-safe.
- *   - Cookie firmada con HMAC-SHA256(ts, DASHBOARD_PASSWORD).
- *   - Mensaje de error genérico para no leakear estado (ni "password mala"
- *     vs "rate limit", ni si la password está configurada).
+ *   - Busca el usuario por nombre normalizado (`usuarioPorNombre`).
+ *   - FALLBACK D10: con la tabla `usuarios` VACÍA, DASHBOARD_PASSWORD sigue
+ *     valiendo y esa sesión es admin (usuarioId 0). Se apaga solo en cuanto hay
+ *     una fila. Lo resuelve `intentarFallback()` de `lib/permisos.ts`.
+ *   - Verifica la clave con scrypt (`verificarClave`, timing-safe).
+ *   - Firma la cookie con el id del usuario (`signSessionToken(id)`, D1/D2).
+ *   - Redirige a `/cambiar-clave` si `debeCambiarClave`, si no a `/resumen`.
+ *
+ * El mensaje de error es GENÉRICO para las CUATRO causas (usuario inexistente,
+ * clave mala, campo vacío, rate limit): un login que dice "no existe ese
+ * usuario" es un enumerador de usuarios gratis, y distinguir rate limit de
+ * clave mala filtra en qué estado está el login. Mismo `?error=1` para todo.
  *
  * Con auth: redirect a `/resumen`.
  */
@@ -23,8 +31,10 @@ import {
   resetLoginRateLimit,
   sessionCookieOptions,
   signSessionToken,
-  verifyPassword,
+  verificarClave,
 } from '@/lib/auth';
+import { intentarFallback } from '@/lib/permisos';
+import { marcarLogin, usuarioPorNombre } from '@/lib/queries/usuarios';
 
 export const dynamic = 'force-dynamic';
 
@@ -33,6 +43,13 @@ type SearchParams = { [key: string]: string | string[] | undefined };
 async function loginAction(formData: FormData): Promise<void> {
   'use server';
 
+  // El id que va a la cookie sale de acá, y se decide DESPUÉS de validar. Lo
+  // guardamos afuera del try porque el `redirect` de Next tira una excepción
+  // (así corta el flujo), y firmar/redirigir tiene que pasar fuera de cualquier
+  // catch que se coma ese throw.
+  let usuarioIdParaCookie: number | null = null;
+  let redirigirA = '/resumen';
+
   // La IP sale de `x-real-ip` (la setea Caddy con {client_ip}); en dev local
   // sin proxy cae al último token de x-forwarded-for o 'unknown'.
   const h = headers();
@@ -40,22 +57,65 @@ async function loginAction(formData: FormData): Promise<void> {
 
   const rl = checkLoginRateLimit(ip);
   if (!rl.allowed) {
+    // Rate limit: mismo mensaje genérico, sin decir que es rate limit.
     redirect('/?error=1');
   }
 
-  const password = formData.get('password');
-  const passStr = typeof password === 'string' ? password : '';
+  const usuarioRaw = formData.get('usuario');
+  const passwordRaw = formData.get('password');
+  // El usuario se normaliza con .trim().toLowerCase() ANTES de buscar: el CHECK
+  // de la 030 exige la columna en minúsculas sin espacios, así que sin esto
+  // "Lucho" no entra y no hay ningún error que lo explique.
+  const usuario = typeof usuarioRaw === 'string' ? usuarioRaw.trim().toLowerCase() : '';
+  const clave = typeof passwordRaw === 'string' ? passwordRaw : '';
 
-  if (!verifyPassword(passStr)) {
+  // Campo vacío: mismo mensaje genérico. No distingue de clave mala.
+  if (usuario === '' || clave === '') {
     redirect('/?error=1');
   }
 
-  const token = signSessionToken();
+  const fila = await usuarioPorNombre(usuario);
+
+  if (!fila) {
+    // El usuario no existe. SÓLO en ese caso se prueba el fallback de D10, y
+    // sólo si la tabla está vacía: `intentarFallback` chequea `contarUsuarios()
+    // === 0` adentro y verifica la clave contra DASHBOARD_PASSWORD. No es "si no
+    // encontré el usuario, probá con la vieja" — se apaga solo en cuanto hay una
+    // fila. La consulta a la base sólo ocurre en esta rama (usuario no hallado),
+    // no en cada login.
+    const fallback = await intentarFallback(clave);
+    if (fallback) {
+      usuarioIdParaCookie = fallback.usuarioId; // 0
+      redirigirA = '/resumen';
+    } else {
+      redirect('/?error=1');
+    }
+  } else {
+    // El usuario existe: verificar la clave contra su hash (scrypt, timing-safe).
+    const ok = await verificarClave(clave, fila.claveHash);
+    if (!ok) {
+      redirect('/?error=1');
+    }
+    usuarioIdParaCookie = fila.id;
+    // Marca el último login sólo tras un login exitoso de un usuario real (el
+    // fallback no tiene fila que marcar).
+    await marcarLogin(fila.id);
+    redirigirA = fila.debeCambiarClave ? '/cambiar-clave' : '/resumen';
+  }
+
+  // Si llegamos acá sin id, algo salió mal: fallar cerrado.
+  if (usuarioIdParaCookie === null) {
+    redirect('/?error=1');
+  }
+
+  const token = signSessionToken(usuarioIdParaCookie);
   if (!token) {
-    // Sin password configurada el sign devuelve null: el login falla cerrado.
+    // Sin secreto de firma configurado el sign devuelve null: el login falla
+    // cerrado (nunca "entra cualquiera porque no hay secreto").
     redirect('/?error=1');
   }
 
+  // El reset del rate limit SÓLO después de un login exitoso, como hoy.
   resetLoginRateLimit(ip);
 
   cookies().set({
@@ -64,7 +124,7 @@ async function loginAction(formData: FormData): Promise<void> {
     ...sessionCookieOptions(),
   });
 
-  redirect('/resumen');
+  redirect(redirigirA);
 }
 
 export default function LoginPage({
@@ -110,21 +170,33 @@ export default function LoginPage({
           Acceso al panel
         </h1>
         <p className="mt-1.5 max-w-[42ch] text-pretty text-sm leading-relaxed text-neutral-400">
-          Esta sección es privada. Ingresá la contraseña para continuar.
+          Esta sección es privada. Ingresá tu usuario y contraseña para continuar.
         </p>
 
         <form action={loginAction} className="mt-6 space-y-3.5">
+          <label className="block">
+            <span className="block text-sm font-medium text-neutral-300">Usuario</span>
+            <input
+              type="text"
+              name="usuario"
+              autoComplete="username"
+              autoFocus
+              required
+              /* El anillo de foco lo da el `:focus-visible` global. Acá sólo
+                 viaja el cambio de borde, que es la señal de "estoy escribiendo
+                 en este campo" y sobrevive al click del mouse. */
+              className="mt-2 w-full rounded-xl border border-border-strong bg-canvas/60 px-3.5 py-2.5 text-sm text-neutral-100 shadow-[inset_0_1px_2px_0_rgba(4,6,14,0.5)] transition-colors duration-250 placeholder:text-neutral-600 hover:border-overlay/16 focus:border-good-500/60"
+              placeholder="tu usuario"
+            />
+          </label>
+
           <label className="block">
             <span className="block text-sm font-medium text-neutral-300">Contraseña</span>
             <input
               type="password"
               name="password"
               autoComplete="current-password"
-              autoFocus
               required
-              /* El anillo de foco lo da el `:focus-visible` global. Acá sólo
-                 viaja el cambio de borde, que es la señal de "estoy escribiendo
-                 en este campo" y sobrevive al click del mouse. */
               className="mt-2 w-full rounded-xl border border-border-strong bg-canvas/60 px-3.5 py-2.5 text-sm text-neutral-100 shadow-[inset_0_1px_2px_0_rgba(4,6,14,0.5)] transition-colors duration-250 placeholder:text-neutral-600 hover:border-overlay/16 focus:border-good-500/60"
               placeholder="••••••••••••••••••••••••"
             />
@@ -139,11 +211,11 @@ export default function LoginPage({
 
           {error && (
             /*
-              El mensaje es genérico a propósito: no distingue contraseña mala
-              de rate limit, para no filtrar en qué estado está el login. Lo que
-              cambió es la forma — antes era una línea de texto roja suelta que
-              se podía perder de vista; ahora es un bloque teñido con el tono
-              `bad`, que es el mismo lenguaje de error del resto del panel.
+              El mensaje es genérico a propósito: no distingue usuario
+              inexistente de clave mala de campo vacío de rate limit, para no
+              filtrar en qué estado está el login ni permitir enumerar usuarios.
+              El bloque va teñido con el tono `bad`, el mismo lenguaje de error
+              del resto del panel.
             */
             <p
               className="rounded-xl border border-bad-500/22 bg-bad-500/[0.09] px-3.5 py-2.5 text-sm text-bad-200"

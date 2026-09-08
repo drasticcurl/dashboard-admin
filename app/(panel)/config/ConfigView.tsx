@@ -48,6 +48,7 @@ import { TiendasSection } from './sections/TiendasSection';
 import { AjustesSection } from './sections/AjustesSection';
 import { CotizacionesSection } from './sections/CotizacionesSection';
 import { SaludSection } from './sections/SaludSection';
+import { UsuariosSection } from './sections/UsuariosSection';
 
 export type ConfigInitial = {
   funnels: Funnel[];
@@ -73,7 +74,8 @@ type SeccionId =
   | 'tiendas'
   | 'ajustes'
   | 'cotizaciones'
-  | 'salud';
+  | 'salud'
+  | 'usuarios';
 
 // Cuatro grupos en vez de diez pestañas: el criterio es "qué busca el
 // usuario cuando entra", no qué tabla toca cada sección (T07 §3).
@@ -114,6 +116,7 @@ const GRUPOS: { id: string; label: string; icon: JSX.Element; secciones: { id: S
     secciones: [
       { id: 'ajustes', label: 'Ajustes' },
       { id: 'salud', label: 'Salud del sistema' },
+      { id: 'usuarios', label: 'Usuarios' },
     ],
   },
 ];
@@ -254,6 +257,7 @@ export function ConfigView({
       {seccion === 'ajustes' && <AjustesSection settings={settings} setSettings={setSettings} shell={shell} />}
       {seccion === 'cotizaciones' && <CotizacionesSection fx={fx} setFx={setFx} shell={shell} />}
       {seccion === 'salud' && <SaludSection initialSystem={system} shell={shell} />}
+      {seccion === 'usuarios' && <UsuariosSection shell={shell} />}
     </div>
   );
 }
