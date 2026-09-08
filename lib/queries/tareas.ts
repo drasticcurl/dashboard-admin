@@ -538,6 +538,17 @@ export async function moverTarea(
  *
  * hecha_at NO se toca acá: reordenar no cambia de columna, así que el reloj del
  * archivado no se mueve (D13).
+ *
+ * SIN CALLER EN PRODUCCIÓN, A PROPÓSITO. El contrato de §5 del plan la pide
+ * como función separada, pero `/api/tareas/mover` (T05) resolvió los dos casos
+ * —mover entre columnas y reordenar dentro de la misma— con un solo endpoint y
+ * una sola llamada a `moverTarea(id, columnaActual, orden)`: pasarle la misma
+ * columna en la que ya estaba ES reordenar. Duplicar el camino con un segundo
+ * endpoint que llame a esta función habría dejado dos formas de escribir
+ * `posicion` para el mismo caso, que es peor que tener una función de sobra.
+ * Se queda exportada y testeada (§6, tests 7 y 8 de T02) porque es parte del
+ * contrato congelado; si algún día hace falta reordenar sin pasar por `mover`
+ * (por ejemplo una vista que no conoce la columna destino), ya existe.
  */
 export async function reordenarColumna(columna: Columna, ordenDeIds: number[]): Promise<void> {
   if (!COLUMNAS.includes(columna)) {

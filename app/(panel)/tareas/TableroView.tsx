@@ -25,6 +25,7 @@
  */
 
 import { useMemo, useState } from 'react';
+import { Plus } from '@phosphor-icons/react';
 import {
   DndContext,
   DragOverlay,
@@ -45,9 +46,11 @@ import type { Columna as ColumnaId, Prioridad, Tarea } from '@/lib/queries/tarea
 import type { Usuario } from '@/lib/queries/usuarios';
 import { SELECT_HEADER } from '@/components/Nav';
 import { Banner } from '@/components/ui';
+import { btnPrimary } from '@/app/(panel)/config/kit';
 import { Columna } from './Columna';
 import { TarjetaTarea } from './TarjetaTarea';
 import { DetalleTarea } from './DetalleTarea';
+import { NuevaTarea } from './NuevaTarea';
 
 // ─── El "yo" que baja del server (T06 §5) ───────────────────────────────────
 
@@ -173,6 +176,7 @@ export function TableroView({
   const [tareas, setTareas] = useState<Tarea[]>(initial.tareas);
   const [asignado, setAsignado] = useState<string>(asignadoInicial);
   const [abierta, setAbierta] = useState<number | null>(null);
+  const [creando, setCreando] = useState(false);
   const [arrastrando, setArrastrando] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -339,31 +343,48 @@ export function TableroView({
     setAbierta((a) => (a === id ? null : a));
   }
 
+  /**
+   * Una tarea creada entra al frente de su columna en el estado local: el
+   * server ya la escribió con la `posicion` que le tocó (crearTarea la pone al
+   * final internamente), así que no hace falta reescribir nada acá — a
+   * diferencia de `aplicarMovimiento`, esto no es un reordenamiento, es un
+   * alta. El próximo refresh la trae en el lugar exacto que el server decidió.
+   */
+  function agregarTarea(t: Tarea): void {
+    setTareas((prev) => [...prev, t]);
+  }
+
   const tareaAbierta = abierta != null ? tareas.find((t) => t.id === abierta) ?? null : null;
 
   return (
     <div>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-lg font-semibold -tracking-[0.01em] text-neutral-50">Tareas</h1>
-        <label className="flex items-center gap-2 text-xs text-neutral-500">
-          Mostrar
-          {/* Mismo SELECT_HEADER que el select de funnel y el de rango: cuando
-              divergen el header se ve desalineado. */}
-          <select
-            value={asignado}
-            onChange={(e) => setAsignado(e.target.value)}
-            className={SELECT_HEADER}
-            aria-label="Filtrar tareas por asignado"
-          >
-            <option value="todas">Todas</option>
-            {usuariosActivos.map((u) => (
-              <option key={u.id} value={String(u.id)}>
-                {u.nombre}
-                {u.id === yo.id ? ' (yo)' : ''}
-              </option>
-            ))}
-          </select>
-        </label>
+        <div className="flex items-center gap-3">
+          <label className="flex items-center gap-2 text-xs text-neutral-500">
+            Mostrar
+            {/* Mismo SELECT_HEADER que el select de funnel y el de rango: cuando
+                divergen el header se ve desalineado. */}
+            <select
+              value={asignado}
+              onChange={(e) => setAsignado(e.target.value)}
+              className={SELECT_HEADER}
+              aria-label="Filtrar tareas por asignado"
+            >
+              <option value="todas">Todas</option>
+              {usuariosActivos.map((u) => (
+                <option key={u.id} value={String(u.id)}>
+                  {u.nombre}
+                  {u.id === yo.id ? ' (yo)' : ''}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button type="button" className={btnPrimary} onClick={() => setCreando(true)}>
+            <Plus size={14} weight="bold" className="mr-1 inline" />
+            Nueva tarea
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -419,6 +440,15 @@ export function TableroView({
           onActualizada={reemplazarTarea}
           onBorrada={quitarTarea}
           onMover={moverDesdeDetalle}
+        />
+      )}
+
+      {creando && (
+        <NuevaTarea
+          yo={yo}
+          usuarios={usuariosActivos}
+          onCerrar={() => setCreando(false)}
+          onCreada={agregarTarea}
         />
       )}
     </div>

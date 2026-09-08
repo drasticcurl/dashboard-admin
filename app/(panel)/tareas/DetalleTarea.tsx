@@ -199,7 +199,22 @@ export function DetalleTarea({
     setBusy(true);
     setFlash(null);
     try {
-      await api<RespuestaBorrado>(`/api/tareas?id=${tarea.id}`, { method: 'DELETE' });
+      const data = await api<RespuestaBorrado>(`/api/tareas?id=${tarea.id}`, { method: 'DELETE' });
+      // El número que mostró la confirmación (`comentarios.length`, estado
+      // local) y el que el server realmente borró (`comentariosBorrados`)
+      // deberían coincidir siempre: el modal mantiene `comentarios` sincronizado
+      // con cada alta en tiempo real. Si divergen —otra persona comentó esta
+      // misma tarjeta mientras el modal estaba abierto— avisamos con el número
+      // real en vez de quedarnos callados, porque ya no hay vuelta atrás.
+      if (
+        typeof data.comentariosBorrados === 'number' &&
+        data.comentariosBorrados !== comentarios.length
+      ) {
+        // eslint-disable-next-line no-console -- visibilidad de una divergencia real, no un error de la app
+        console.warn(
+          `Tarea ${tarea.id}: se esperaban ${comentarios.length} comentarios borrados y el server borró ${data.comentariosBorrados}.`,
+        );
+      }
       onBorrada(tarea.id);
       onCerrar();
     } catch (e) {

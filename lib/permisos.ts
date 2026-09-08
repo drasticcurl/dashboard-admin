@@ -81,6 +81,11 @@ const SESION_SQL = `
    GROUP BY u.id`;
 
 const CONTAR_USUARIOS_SQL = `SELECT count(*)::int AS n FROM usuarios`;
+// Duplicada a propósito respecto de `contarUsuarios()` de lib/queries/usuarios.ts
+// (misma pregunta, casteo distinto: `::int` acá vs `::text` allá porque esa
+// usa q1 con el patrón de bigint-como-string). Este archivo es el contrato
+// congelado de §4 del plan: no se lo hace depender de otro módulo por una
+// limpieza cosmética de una query de una línea sin riesgo de divergencia.
 
 /**
  * El núcleo de `sesionActual()`: a partir de un token YA EXTRAÍDO (no de dónde
