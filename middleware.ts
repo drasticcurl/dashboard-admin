@@ -10,10 +10,19 @@
  * POR QUÉ este archivo reimplementa el verify del token en vez de importar
  * `lib/auth.ts`: el middleware de Next 14 corre en Edge, y `lib/auth.ts` usa
  * `node:crypto` (`createHmac`, `timingSafeEqual`), que no existe ahí. Es el
- * mismo formato de token (ts.sig, HMAC-SHA256 con DASHBOARD_PASSWORD como
- * clave), el mismo TTL de 12 h y el mismo skew de 60 s; solo cambia la
- * primitiva (Web Crypto). La verificación timing-safe de verdad vive en
- * `lib/auth.ts` (server); esta es la primera línea.
+ * MISMO formato de token (`${usuarioId}.${ts}.${sig}`, HMAC-SHA256 sobre
+ * `${usuarioId}.${ts}` con el punto DENTRO del payload firmado), el mismo TTL de
+ * 12 h y el mismo skew de 60 s; solo cambia la primitiva (Web Crypto). El
+ * secreto de firma es `PANEL_SESSION_SECRET` con default a `DASHBOARD_PASSWORD`,
+ * igual que `lib/auth.ts` (D1). La verificación timing-safe de verdad vive en
+ * `lib/auth.ts` (server) y el permiso lo decide el layout leyendo la base (D3);
+ * esta es la primera línea, y sólo valida firma y expiración.
+ *
+ * El parser y el secreto TIENEN que dar exactamente el mismo resultado que
+ * `lib/auth.ts`. Si divergen, el panel deja pasar por una capa y rebota en la
+ * otra: un bucle de redirects que no se ve en un test de un solo lado. Que las
+ * dos primitivas firmen igual está afirmado en
+ * `tasks/usuarios-y-tareas/_verificacion-sesion.mjs` (afirmación 7).
  */
 
 import { NextResponse, type NextRequest } from 'next/server';
@@ -50,23 +59,32 @@ async function isAuthenticated(req: NextRequest): Promise<boolean> {
   const token = req.cookies.get(COOKIE_NAME)?.value;
   if (!token) return false;
 
-  const pass = process.env.DASHBOARD_PASSWORD;
-  if (!pass) return false;
+  // El secreto de firma: PANEL_SESSION_SECRET con default a DASHBOARD_PASSWORD
+  // (D1). El middleware lee process.env directo — no puede importar lib/auth.ts.
+  const secret = process.env.PANEL_SESSION_SECRET || process.env.DASHBOARD_PASSWORD;
+  if (!secret) return false;
 
-  const dot = token.indexOf('.');
-  if (dot <= 0 || dot === token.length - 1) return false;
+  // Exactamente 3 campos. Un token viejo tiene 2 y se RECHAZA (todas las
+  // sesiones vivas se cortan en el deploy, D2): si el parser leyera el ts como
+  // id, cualquiera con una cookie vieja entraría como el usuario cuyo id
+  // coincida con un timestamp.
+  const partes = token.split('.');
+  if (partes.length !== 3) return false;
+  const [idStr, tsStr, sig] = partes;
 
-  const ts = token.slice(0, dot);
-  const sig = token.slice(dot + 1);
+  // `/^\d+$/` y no Number(): Number('7e2') es 700 y Number(' 7') es 7, así que
+  // dos strings distintos darían el mismo id con firmas distintas.
+  if (!/^\d+$/.test(idStr) || !/^\d+$/.test(tsStr)) return false;
+  if (!/^[0-9a-f]{64}$/.test(sig)) return false;
 
-  const tsNum = Number(ts);
-  if (!Number.isFinite(tsNum) || tsNum <= 0) return false;
-
+  const tsNum = Number(tsStr);
   const now = Date.now();
   if (now - tsNum > SESSION_TTL_MS) return false;
   if (tsNum - now > CLOCK_SKEW_MS) return false;
 
-  const expected = await hmacSha256Hex(pass, ts);
+  // El payload firmado es `${id}.${ts}`, con el punto adentro (D2), idéntico al
+  // de lib/auth.ts.
+  const expected = await hmacSha256Hex(secret, `${idStr}.${tsStr}`);
   return safeEqualHex(sig, expected);
 }
 

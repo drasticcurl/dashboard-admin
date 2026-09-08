@@ -119,8 +119,24 @@ describe('middleware', () => {
     else process.env.DASHBOARD_PASSWORD = originalPassword;
   });
 
-  /** Mismo formato que `lib/auth.ts`: `${ts}.${hmacSha256Hex(pass, ts)}`. */
-  async function cookieValida(nowMs: number = Date.now()): Promise<string> {
+  /** Mismo formato que `lib/auth.ts`: `${id}.${ts}.${hmac(secret, `${id}.${ts}`)}`. */
+  async function cookieValida(usuarioId = 7, nowMs: number = Date.now()): Promise<string> {
+    const payload = `${usuarioId}.${nowMs}`;
+    const key = await crypto.subtle.importKey(
+      'raw',
+      new TextEncoder().encode(DASHBOARD_PASSWORD),
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['sign'],
+    );
+    const mac = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(payload));
+    const sig = Array.from(new Uint8Array(mac), (b) => b.toString(16).padStart(2, '0')).join('');
+    return `${payload}.${sig}`;
+  }
+
+  /** El token VIEJO de 2 campos (`${ts}.${hmac(secret, ts)}`), el que había antes
+   *  de la migración 030. Tiene que ser RECHAZADO por el parser nuevo. */
+  async function cookieVieja(nowMs: number = Date.now()): Promise<string> {
     const ts = String(nowMs);
     const key = await crypto.subtle.importKey(
       'raw',
@@ -149,11 +165,17 @@ describe('middleware', () => {
   });
 
   it('con cookie vencida (>12h), a una ruta de API: 401 JSON', async () => {
-    const vencida = await cookieValida(Date.now() - 13 * 60 * 60 * 1000);
+    const vencida = await cookieValida(7, Date.now() - 13 * 60 * 60 * 1000);
     const res = await middleware(reqCon('https://panel.hilvanapp.com/api/data/ads?forzar=1', vencida));
     expect(res.status).toBe(401);
     const body = (await res.json()) as { ok: boolean };
     expect(body.ok).toBe(false);
+  });
+
+  it('con el token VIEJO de 2 campos, a una ruta de API: 401 (todas las sesiones vivas se cortan)', async () => {
+    const vieja = await cookieVieja();
+    const res = await middleware(reqCon('https://panel.hilvanapp.com/api/data/ads?forzar=1', vieja));
+    expect(res.status).toBe(401);
   });
 
   it('el 401 de una API es parseable como JSON (lo que rompía antes: HTML a res.json())', async () => {

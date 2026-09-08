@@ -31,7 +31,9 @@
     "ads:telegram": "tsx scripts/telegram-setup.ts",
     "import:csv": "tsx scripts/import-shopify-csv.ts",
     "days:recompute": "tsx scripts/recompute-days.ts",
-    "ia:insights": "tsx scripts/generar-insights.ts"
+    "ia:insights": "tsx scripts/generar-insights.ts",
+    "usuarios:seed": "tsx scripts/seed-usuarios.ts",
+    "tareas:archivar": "tsx scripts/archivar-tareas.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
