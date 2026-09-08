@@ -218,6 +218,89 @@ Para `psql`, primero definí `PGURL` como está en `docs/runbook.md`.
 
 ---
 
+## Deploy del módulo de usuarios y tareas (login por usuario + kanban)
+
+Este módulo le da identidad al panel: cada persona entra con su usuario y su
+clave en vez de la contraseña compartida, un admin decide qué pestañas ve cada
+uno, y hay un tablero de tareas. Su deploy tiene tres cosas que hay que saber de
+antemano.
+
+### ⚠️ SE CORTAN TODAS LAS SESIONES VIVAS EN EL DEPLOY
+
+El formato de la cookie cambió: el token viejo tiene 2 campos y el parser nuevo
+lo rechaza. **Todo el mundo vuelve a entrar** en el primer request después del
+deploy. No es un bug y no hay que "arreglarlo": es el fallo seguro de cambiar el
+esquema de la cookie a uno que lleva identidad firmada.
+
+### 🔴 LAS CLAVES INICIALES SON `123456` Y HAY QUE CAMBIARLAS **EL MISMO DÍA**
+
+El seed crea cada usuario con la clave **`123456`** y `debe_cambiar_clave = true`.
+Mientras nadie la cambie, **cualquiera que sepa el nombre de usuario entra**. La
+sesión en ese estado no sirve para nada salvo cambiar la clave (redirige a
+`/cambiar-clave`), pero la ventana de exposición es real: **entrá el mismo día
+del deploy con cada usuario y cambiá la clave. No "cuando se pueda".**
+
+### Secuencia de hilvanapp
+
+```bash
+sudo -u deploy bash /srv/panel/repo/deploy/deploy.sh
+# el deploy ya corre, en orden:  db:migrate → usuarios:seed → health check
+# el seed crea a 'lucho' (admin) con clave 123456 si no existe; si ya existe NO lo toca.
+
+# después, desde el browser: entrar como lucho / 123456 y cambiar la clave EN EL ACTO.
+```
+
+El cron de archivado de tareas queda instalado solo: la línea está en
+`deploy/cron.panel` y la instala el deploy de hilvanapp.
+
+### Secuencia de infinix — ES MANUAL, y es lo más importante de esta sección
+
+`/srv/panel-infinix/deploy.sh` vive **FUERA del repo** (está afuera porque el
+repo es compartido y su `git reset --hard` borraría un archivo propio de la
+instancia). Ninguna task del módulo lo pudo editar, así que **el seed y el cron
+de esa instancia se corren a mano**:
+
+```bash
+sudo -u deploy bash /srv/panel-infinix/deploy.sh     # ese deploy.sh NO tiene el seed
+cd /srv/panel-infinix/current
+
+# 1. Sembrar el admin de infinix (usuario propio: Ivan, no lucho)
+PANEL_ADMIN_USUARIO=ivan PANEL_ADMIN_NOMBRE=Ivan \
+  /usr/bin/node --env-file=.env.production ./node_modules/.bin/tsx scripts/seed-usuarios.ts
+
+# 2. Agregar la línea del cron de archivado al crontab de esa instancia, A MANO
+#    (misma que deploy/cron.panel pero con el path de infinix):
+#    50 5 * * * cd /srv/panel-infinix/current && /usr/bin/node --env-file=.env.production ./node_modules/.bin/tsx scripts/archivar-tareas.ts >> /var/log/panel-infinix/tareas.log 2>&1
+```
+
+**Mientras el seed no corra en infinix, esa instancia entra con
+`DASHBOARD_PASSWORD` por el fallback de D10** — o sea que **no se rompe, pero no
+tiene usuarios**, y es fácil no darse cuenta porque nada falla. Después de
+sembrar, entrá como `ivan / 123456` y cambiá la clave el mismo día.
+
+### Cómo volver atrás
+
+Las migraciones (030 y 031) son **aditivas**: crean cinco tablas nuevas y no
+tocan nada existente. Revertir el código deja esas tablas ahí sin lectores y el
+panel vuelve a la contraseña compartida (`DASHBOARD_PASSWORD`) solo, por el
+fallback. **NO hay que borrar las tablas para revertir**, y borrarlas se
+llevaría todas las tareas cargadas. Un rollback de código es suficiente.
+
+### Qué mirar después
+
+```bash
+# con PGURL definido como en docs/runbook.md:
+psql "$PGURL" -tAc "SELECT usuario, es_admin, debe_cambiar_clave, activo FROM usuarios ORDER BY id"
+# esperado: los usuarios de la instancia, y debe_cambiar_clave en 'f' (false)
+#           después de que cada uno entró y cambió su clave.
+```
+
+Si algún deploy le devuelve la clave `123456` a alguien que ya la cambió, el
+seed dejó de ser idempotente: es lo más caro que puede salir mal de este módulo,
+y va también en la sección de abajo.
+
+---
+
 ## Cosas que ya pasaron y no conviene repetir
 
 - **Correr `deploy.sh` como root** (2026-08-13, costó una caída). Ver arriba.

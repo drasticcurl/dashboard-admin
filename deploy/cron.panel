@@ -154,3 +154,19 @@
 # Sin OPENAI_API_KEY el script sale con 0 y una sola línea de log: la instancia
 # que no declara la key no tiene la feature y no ensucia el log todas las noches.
 45 5 * * * cd /srv/panel/current && /usr/bin/node --env-file=.env.production ./node_modules/.bin/tsx scripts/generar-insights.ts >> /var/log/panel/ia.log 2>&1
+
+# ─── Tareas ─────────────────────────────────────────────────────────────────
+# Archiva las tarjetas que llevan más de 2 días en la columna "hecho" (módulo
+# usuarios-y-tareas). UNA VEZ AL DÍA alcanza: la granularidad es de 2 días, así
+# que correrlo cada hora serían 23 corridas que archivan 0 filas. El día de
+# gracia va por argumento (default 2), no en el crontab, así que si algún día se
+# quiere cambiar el umbral no hay que editar esta línea con un `-- N`.
+#
+# 05:50 y no antes: no depende de fetch-fx, del rollup ni del sync de ads (no lee
+# ni cotizaciones ni métricas, sólo la columna y el hecha_at de tareas), así que
+# se pone después del bloque nocturno para no competir por CPU con ellos.
+#
+# OJO CON INFINIX: esta línea la instala el deploy de hilvanapp. El deploy de
+# infinix vive fuera del repo (/srv/panel-infinix/deploy.sh) y no la ve: hay que
+# agregar el cron a mano en esa instancia (ver COMO-DEPLOYAR.md).
+50 5 * * * cd /srv/panel/current && /usr/bin/node --env-file=.env.production ./node_modules/.bin/tsx scripts/archivar-tareas.ts >> /var/log/panel/tareas.log 2>&1

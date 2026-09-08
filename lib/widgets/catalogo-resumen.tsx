@@ -647,6 +647,42 @@ export const catalogoResumen: WidgetCatalogo<OverviewData> = {
       />
     ),
   },
+  roi: {
+    id: 'roi',
+    label: 'ROI',
+    hint: 'neto ÷ gasto de publicidad · el equilibrio es 1.00×',
+    grupo: 'eficiencia',
+    tamañoPorDefecto: { w: 1, h: 1 },
+    tamañosPermitidos: [
+      { w: 1, h: 1 },
+      { w: 2, h: 1 },
+    ],
+    // El ROI es un múltiplo, no plata ni porcentaje: "1.25×" con dos decimales
+    // y tabular-nums. Dos y no uno: la diferencia entre 1.2 y 1.25 es 4 puntos
+    // de margen. Con null (sin gasto cargado) va un guion, NUNCA "0.00×": un ROI
+    // de 0 significa "no entró un peso" y no tener gasto significa otra cosa.
+    // tone good arriba de 1, bad abajo, neutral con null — el único caso del
+    // módulo donde good en verde corresponde de verdad.
+    render: (d, size) => {
+      const roi = d.totals.roi;
+      const roiPrev = d.prev
+        ? d.prev.adSpendEur > 0
+          ? d.prev.netEur / d.prev.adSpendEur
+          : undefined
+        : undefined;
+      return (
+        <Kpi
+          size={size}
+          k={{
+            valor: roi === null ? '—' : `${roi.toFixed(2)}×`,
+            sub: 'neto ÷ gasto en ads',
+            trend: roi === null ? undefined : trendPct(roi, roiPrev),
+            tone: roi === null ? 'neutral' : roi > 1 ? 'good' : 'bad',
+          }}
+        />
+      );
+    },
+  },
   cpa: {
     id: 'cpa',
     label: 'CPA',

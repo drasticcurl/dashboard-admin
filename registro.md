@@ -10,6 +10,156 @@ Lo más nuevo va arriba. Las reglas de cómo se escribe una entrada están en
 
 ---
 
+## 2026-09-08 — Usuarios con clave propia y permisos por pestaña, tablero de tareas, y ROI en Resumen
+
+Módulo `usuarios-y-tareas`, siete tasks (T01–T07). Toca, entre otros:
+`db/migrations/030_usuarios.sql` y `031_tareas.sql`, `lib/auth.ts`,
+`lib/permisos.ts`, `lib/queries/usuarios.ts`, `lib/queries/tareas.ts`,
+`middleware.ts`, `scripts/seed-usuarios.ts`, `scripts/archivar-tareas.ts`, los
+`app/(panel)/<seccion>/layout.tsx`, `app/api/tareas/**`, `app/(panel)/tareas/**`,
+`app/(panel)/config/sections/UsuariosSection.tsx`, `lib/queries/overview.ts`,
+`lib/widgets/catalogo-resumen.tsx`, `deploy/cron.panel`, `deploy/deploy.sh` y
+`COMO-DEPLOYAR.md`.
+
+**Qué pasaba.** El panel se autenticaba con una **contraseña compartida**
+(`DASHBOARD_PASSWORD`) y la cookie **no llevaba identidad**: no había forma de
+saber quién había entrado ni de darle a cada persona un subconjunto de pestañas.
+Dos migraciones ya lo habían anotado como limitación conocida antes de que
+molestara: `016_ads_gestion.sql:404-416` (la gestión de anuncios sin saber quién
+la usa) y `017_rediseno_ui.sql:149-155` (*"si dos personas usan el panel, el que
+guarda último gana y el otro ve cambiar su pantalla sin haberla tocado"*).
+Además no existía un tablero de tareas, y el Resumen mostraba ROAS (bruto ÷
+gasto) pero no un retorno sobre el neto.
+
+**Por qué se resolvió así.** Las alternativas descartadas, con el motivo — que es
+lo único que esta entrada aporta sobre `git log`:
+
+- Se descartó **agregar una segunda contraseña en una env var** (el pedido
+  original). No era más barato: `lib/auth.ts` firmaba la cookie con la contraseña
+  **como clave HMAC**, así que con dos contraseñas hay dos claves de firma
+  válidas, la cookie no dice cuál firmó y no se puede saber quién entró. Obligaba
+  a cambiar el formato del token igual — el 80% de multiusuario — y sólo ahorraba
+  la pantalla de administrar usuarios. El secreto de firma pasó a
+  `PANEL_SESSION_SECRET`, **con default a `DASHBOARD_PASSWORD`** (D1), que es lo
+  que deja a las dos instancias entrar sin declarar una variable nueva.
+- Se descartó **meter los permisos firmados en la cookie** (D3): apagarle una
+  pestaña a alguien no tendría efecto hasta 12 h después, con el switch diciendo
+  "off" sin estar off. El permiso se lee de la base en cada request; el costo
+  aceptado es que el middleware Edge no puede bloquear por permiso (no consulta
+  Postgres), así que eso lo hacen el `layout.tsx` de cada sección y el
+  `guardSeccion()` de las routes, los dos en Node.
+- Se descartó **un header con el pathname inyectado desde el middleware** (D4) a
+  favor de un `layout.tsx` por sección: archivos nuevos de ~10 líneas, cero
+  líneas tocadas en las diez pantallas que ya andaban.
+- Se descartó **`bcrypt`/`argon2`** (D7): `deploy/deploy.sh` corre `npm ci` sin
+  `--omit=dev`, así que un módulo nativo se compilaría en la VPS en cada deploy.
+  Se usa `scrypt` de `node:crypto`, con N/r/p guardados **en la fila** para poder
+  subir el costo sin invalidar los hashes ya escritos.
+- Se descartó **8 columnas booleanas y un `text[]`** para los permisos (D11): con
+  filas, "no hay fila" ES "no lo ve", así que una sección nueva nace negada en
+  vez de visible-para-todos. Es el mismo movimiento que hizo la 021 con
+  `ad_rules.account_ids`.
+- Se descartó el **índice fraccionario** para el orden del tablero (D12): existe
+  para listas de miles de items con muchos editores; acá son dos o tres personas
+  y decenas de tarjetas, y `posicion` se reescribe entera (10, 20, 30…) en una
+  transacción.
+- Se descartó **`jsonb`** para links y comentarios (D15): con un array, dos
+  personas en la misma tarjeta se pisan con un read-modify-write; con filas hijas
+  cada alta/baja es un INSERT/DELETE que no toca a las demás.
+- Se descartó **`resultEur / adSpendEur`** como ROI (D16): su equilibrio cae en
+  0.00× y un múltiplo cuyo cero es el break-even no se lee. El ROI es
+  `neto ÷ gasto`, con equilibrio en 1.00×, y es distinto del ROAS por el
+  numerador (neto vs bruto). Los dos quedan en el catálogo a propósito (P-06).
+
+Y **lo que se decidió NO hacer**, que es lo que evita que alguien lo "arregle":
+
+- El **layout de widgets sigue siendo global** (P-01), no por usuario. Con dos
+  usuarios de verdad va a notarse (el último que guarda gana); hacerlo por
+  usuario es un módulo chico y aparte. El ROI **entra al catálogo y NO se agrega
+  a ningún layout por defecto**: meterlo a la fuerza le reordenaría la pantalla
+  compartida a los dos.
+- **No se usó `usuario_secciones` para apagar Anuncios en infinix** (P-05),
+  aunque el mecanismo quedó gratis. Pedido explícito, y además mezclar "permisos
+  por persona" con "módulos por instancia" en la misma tabla deja a alguien sin
+  poder contestar por qué una pestaña está apagada.
+- **Los usuarios no se borran, se desactivan** (D8): los tres FK RESTRICT
+  (`tareas.asignado_a`, `tareas.creado_por`, `tarea_comentarios.usuario_id`) lo
+  garantizan por construcción. No hay endpoint de DELETE de usuarios.
+
+**Qué se verificó** (corrido el 2026-09-08 contra un clúster efímero de Postgres
+16.14 en `/tmp`, con las 31 migraciones aplicadas; Node v24.14.0):
+
+- `_verificacion-sesion.mjs`: **16 PASA, "TODO EN VERDE"**. Incluye la que decide
+  el diseño (afirmación 7: `node:crypto` y `crypto.subtle` firman el **mismo
+  hex**, así que el middleware Edge verifica identidad sin base) y las del ROI:
+  afirmación 13 `neto 1250 / gasto 1000 → 1.25×`, 14 `equilibrio 1.00×`, 15 `sin
+  gasto → null, nunca Infinity ni NaN`, 16 `roi === 1 + resultEur/gasto`. scrypt
+  con N=16384 r=8 p=1: **31 ms** por verificación (afirmación 6).
+- **ROI contra SQL a mano.** Con una fila de `daily_metrics` (bruto 5000,
+  devuelto 500, comisiones 300, costos 200 → neto **4000**; gasto **1600**): la
+  query da `neto=4000, gasto=1600, roi=2.5000, roas=3.1250`, y
+  `getOverviewData({from:'2026-09-01',to:'2026-09-07'})` devuelve
+  `totals.roi = 2.5` y `funnels[].roi = 2.5` — **el neto, no el bruto**
+  (`totals.roas = 3.125` sigue siendo el bruto, intacto). Un rango sin gasto
+  cargado (`2099`) devuelve `totals.roi = null`, que el widget pinta `—` y nunca
+  `0.00×`.
+- **Cron de archivado** (`scripts/archivar-tareas.ts`, nuevo): con una tarjeta en
+  `hecho` con `hecha_at` de hace 3 días, la corrida 1 loguea `1 tarea archivada`
+  y la corrida 2 `0 tareas archivadas` (idempotente, `archivada_at` pasa de f a
+  t). Con `-- 7` loguea `0 tareas archivadas (más de 7 días…)` y la de 3 días NO
+  se archiva: el día de gracia por argumento funciona. El barrido a nivel de
+  datos lo confirma el paso 9 del e2e: "el barrido de 2 días toma 1 de las 3
+  tarjetas".
+- **Seed idempotente** (lo que más caro sale si está mal, porque el deploy lo
+  corre en cada push): primera corrida `1 creados`, segunda `0 creados, 1 ya
+  existían`, y el `clave_hash` de `lucho` es **byte-idéntico** antes y después
+  (`diff` vacío → PASA). Sin esto, cada deploy le devolvería la clave `123456` a
+  quien ya la cambió.
+- **`grep PANEL_SESSION_SECRET deploy/deploy.sh` no devuelve nada**: la variable
+  NO está en `REQUIRED` (que es `DATABASE_URL, DASHBOARD_PASSWORD,
+  NEXT_PUBLIC_SITE_URL, SHOPIFY_WEBHOOK_SECRETS, META_ADS_TOKEN`). Meterla
+  rompería los dos deploys, porque tiene default a `DASHBOARD_PASSWORD` (D1).
+- `_verificacion-e2e.sh`: 8 de 9 pasos PASA. El único que da FALLA es **6a**, y
+  es un **falso negativo del propio script**: espera el string `lucho|t|t|t,…` y
+  el `psql` de esta máquina renderiza los booleanos como `true`/`false`, así que
+  quedó `lucho|true|true|true,nahuel|false|true|true` — mismos datos, otro
+  formato de boolean. Los checks que importan de ese paso pasan: **6b** (hash
+  idéntico entre corridas) y **6c** (0 secciones otorgadas, D11).
+
+**Qué quedó sin verificar y consecuencias pendientes:**
+
+- **`npm run build` no da verde end-to-end** al momento de esta corrida: falla en
+  `app/(panel)/tareas/TableroView.tsx` (un `DetalleTarea` al que le falta el prop
+  `onMover`), que es un desajuste **interno de T06** entre dos de sus propios
+  componentes. Los cuatro archivos de código de T07 (`overview.ts`,
+  `catalogo-resumen.tsx`, `archivar-tareas.ts` y el fixture forzado abajo)
+  compilan y tipan limpio bajo el tsconfig del proyecto (`tsc --noEmit` sin un
+  solo error en ellos).
+- **`npm test`: 155 fallan, ninguno en archivos de T07.** Todos son
+  `` `cookies` was called outside a request scope `` desde `sesionActual()` /
+  `guardSeccion()` (la migración del guard de T03), en los tests de rutas de ads,
+  finanzas, config y reglas. Se probó que son **preexistentes**: con los cambios
+  de T07 stasheados, `app/api/config/vistas-ads/route.test.ts` falla los mismos 4
+  tests. `lib/ia/brief.test.ts` (26) y `lib/queries/tareas.test.ts` (18) pasan.
+- **Agregar `roi` (requerido) a los tipos `FunnelSummary` y `totals` obligó a
+  tocar `lib/ia/brief.test.ts`**, que NO está en el ownership de T07 (§8 lo lista
+  bajo "nadie toca `lib/ia/*`"). Es un cambio **mecánico forzado por el tipo**:
+  las dos fábricas de fixtures ganaron `roi: 3` (neto 3000 ÷ gasto 1000) para
+  seguir satisfaciendo el tipo; el brief no consume el campo. Se hizo así porque
+  la alternativa —dejar `roi` opcional— viola D16 (null ≠ undefined) y dejaría el
+  suite sin compilar. Queda anotado como desvío consciente del ownership.
+- **Nada se corrió contra ninguna de las dos bases de producción.** La
+  verificación del 403 con la cookie de nahuel se hizo en local (T03 §7).
+- **Consecuencia de deploy que hay que decir (no esconder):** el formato de la
+  cookie cambió, así que **en el deploy se cortan todas las sesiones vivas** (el
+  token viejo de 2 campos lo rechaza el parser nuevo, afirmación 9) y **las
+  claves iniciales son `123456` y hay que cambiarlas el mismo día** (D8/P-04).
+  Todo el detalle del deploy —incluida la secuencia MANUAL de infinix, cuyo
+  `deploy.sh` vive fuera del repo y no corre el seed ni instala el cron— está en
+  la sección nueva de `COMO-DEPLOYAR.md`.
+
+---
+
 ## 2026-09-04 — Análisis con IA en Resumen y Finanzas, y la reconciliación que lo hace útil
 
 **Qué pasaba.** No había un bug: el pedido era "que la IA revise los datos y me

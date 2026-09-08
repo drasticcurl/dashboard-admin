@@ -93,6 +93,9 @@ function funnel(over: Partial<FunnelSummary> = {}): FunnelSummary {
     grossEur: 3500,
     resultEur: 2000,
     roas: 3.5,
+    // roi = neto ÷ gasto = 3000/1000 (campo agregado por T07 del módulo
+    // usuarios-y-tareas; esta fábrica sólo completa el tipo, el brief no lo usa).
+    roi: 3,
     convSessionToSale: 0.03,
     avgTicketEur: 100,
     lastEventAt: '2026-09-03T12:00:00.000Z',
@@ -119,6 +122,7 @@ function overview(over: Partial<OverviewData> = {}): OverviewData {
       adSpendEur: 1000,
       resultEur: 2000,
       roas: 3.5,
+      roi: 3,
       grossEur: 3500,
       quizStarted: 600,
       salesViews: 300,

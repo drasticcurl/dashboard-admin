@@ -272,7 +272,24 @@ pm2 stop panel-reglas >/dev/null 2>&1 || true
 # al environment del build.
 DATABASE_URL="$DB_URL" npm run db:migrate
 
-# ─── 6b. El token de ads puede escribir (T13 §8) ─────────────────────────────
+# ─── 6a. Seed de usuarios (módulo usuarios-y-tareas) ─────────────────────────
+# Crea el usuario admin de la instancia si no existe. Idempotente por
+# construcción (si el usuario ya existe NO lo toca ni le resetea la clave), así
+# que corre en cada deploy sin devolverle la clave '123456' a alguien que ya la
+# cambió — verificado en el checklist del módulo (paso 6 de T07 §7).
+#
+# Su fallo NO aborta el deploy: si el seed falla, el panel sigue funcionando por
+# el fallback de D10 (DASHBOARD_PASSWORD con la tabla usuarios vacía es una
+# sesión admin). El precedente que SÍ aborta (verificar-token-ads.ts, paso 6b)
+# es de una feature que gasta plata real; esta no. Se loguea fuerte y se sigue.
+#
+# tsx no lee .env.production solo (P-18): se inyecta DATABASE_URL como en la
+# migración de arriba. PANEL_ADMIN_USUARIO/PANEL_ADMIN_NOMBRE tienen default a
+# lucho/Lucho (hilvanapp); infinix corre este seed a mano con su propio usuario
+# porque su deploy.sh vive fuera del repo (ver COMO-DEPLOYAR.md).
+if ! DATABASE_URL="$DB_URL" npm run usuarios:seed; then
+  log "ADVERTENCIA: el seed de usuarios falló — el panel sigue por el fallback de DASHBOARD_PASSWORD (D10). Revisá el log y sembrá a mano."
+fi
 # Después de migrar y antes de activar. Sale con 1 si el token no puede escribir,
 # así que el deploy se detiene acá en lugar de dejar un worker que va a fallar
 # en cada tick. `tsx` no lee .env.production solo: se inyecta con --env-file,

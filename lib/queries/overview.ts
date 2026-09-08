@@ -48,6 +48,11 @@ export type FunnelSummary = {
   resultEur: number;
   /** Bruto ÷ ads. 0 si no hay gasto cargado. */
   roas: number;
+  /** Neto ÷ ads, como múltiplo (D16). Equilibrio en 1.00×. Distinto del roas
+   *  por el numerador (neto vs bruto). null sin gasto, nunca 0 ni Infinity —
+   *  a diferencia del roas, que devuelve 0 por compatibilidad y no se unifica
+   *  (ver el docblock de `totals.roi`). El widget usa el de `totals`. */
+  roi: number | null;
   /** Bruto (antes de devoluciones, comisiones y costos). Es el numerador del ROAS. */
   grossEur: number;
   convSessionToSale: number; // orders / sessions
@@ -87,6 +92,26 @@ export type OverviewData = {
     /** Neto total − ads total. El número que dice si el negocio gana o pierde. */
     resultEur: number;
     roas: number;
+    /**
+     * ROI: neto ÷ gasto de publicidad, como múltiplo. Equilibrio en 1.00× (D16).
+     *
+     * NO es lo mismo que el `roas` de acá arriba, y la diferencia es el
+     * numerador: `roas` usa el BRUTO (antes de devoluciones, comisiones y costos)
+     * y este usa el NETO. Es lo que lo hace un número distinto y no una segunda
+     * opinión sobre el mismo.
+     *
+     * Se descartó `resultEur / adSpendEur`, que también es "retorno sobre la
+     * inversión": su equilibrio cae en 0.00× y un múltiplo cuyo cero es el
+     * break-even no se lee de un vistazo. Además la ganancia en plata ya la dice
+     * el widget de Resultado. La relación es `roi = 1 + resultEur/gasto`,
+     * verificada en tasks/usuarios-y-tareas/_verificacion-sesion.mjs
+     * (afirmación 16).
+     *
+     * null sin gasto cargado, nunca 0 ni Infinity: es la regla de los campos
+     * nuevos (líneas 58-62), y "no se puede calcular" y "vale cero" son cosas
+     * distintas. NO se unifica con el `roas`, que devuelve 0 por compatibilidad.
+     */
+    roi: number | null;
     // ── Métricas nuevas (T02 del rediseño) ──────────────────────────────
     // Los campos de esta sección devuelven null cuando no hay denominador,
     // no 0, con el mismo criterio de los campos nuevos de FunnelSummary.
@@ -388,6 +413,10 @@ export async function getOverviewData(f: OverviewFilters): Promise<OverviewData>
       resultEur: netEur - adSpendEur,
       // Sin gasto no hay denominador: 0 y no Infinity (que en JSON sale null).
       roas: adSpendEur > 0 ? grossEur / adSpendEur : 0,
+      // ROI: neto ÷ gasto (D16). Distinto del roas por el numerador (neto vs
+      // bruto). null sin gasto, nunca 0 — es la regla de los campos nuevos, y
+      // NO se unifica con el roas de acá arriba (que devuelve 0).
+      roi: adSpendEur > 0 ? netEur / adSpendEur : null,
       // Sin sesiones no hay denominador: 0, no NaN en el JSON (test 2).
       convSessionToSale: sessions > 0 ? orders / sessions : 0,
       avgTicketEur: orders > 0 ? netEur / orders : 0,
@@ -436,6 +465,12 @@ export async function getOverviewData(f: OverviewFilters): Promise<OverviewData>
     adSpendEur: totalsAdSpendEur,
     resultEur: totalsNetEur - totalsAdSpendEur,
     roas: totalsAdSpendEur > 0 ? brutoTotal / totalsAdSpendEur : 0,
+    // ROI del conjunto: neto TOTAL ÷ gasto TOTAL, nunca promediando los roi de
+    // cada funnel (mismo criterio que el roas de acá arriba: un promedio de
+    // ratios no significa nada). Usa el neto, no el bruto — es lo que lo hace
+    // distinto del roas. null sin gasto, nunca 0 ni Infinity (regla de los
+    // campos nuevos, líneas 58-62), y NO se unifica con el roas.
+    roi: totalsAdSpendEur > 0 ? totalsNetEur / totalsAdSpendEur : null,
     // ── Métricas nuevas (T02): null sin denominador, en tanto por uno ──
     grossEur: brutoTotal,
     quizStarted: totalsQuizStarted,
