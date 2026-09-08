@@ -35,6 +35,42 @@ vi.mock('@/lib/auth', async (importOriginal) => {
 const { isAuthenticated } = await import('@/lib/auth');
 const mockAuth = vi.mocked(isAuthenticated);
 
+// `guard()` (app/api/config/_lib.ts) delega en `guardSeccion` de lib/permisos
+// desde el módulo de permisos (T03), que ya no lee `isAuthenticated`: consulta
+// la base a través de una sesión real. Este test es anterior a ese módulo y
+// sólo necesita "hay sesión" / "no hay sesión", así que el mock de
+// `guardSeccion` se ata al mismo `isAuthenticated` de arriba en vez de vivir
+// desincronizado: cuando el test hace `mockAuth.mockReturnValue(false)` para
+// probar el 401, este mock tiene que devolver lo mismo, o el 401 esperado
+// nunca se ve.
+vi.mock('@/lib/permisos', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/permisos')>();
+  return {
+    ...actual,
+    guardSeccion: vi.fn(async () => {
+      if (!isAuthenticated({ get: () => undefined })) {
+        return {
+          respuesta: (await import('next/server')).NextResponse.json(
+            { ok: false, error: 'unauthorized' },
+            { status: 401 },
+          ),
+        };
+      }
+      return {
+        sesion: {
+          usuarioId: 1,
+          usuario: 'test',
+          nombre: 'Test',
+          esAdmin: true,
+          debeCambiarClave: false,
+          secciones: actual.SECCIONES,
+          esFallback: false,
+        },
+      };
+    }),
+  };
+});
+
 const PREFIX = 'test-saldos-api-';
 const n = (s: string): string => `${PREFIX}${s}`;
 const DIA = '2026-06-20';

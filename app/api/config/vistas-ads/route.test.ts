@@ -25,6 +25,39 @@ vi.mock('../../../../lib/auth', async (importOriginal) => {
 
 const mockAuth = vi.mocked(isAuthenticated);
 
+// `guard()` delega en `guardSeccion` de lib/permisos (T03), que ya no lee
+// `isAuthenticated`: consulta la base a través de una sesión real. El mock se
+// ata al mismo `isAuthenticated` de arriba para que "sin cookie → 401" siga
+// funcionando cuando el test hace `mockAuth.mockImplementation(() => false)`.
+vi.mock('../../../../lib/permisos', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../../lib/permisos')>();
+  return {
+    ...actual,
+    guardSeccion: vi.fn(async () => {
+      const { isAuthenticated: chequear } = await import('../../../../lib/auth');
+      if (!chequear({ get: () => undefined })) {
+        return {
+          respuesta: (await import('next/server')).NextResponse.json(
+            { ok: false, error: 'unauthorized' },
+            { status: 401 },
+          ),
+        };
+      }
+      return {
+        sesion: {
+          usuarioId: 1,
+          usuario: 'test',
+          nombre: 'Test',
+          esAdmin: true,
+          debeCambiarClave: false,
+          secciones: actual.SECCIONES,
+          esFallback: false,
+        },
+      };
+    }),
+  };
+});
+
 const CLAVE = 'ads_vistas';
 
 function request(method: 'GET' | 'POST', body?: unknown): NextRequest {

@@ -235,6 +235,27 @@ vi.mock('../../../../lib/auth', async (importOriginal) => {
   return { ...actual, isAuthenticated: vi.fn(() => true), getClientIp: () => 'test-ip' };
 });
 
+// `guard()` delega en `guardSeccion` de lib/permisos (T03), que ya no lee
+// `isAuthenticated`: consulta la base a través de una sesión real. Este test
+// no ejercita el 401, así que el mock siempre deja pasar con sesión admin.
+vi.mock('../../../../lib/permisos', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../../lib/permisos')>();
+  return {
+    ...actual,
+    guardSeccion: vi.fn(async () => ({
+      sesion: {
+        usuarioId: 1,
+        usuario: 'test',
+        nombre: 'Test',
+        esAdmin: true,
+        debeCambiarClave: false,
+        secciones: actual.SECCIONES,
+        esFallback: false,
+      },
+    })),
+  };
+});
+
 vi.mock('../../../../lib/ads/meta', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../../lib/ads/meta')>();
   return {

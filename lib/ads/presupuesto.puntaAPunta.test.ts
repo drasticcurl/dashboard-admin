@@ -72,6 +72,29 @@ vi.mock('@/lib/auth', async (importOriginal) => {
   return { ...actual, isAuthenticated: vi.fn(() => true), getClientIp: () => 'test-ip' };
 });
 
+// `guard()` (app/api/config/_lib.ts) delega en `guardSeccion` de lib/permisos
+// (T03), que ya no lee `isAuthenticated`: consulta la base a través de una
+// sesión real. Este test es anterior a ese módulo y no ejercita el 401 (sólo
+// necesita "hay sesión" para llegar al esquema), así que el mock siempre
+// deja pasar con una sesión admin.
+vi.mock('@/lib/permisos', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/permisos')>();
+  return {
+    ...actual,
+    guardSeccion: vi.fn(async () => ({
+      sesion: {
+        usuarioId: 1,
+        usuario: 'test',
+        nombre: 'Test',
+        esAdmin: true,
+        debeCambiarClave: false,
+        secciones: actual.SECCIONES,
+        esFallback: false,
+      },
+    })),
+  };
+});
+
 /**
  * El centinela: cualquier consulta a la base tira con un mensaje reconocible. Es
  * lo que convierte «no hubo 400» en una afirmación fuerte —el pedido pasó el

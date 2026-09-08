@@ -21,12 +21,27 @@ vi.mock('@/lib/auth', async (importOriginal) => {
   return { ...actual, isAuthenticated: vi.fn(() => true), getClientIp: () => 'test-ip' };
 });
 
-vi.mock('@/lib/db', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/lib/db')>();
-  const prohibido = (): never => {
-    throw new Error('un rechazo del esquema no puede llegar a la base');
+// `guard()` (app/api/config/_lib.ts) delega en `guardSeccion` de lib/permisos
+// (T03), que ya no lee `isAuthenticated`: consulta la base a través de una
+// sesión real. Este test es anterior a ese módulo y no ejercita el 401 (sólo
+// necesita "hay sesión" para llegar al esquema), así que el mock siempre
+// deja pasar con una sesión admin.
+vi.mock('@/lib/permisos', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/permisos')>();
+  return {
+    ...actual,
+    guardSeccion: vi.fn(async () => ({
+      sesion: {
+        usuarioId: 1,
+        usuario: 'test',
+        nombre: 'Test',
+        esAdmin: true,
+        debeCambiarClave: false,
+        secciones: actual.SECCIONES,
+        esFallback: false,
+      },
+    })),
   };
-  return { ...actual, q: vi.fn(prohibido), q1: vi.fn(prohibido), tx: vi.fn(prohibido) };
 });
 
 const CUENTA = 'act_1234567890';
