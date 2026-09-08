@@ -15,6 +15,8 @@
 
 import { getFinanceOverview, listMovements, listScheduledPayments } from '@/lib/queries/finance';
 import { getSaldoOverview, listAccounts, serieDiaria, serieMensual } from '@/lib/queries/saldo';
+import { reconciliarMeses } from '@/lib/queries/reconciliacion';
+import { leerInsightVigente } from '@/lib/ia/insights';
 import { FinanzasView } from './FinanzasView';
 
 export const dynamic = 'force-dynamic';
@@ -30,16 +32,25 @@ export default async function FinanzasPage() {
   const overview = await getFinanceOverview();
   const mesActual = overview.hoy.slice(0, 7);
 
-  const [movements, scheduledPayments, saldo, diario, mensual, cuentas] = await Promise.all([
-    listMovements({}),
-    listScheduledPayments(),
-    getSaldoOverview(),
-    serieDiaria(mesActual),
-    serieMensual(12),
-    // Con las cerradas: una cuenta que desaparece de la lista es una cuenta que
-    // el usuario cree que perdió.
-    listAccounts({ incluirCerradas: true }),
-  ]);
+  const [movements, scheduledPayments, saldo, diario, mensual, cuentas, reconciliacion, insight] =
+    await Promise.all([
+      listMovements({}),
+      listScheduledPayments(),
+      getSaldoOverview(),
+      serieDiaria(mesActual),
+      serieMensual(12),
+      // Con las cerradas: una cuenta que desaparece de la lista es una cuenta que
+      // el usuario cree que perdió.
+      listAccounts({ incluirCerradas: true }),
+      // La reconciliación: ganancia MEDIDA (saldos tipeados) contra la OPERATIVA
+      // (ventas − ads − gastos). Son dos caminos independientes y el hueco entre
+      // ellos es el único chequeo del panel que puede detectar una venta que
+      // nunca llegó o un gasto que nadie cargó. Se muestra con o sin IA.
+      reconciliarMeses(6),
+      // Un SELECT, no una llamada a OpenAI: el análisis lo genera el cron o el
+      // botón (ver la cabecera de la migración 029).
+      leerInsightVigente('finanzas'),
+    ]);
 
   return (
     <FinanzasView
@@ -50,6 +61,8 @@ export default async function FinanzasPage() {
       initialDiario={diario}
       initialMensual={mensual}
       initialCuentas={cuentas}
+      initialReconciliacion={reconciliacion}
+      initialInsight={insight}
     />
   );
 }

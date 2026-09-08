@@ -10,6 +10,166 @@ Lo más nuevo va arriba. Las reglas de cómo se escribe una entrada están en
 
 ---
 
+## 2026-09-04 — Análisis con IA en Resumen y Finanzas, y la reconciliación que lo hace útil
+
+**Qué pasaba.** No había un bug: el pedido era "que la IA revise los datos y me
+tire algún insight", con una condición explícita — «mi idea es que no tire
+request constantemente». Esa condición es la que definió el diseño, porque el
+camino obvio (generar el análisis al renderizar la pantalla) es exactamente el
+que la viola: `/resumen` es `force-dynamic` y `ResumenView` repite el pedido cada
+minuto vía `usePollingGasto`, así que una sola pestaña abierta serían ~1.440
+llamadas pagas por día.
+
+**Por qué se resolvió así.**
+
+*La pantalla no genera, lee una fila.* `ai_insights` (migración 029). Abrir el
+Resumen o Finanzas cuesta un SELECT indexado. Generar es una acción explícita:
+el cron de las 05:45 o el botón "Analizar".
+
+*La caché se indexa por HUELLA DEL CONTENIDO, no por tiempo.* `UNIQUE (ambito,
+huella)` sobre un sha256 del brief canonicalizado. El insight es una función de
+los datos, así que si los datos no cambiaron no hay nada que volver a preguntar.
+Se descartó un TTL, que era la opción intuitiva: un TTL de 6 h regenera cuatro
+veces por día aunque no se haya movido un número — un fin de semana sin ventas,
+o la instancia de infinix que arrancó vacía, pagarían igual. La huella paga cero.
+
+Consecuencia que hay que respetar al tocar un brief: **no puede contener
+timestamps.** Si entra un `generatedAt`, la huella cambia en cada llamada, la
+caché deja de existir y **nada falla** — la pantalla sigue funcionando y el único
+síntoma es la factura. Por eso `lib/ia/brief.test.ts` tiene un test que serializa
+el brief y exige que no haya ni un `\d\d:\d\d:\d\d`. Una fecha sí se puede
+(cambia una vez por día, que es la cadencia buscada); una hora no.
+
+*El modelo no hace aritmética.* Todos los números se calculan en SQL/TS y se le
+pasan hechos. Es lo que hace el resultado auditable: no hay forma de verificar una
+resta que el modelo hizo adentro de un párrafo. Los deltas contra el período
+anterior, las medianas del conjunto y el tramo `vistaACheckout` (que no existía en
+`FunnelSummary`) se precalculan en `lib/ia/brief-resumen.ts`.
+
+*Guard de alucinación determinístico.* Cada insight tiene que citar las métricas
+en las que se apoya con el valor que figura en el brief, y `validarEvidencia`
+compara esas citas contra las hojas del brief antes de guardar. Acepta el valor
+exacto, el ×100 y el ÷100 (los ratios viajan en tanto por uno y el prompt pide
+escribirlos como porcentaje). Una cita que no coincide se descarta; un insight
+cuyas citas NINGUNA coincide se descarta entero. No cuesta una llamada más.
+
+*Techo diario duro,* `OPENAI_INSIGHTS_MAX_DIA` (default 20). Los dos frenos de
+arriba dependen de que el código esté bien; este depende de un `count(*)`. El
+orden de los chequeos importa y está al revés de lo intuitivo: **primero la
+caché, después el techo** — al revés, un día de muchos clicks sobre datos que no
+cambiaron consumiría el techo sin haber llamado ni una vez.
+
+*La ruta es POST y no GET,* y no es cosmético: un GET lo dispara un prefetch del
+browser o un crawler, y cada disparo sería una llamada paga.
+
+**La reconciliación se construyó primero y sin IA, y vale por sí sola.**
+`lib/queries/reconciliacion.ts` compara la ganancia MEDIDA (los saldos que el
+usuario tipea, vía `serieMensual`) contra la OPERATIVA (`daily_metrics`), menos
+los gastos de `finance_movements`:
+
+```
+ganancia medida  ≈  (neto − ads) − |gastos|
+```
+
+Son dos caminos que no se tocan, así que el hueco entre ellos es el único chequeo
+del panel capaz de detectar una venta que nunca llegó por el webhook o un gasto
+que nadie cargó. El panel no podía verlo porque los dos números viven en módulos
+distintos. La IA es la capa de lectura arriba; el número se muestra igual sin
+`OPENAI_API_KEY`.
+
+**Los ajustes quedan FUERA del hueco, a propósito.** Un movimiento `ajuste` no
+mueve plata real: es el usuario corrigiendo la contabilidad. Como el patrimonio se
+MIDE desde la 028, un ajuste no cambia `Δpatrimonio`, así que meterlo en el lado
+esperado inventaría un hueco que no existe. Se reporta en `ajustesEur` para que se
+pueda ver si explica el hueco, pero no entra en la resta. Si alguien lo "arregla"
+sumándolo, el test 7 de `reconciliacion.integracion.test.ts` falla.
+
+**Qué se verificó.**
+
+*La identidad, contra Postgres real.* Es lo que más importaba: la derivé leyendo
+`saldo.ts` y `overview.ts`, y una derivación en un comentario no es una
+verificación — con un signo al revés la columna "hueco" mostraría un número
+perfectamente creíble y el análisis diría que falta plata que no falta. Levanté un
+cluster temporal (Postgres 16.14), apliqué las 29 migraciones en orden sobre una
+base vacía (con el placeholder de `ad_accounts` que la 021 exige) y corrí
+`reconciliacion.integracion.test.ts`: **8/8**. El caso 1 arma un mes con números
+elegidos a mano (bruto 6000 − devuelto 500 − comisiones 300 − costos 200 = neto
+5000; ads 1000; gastos 900) y exige `huecoEur` **exactamente 0**. Los casos 2 y 3
+verifican que un retiro y un aporte no abran hueco (el signo más fácil de
+equivocar: los retiros están guardados negativos y `serieMensual` los resta, así
+que restarlos los suma de vuelta); el 5, que una cuenta `deuda` entre en negativo;
+el 6, que un mes sin cierre completo dé `null` y no 0.
+
+*La migración 029.* Aplicada dos veces (los `IF NOT EXISTS` funcionan) y los seis
+CHECK verificados uno por uno con inserciones que tienen que fallar: `ambito`
+inválido, huella en blanco, rango invertido, `origen` inválido, tokens negativos.
+Y el mecanismo de caché a nivel base: `ON CONFLICT (ambito, huella) DO NOTHING`
+sobre la misma huella devuelve `INSERT 0 0` y la tabla queda en 1 fila; la misma
+huella en otro ámbito sí entra.
+
+*El freno al gasto, end-to-end.* Con `OPENAI_API_KEY` falsa (una llamada real
+daría `HTTP 401`) y el techo consumido en 1/1, `generarInsight` devolvió la fila
+cacheada con `deCache: true` sin llamar a OpenAI y sin evaluar el techo. Con la
+huella distinta, cortó en el techo **antes** de llamar (no apareció ningún 401).
+
+*El camino de error del cliente.* Con la key falsa, el script llegó a la API de
+OpenAI y reportó el cuerpo textual del 401 (`"code": "invalid_api_key"`), o sea
+que la URL, los headers y la serialización del body son correctos. Sin key sale
+con 0 y una línea; con `--ambito=ventas` sale con 1 y mensaje claro; un fallo deja
+`exitCode 1` y **no** escribe fila (un error no se cachea).
+
+*Regresión.* `npx tsc --noEmit` limpio. La suite completa da 37 archivos / 114
+tests fallando por `ECONNREFUSED 127.0.0.1:5433`, **idéntico al baseline medido
+con `git stash`** — son los tests de integración que necesitan la base local
+apagada, ninguno es mío. Los 70 tests nuevos (62 unitarios + 8 de integración)
+pasan. `npm run build` OK, con `/api/ia/insight` registrada.
+
+**Qué NO se verificó, y hay que hacerlo antes de confiar en la salida.**
+
+- **Nunca se llamó a OpenAI con una key válida.** El 401 corta antes de que la
+  API valide el `response_format`, así que el schema de structured outputs no fue
+  aceptado por nadie todavía. Lo que sí está cubierto es el modo de falla más
+  probable: `openai.test.ts` recorre `SCHEMA_SALIDA` y verifica los dos
+  requisitos de `strict: true` (todo objeto con `additionalProperties: false` y
+  todas sus propiedades en `required`), que es lo que va a romper el día que
+  alguien agregue un campo al insight y se olvide de `required`.
+- **La calidad de los insights no está evaluada.** El prompt está escrito contra
+  los modos de falla conocidos (felicitaciones genéricas, tratar `null` como 0,
+  hablar de euros en un panel en dólares, inventar análisis sobre una instancia
+  sin datos) pero nadie leyó una salida real todavía.
+- **El default `gpt-4o-mini` no está confirmado como el más conveniente hoy.**
+  Busqué el catálogo actual y las fuentes se contradicen (una inventa nombres de
+  tier), así que elegí el ID que con más seguridad existe y soporta
+  `strict: true` en vez de arriesgar un 404. Se cambia con `OPENAI_MODEL`, sin
+  deploy de código. El comando para listar los IDs reales está en
+  `lib/ia/openai.ts` y en `.env.example`.
+- **La identidad tiene sutilezas de timing que NO son bugs** y están
+  documentadas en la cabecera de `reconciliacion.ts`: una venta del 31 que entra
+  al banco el 2, el `retenido` de Mercado Pago, la deuda con Meta que se paga
+  después. Por eso `huecos.rachaMismoSigno` se precalcula y el prompt tiene
+  instrucción explícita de no alarmar con una racha de 1 o 2.
+
+**Consecuencias pendientes.**
+
+- **Falta correr la migración 029 en las dos VPS** (`npm run db:migrate`). Hasta
+  entonces, `leerInsightVigente` va a tirar por tabla inexistente en cualquier
+  pantalla — o sea que el deploy de este cambio SIN la migración rompe `/resumen`
+  y `/finanzas`, no sólo la feature nueva.
+- **`OPENAI_API_KEY` todavía no existe en ningún `shared/.env.production`.**
+  Mientras no esté, la feature queda apagada sola: el widget muestra su estado
+  vacío, el botón contesta 503 `ia_apagada` y el cron sale con 0. Es a propósito
+  (la regla de instancias: el default es el comportamiento que ya había).
+- **La línea de cron sólo va a existir en hilvanapp.** `deploy/cron.panel` es el
+  crontab de esa instancia; `/srv/panel-infinix/deploy.sh` vive fuera del repo y
+  hay que revisar si instala este archivo. Sin key el script sale limpio, así que
+  no rompe nada en ninguno de los dos casos.
+- **El widget `analisis` no está en el layout por defecto:** hay que agregarlo a
+  mano desde la lista de widgets del Resumen. Los layouts ya guardados en
+  `settings.ui_layout_resumen` no lo van a incluir.
+- **`/var/log/panel/ia.log` no existe todavía** en la VPS.
+
+---
+
 ## 2026-09-02 — El Boton_Actualizar con sesión vencida mostraba un error de parseo en vez de "sesión vencida"
 
 **Qué pasaba.** El usuario reportó, en Safari: «El refresco de gasto falló: The

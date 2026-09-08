@@ -131,3 +131,26 @@
 # Telegram). NO corre las reglas (eso duplicaría acciones): solo verifica el
 # último tick con --health. Un solo lugar corre las reglas, y es panel-reglas.
 */30 * * * * cd /srv/panel/current && /usr/bin/node --env-file=.env.production ./node_modules/.bin/tsx scripts/run-ad-rules.ts --health >> /var/log/panel/ads.log 2>&1
+
+# ─── Análisis con IA ───────────────────────────────────────────────────────
+# Genera el insight del Resumen y de Finanzas, UNA vez por día.
+#
+# 05:45 Y DESPUES DEL ROLLUP DE 05:25, y la dependencia es real: el script lee
+# daily_metrics para la ventana de días CERRADOS, así que si corre antes del
+# rollup nocturno analiza los números de ayer sin la última pasada y puede
+# escribir un análisis sobre un día incompleto. Es la misma cadena que ya ataba
+# fetch-fx (05:10) → rollup (05:25); esta línea es el tercer eslabón.
+#
+# ES UNA LLAMADA PAGA POR AMBITO Y POR DIA (dos en total). No la pongas cada
+# hora: el análisis habla de días cerrados, así que 24 corridas devolverían 24
+# veces lo mismo. Y no hace falta, porque el resultado queda en una fila y la
+# pantalla lo lee de ahí sin volver a llamar.
+#
+# Repetirla el mismo día NO gasta de nuevo: el UNIQUE (ambito, huella) de
+# ai_insights devuelve la fila ya escrita si el contenido no cambió, igual que
+# la PK de finance_scheduled_payment_runs protege a los pagos programados. El
+# techo duro es OPENAI_INSIGHTS_MAX_DIA.
+#
+# Sin OPENAI_API_KEY el script sale con 0 y una sola línea de log: la instancia
+# que no declara la key no tiene la feature y no ensucia el log todas las noches.
+45 5 * * * cd /srv/panel/current && /usr/bin/node --env-file=.env.production ./node_modules/.bin/tsx scripts/generar-insights.ts >> /var/log/panel/ia.log 2>&1

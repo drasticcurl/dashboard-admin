@@ -41,6 +41,9 @@ import { CuentasSection } from './CuentasSection';
 import { GraficoSaldo } from './GraficoSaldo';
 import { Modal } from './Modal';
 import { MONEDA_REPORTE } from '@/lib/moneda-reporte';
+import { PanelInsight } from '@/components/PanelInsight';
+import type { ReconciliacionMes } from '@/lib/queries/reconciliacion';
+import type { InsightGuardado } from '@/lib/ia/insights';
 
 // Este archivo ya NO importa recharts. El gráfico vive en GraficoSaldo.tsx, que
 // además es el único que lo necesita: dejarlo acá arrastraba la librería a un
@@ -299,6 +302,105 @@ function PatrimonioCard({ overview }: { overview: FinanceOverview }): JSX.Elemen
   );
 }
 
+/**
+ * La reconciliación mes a mes. Lo único que hay que leer es la columna "hueco".
+ *
+ * Los meses van del más NUEVO al más viejo (la query los devuelve al revés):
+ * el mes que importa es el último y tiene que estar arriba, no al final de una
+ * tabla de seis filas.
+ *
+ * Un hueco null NO se muestra como 0: se muestra como "—" con la explicación de
+ * que a ese mes le falta un cierre completo. Es la misma regla que el resto del
+ * módulo (`PatrimonioCard` hace lo mismo con un patrimonio sin medir), y acá
+ * importa más que en ningún lado: un 0 en esta columna significa "cuadra
+ * perfecto", que es lo contrario de "no se pudo medir".
+ */
+function TablaReconciliacion({ meses }: { meses: ReconciliacionMes[] }): JSX.Element {
+  const filas = [...meses].reverse();
+
+  return (
+    <Table
+      rows={filas}
+      empty="Todavía no hay meses para reconciliar."
+      columns={[
+        {
+          key: 'mes',
+          header: 'Mes',
+          render: (m) => <span className="font-mono tabular-nums text-neutral-300">{m.month}</span>,
+        },
+        {
+          key: 'medida',
+          header: 'Medida',
+          align: 'right',
+          render: (m) =>
+            m.gananciaMedidaEur === null ? (
+              <span title="Falta el cierre completo de este mes o del anterior" className="text-neutral-600">
+                —
+              </span>
+            ) : (
+              <span className="font-mono tabular-nums">
+                {fmtMoney(m.gananciaMedidaEur, MONEDA_REPORTE)}
+              </span>
+            ),
+        },
+        {
+          key: 'esperada',
+          header: 'Esperada',
+          align: 'right',
+          render: (m) => (
+            <span
+              className="font-mono tabular-nums text-neutral-400"
+              title={`ventas netas ${fmtMoney(m.netoEur, MONEDA_REPORTE)} − ads ${fmtMoney(
+                m.adsEur,
+                MONEDA_REPORTE,
+              )} − gastos ${fmtMoney(m.gastosEur, MONEDA_REPORTE)}`}
+            >
+              {fmtMoney(m.esperadoEur, MONEDA_REPORTE)}
+            </span>
+          ),
+        },
+        {
+          key: 'hueco',
+          header: 'Hueco',
+          align: 'right',
+          render: (m) => <CeldaHueco mes={m} />,
+        },
+      ]}
+    />
+  );
+}
+
+/**
+ * El hueco con su color. El umbral del 10 % existe para no pintar de rojo un
+ * desfase de fechas: casi todos los meses tienen algo de hueco por una venta que
+ * cruza el cierre, y si cualquier hueco se marcara en rojo la columna sería roja
+ * siempre y dejaría de señalar nada.
+ */
+function CeldaHueco({ mes }: { mes: ReconciliacionMes }): JSX.Element {
+  if (mes.huecoEur === null) {
+    return (
+      <span title="Sin cierre completo no hay con qué comparar" className="text-neutral-600">
+        —
+      </span>
+    );
+  }
+
+  const grande = mes.huecoPct !== null && Math.abs(mes.huecoPct) > 0.1;
+  return (
+    <span
+      className={`font-mono tabular-nums ${grande ? 'text-warn-400' : 'text-neutral-300'}`}
+      title={
+        mes.huecoPct === null
+          ? 'Sin base para calcular el porcentaje'
+          : `${(mes.huecoPct * 100).toFixed(1)} % sobre lo esperado`
+      }
+    >
+      {mes.huecoEur > 0 ? '+' : ''}
+      {fmtMoney(mes.huecoEur, MONEDA_REPORTE)}
+    </span>
+  );
+}
+
 export function FinanzasView({
   initialOverview,
   initialMovements,
@@ -307,6 +409,8 @@ export function FinanzasView({
   initialDiario,
   initialMensual,
   initialCuentas,
+  initialReconciliacion,
+  initialInsight,
 }: {
   initialOverview: FinanceOverview;
   initialMovements: FinanceMovement[];
@@ -315,6 +419,8 @@ export function FinanzasView({
   initialDiario: PuntoDiario[];
   initialMensual: PuntoMensual[];
   initialCuentas: FinanceAccount[];
+  initialReconciliacion: ReconciliacionMes[];
+  initialInsight: InsightGuardado | null;
 }): JSX.Element {
   const router = useRouter();
 
@@ -614,6 +720,22 @@ export function FinanzasView({
       {/* El gráfico. Es lo único, además del patrimonio, que se ve sin tocar
           nada: son las dos cosas que el usuario quiere de un vistazo. */}
       <GraficoSaldo diario={diario} mensual={mensual} />
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        {/* La reconciliación NO depende de la IA y va primero: es el número, y el
+            análisis de al lado es la lectura del número. Si el hueco no cierra, eso
+            se ve acá aunque OPENAI_API_KEY no exista. */}
+        <Card
+          title="Ganancia medida vs. operación"
+          hint="El patrimonio lo tipeás vos; las ventas y el gasto de ads entran solos. Son dos caminos independientes, así que el hueco entre ellos es lo que delata una venta o un gasto sin registrar. Un hueco chico que alterna de signo es timing (una venta de fin de mes que entra al banco el siguiente); uno que se repite del mismo lado es algo que falta."
+        >
+          <TablaReconciliacion meses={initialReconciliacion} />
+        </Card>
+
+        <Card title="Análisis con IA">
+          <PanelInsight inicial={initialInsight} ambito="finanzas" />
+        </Card>
+      </div>
 
       {vista === 'saldo' && (
         <Modal

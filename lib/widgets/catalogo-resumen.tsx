@@ -46,6 +46,7 @@ import {
   fmtMoney,
   fmtPct,
 } from '@/components/ui';
+import { PanelInsight } from '@/components/PanelInsight';
 import type { FunnelSummary, OverviewData } from '@/lib/queries/overview';
 import type { WidgetCatalogo, WidgetSize } from './tipos';
 import { MONEDA_REPORTE, SIMBOLO_REPORTE } from '@/lib/moneda-reporte';
@@ -829,5 +830,39 @@ export const catalogoResumen: WidgetCatalogo<OverviewData> = {
       { w: 2, h: 2 },
     ],
     render: (d) => <TablaFunnels data={d} />,
+  },
+
+  // ─── análisis ────────────────────────────────────────────────────────────
+  //
+  // El insight VIENE en `d.insight`: este widget no lo pide, igual que ningún
+  // otro pide sus datos (regla 2 de tipos.ts). Generarlo es una acción del botón
+  // o del cron — si se generara al renderizar, el polling del Resumen pagaría una
+  // llamada por minuto.
+  //
+  // Sin OPENAI_API_KEY, `d.insight` es null y el widget explica cómo prenderlo en
+  // vez de mostrar un botón que va a fallar con un 503.
+  analisis: {
+    id: 'analisis',
+    label: 'Análisis con IA',
+    hint: 'Compara el embudo de cada funnel contra la mediana del conjunto y descompone el cambio contra el período anterior. Se genera una vez por día; el botón lo pide para el rango que estás viendo.',
+    grupo: 'listas',
+    tamañoPorDefecto: { w: 2, h: 2 },
+    tamañosPermitidos: [
+      { w: 2, h: 1 },
+      { w: 2, h: 2 },
+      { w: 1, h: 2 },
+    ],
+    /*
+      No se chequea acá si la feature está prendida, y no se puede: `hayIa()` lee
+      OPENAI_API_KEY, que es un secreto y no llega al bundle del browser. Una
+      NEXT_PUBLIC_IA_HABILITADA duplicando ese estado se desincronizaría (queda en
+      true en la instancia sin key y el botón falla sin explicación).
+
+      El camino que sí funciona: PanelInsight muestra su propio estado vacío y, si
+      alguien aprieta "Analizar" sin key, el route contesta 503 `ia_apagada` y el
+      componente lo traduce a "no está configurado en esta instancia". El estado
+      real se averigua en el único lugar que lo conoce, que es el server.
+    */
+    render: (d) => <PanelInsight inicial={d.insight} ambito="resumen" />,
   },
 };

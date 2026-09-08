@@ -21,6 +21,7 @@
 
 import { q, q1 } from '@/lib/db';
 import { listFunnels } from '@/lib/funnels';
+import { leerInsightVigente, type InsightGuardado } from '@/lib/ia/insights';
 import { UNATTRIBUTED_FUNNEL } from './sales';
 
 export type OverviewFilters = { from: string; to: string }; // en DASHBOARD_TZ
@@ -127,6 +128,17 @@ export type OverviewData = {
   // UI no puede renderizar lo que el task pide.
   prev: PrevTotals | null; // null cuando no hay período anterior posible (rango 'all')
   lastRollupAt: string | null;
+  /**
+   * El análisis con IA más reciente, o null si no hay o la feature está apagada
+   * (sin `OPENAI_API_KEY`).
+   *
+   * VIAJA ACA Y NO LO PIDE EL WIDGET porque la regla 2 de `lib/widgets/tipos.ts`
+   * es que un widget nunca hace fetch: recibe todo por parámetro. Es un SELECT
+   * indexado a una tabla de unas pocas filas, no una llamada a OpenAI — el
+   * análisis lo genera el cron o el botón, nunca el render (ver la cabecera de la
+   * migración 029).
+   */
+  insight: InsightGuardado | null;
 };
 
 export type PrevTotals = {
@@ -306,18 +318,29 @@ const fmtInt = (n: number): string => intFmt.format(n);
 export async function getOverviewData(f: OverviewFilters): Promise<OverviewData> {
   const now = Date.now();
 
-  const [funnelRows, summaryRows, dayRows, unattRow, fxRow, tierRow, ingestRow, rollupRow, lastEventRows] =
-    await Promise.all([
-      listFunnels(),
-      q<SummaryRow>(SUMMARY_SQL, [f.from, f.to]),
-      q<DayRowRaw>(DAY_SQL, [f.from, f.to]),
-      q1<CountRow>(UNATTRIBUTED_SQL, [f.from, f.to]),
-      q1<CountRow>(FX_STALE_SQL),
-      q1<CountRow>(UNKNOWN_TIER_SQL),
-      q1<CountRow>(INGEST_ERRORS_SQL),
-      q1<RollupRow>(LATEST_ROLLUP_SQL),
-      q<LastEventRow>(LAST_EVENT_SQL),
-    ]);
+  const [
+    funnelRows,
+    summaryRows,
+    dayRows,
+    unattRow,
+    fxRow,
+    tierRow,
+    ingestRow,
+    rollupRow,
+    lastEventRows,
+    insight,
+  ] = await Promise.all([
+    listFunnels(),
+    q<SummaryRow>(SUMMARY_SQL, [f.from, f.to]),
+    q<DayRowRaw>(DAY_SQL, [f.from, f.to]),
+    q1<CountRow>(UNATTRIBUTED_SQL, [f.from, f.to]),
+    q1<CountRow>(FX_STALE_SQL),
+    q1<CountRow>(UNKNOWN_TIER_SQL),
+    q1<CountRow>(INGEST_ERRORS_SQL),
+    q1<RollupRow>(LATEST_ROLLUP_SQL),
+    q<LastEventRow>(LAST_EVENT_SQL),
+    leerInsightVigente('resumen'),
+  ]);
 
   // Período anterior de igual largo (task §6.2): 7d compara contra los 7
   // días anteriores. Con 'all' (from = 2000-01-01, el centinela de lib/day)
@@ -504,5 +527,6 @@ export async function getOverviewData(f: OverviewFilters): Promise<OverviewData>
     staleRollup,
     prev,
     lastRollupAt,
+    insight,
   };
 }
