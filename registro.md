@@ -10,6 +10,118 @@ Lo más nuevo va arriba. Las reglas de cómo se escribe una entrada están en
 
 ---
 
+## 2026-09-09 — Script para cargar OPENAI_API_KEY en hilvanapp (sin tocar infinix)
+
+**Qué pasaba.** El módulo de insights con IA (`lib/ia/openai.ts`, T de
+2026-08/09) ya estaba implementado y se prende solo con la presencia de
+`OPENAI_API_KEY` en `shared/.env.production` — no hay flag de código. Faltaba
+una forma de pegar esa key en la VPS sin escribirla a mano con un editor
+(riesgo de dejarla en el historial de shell o en un `cat >>` mal hecho) y sin
+tocar el resto del archivo.
+
+**Por qué se resolvió así.** Se pidió explícitamente que fuera **solo
+hilvanapp** y **`gpt-5.6-luna`** como modelo — no un script genérico que
+pregunte instancia y modelo. `scripts/setear-openai-key.sh` quedó fijo a
+`/srv/panel/shared/.env.production` y a `OPENAI_MODEL=gpt-5.6-luna`, y no
+toca `/srv/panel-infinix` en ningún caso: por la regla de instancias
+(`.kiro/steering/instancias.md`), esa instancia queda byte-idéntica al no
+declarar la variable.
+
+La key se pide con `read -rsp` (eco apagado) y nunca se acepta como argumento
+del script, para que no quede en `~/.bash_history` ni en `ps`. El
+reemplazo/inserción de las dos variables usa `awk` cortando en el primer `=`
+de la línea (no `FS="="` completo) para no romper si algún valor futuro
+trajera un `=`. Permisos `600` y dueño del archivo se preservan explícitamente
+después del `mv`.
+
+Se descartó validar la key contra la API de OpenAI antes de guardarla (un
+`curl` a `/v1/models`): habría agregado una llamada de red a un script que
+solo escribe un archivo, y el error de una key inválida ya sale claro en el
+primer insight que se intente generar (401 de la API, capturado por
+`IaError`). Solo se valida el formato mínimo (`sk-` al principio) con opción
+de continuar igual si no matchea.
+
+El script corre en la VPS (`sudo bash scripts/setear-openai-key.sh`), no en
+local: `shared/.env.production` no está en git y el deploy nunca lo toca
+(`git reset --hard` es sobre `$REPO`, no sobre `$BASE/shared`), así que no
+hay riesgo de que un deploy futuro revierta el cambio.
+
+**Qué se verificó.** `bash -n` sobre el script (sintaxis OK). La función
+`set_var` se probó aislada contra un `.env.production` de prueba: reemplaza
+`OPENAI_API_KEY=` vacío por el valor real, agrega `OPENAI_MODEL` si no existe
+y lo reemplaza si ya está, sin alterar `DATABASE_URL` ni otras líneas. No se
+verificó contra la API real de OpenAI (no se dispone de una key de prueba en
+este entorno) ni que `gpt-5.6-luna` soporte `response_format: json_schema`
+con `strict: true`, que es lo que `pedirInsights()` requiere — queda para
+comprobar en la primera corrida real, después de correr el script y
+redeployar/reload hilvanapp.
+
+---
+
+## 2026-09-09 — Reset del histórico del test A/B del pitch (VSL de `/upsell`) en hilvanapp, por cambio de video
+
+No toca código. Operación de datos directo en la VPS (base `panel`, hilvanapp).
+
+**Qué pasaba.** El video del VSL de `/upsell` en `chauhinchazon` se va a
+reemplazar. El test A/B vigente (`pitch_A`/`pitch_B`, `db/migrations/027`,
+`lib/queries/pitch.ts`) mide en qué SEGUNDO del video se revela el precio
+(265 s vs 300 s, sobre un VSL de 424 s) — es una comparación relativa a la
+duración y al guion de ESE video. Con un video nuevo esos segundos ya no
+significan lo mismo, y se pidió arrancar el test de cero sin mezclar el
+histórico viejo con las mediciones nuevas.
+
+**Por qué se resolvió así.** Se evaluaron dos caminos:
+
+1. Cambiar `DIMENSION_PREFIX`/`STORAGE_KEY` en `testfunnel/lib/quiz-v2/pitchVariant.ts`
+   (ej. `pitch2_`) y declarar los valores nuevos en `funnels.experiments`,
+   sin tocar los datos viejos — es el patrón que ya usó la 027 ("se suman,
+   no se reemplazan").
+2. Borrar directamente las sesiones/eventos viejos y dejar el mismo prefijo
+   (`pitch_A`/`pitch_B`) y los mismos segundos (`NEXT_PUBLIC_UPSELL_OFFER_AT_SEC`,
+   `NEXT_PUBLIC_AB_PITCH_B_SEC` sin cambios).
+
+Se pidió explícitamente la opción 2: el dato viejo no importa conservarlo y
+se prefirió no tocar código ni nombres de dimensión. Se descartó la opción 1
+porque hubiera requerido una migración nueva y un cambio en `testfunnel` que
+no se pidió.
+
+**Qué se borró.** En la base `panel` (hilvanapp, VPS):
+
+```sql
+DELETE FROM events WHERE session_id IN (SELECT id FROM sessions WHERE experiment IN ('pitch_A','pitch_B'));
+DELETE FROM sessions WHERE experiment IN ('pitch_A','pitch_B');
+```
+
+1451 sesiones (741 `pitch_A`, 710 `pitch_B`) y 24097 eventos. `orders` NO se
+tocó (no tiene FK hacia `sessions`): 480 órdenes por 4383,20 EUR que tenían
+`session_id` apuntando a esas sesiones ahora quedan con esa columna
+apuntando a un id inexistente (huérfanas), pero las órdenes en sí siguen
+enteras en el historial de ventas. Total de huérfanas después del borrado:
+485 (las 480 de este borrado más 5 preexistentes de otro origen).
+
+**Backup previo** (por si se necesita el conteo o el detalle alguna vez, no
+para restaurar):
+
+```
+/srv/panel/backups/sessions_pitch_ab_pre_reset_20260909.csv  (1451 filas)
+/srv/panel/backups/events_pitch_ab_pre_reset_20260909.csv    (24097 filas)
+```
+
+**Qué se verificó.** `SELECT count(*) FROM sessions WHERE experiment IN
+('pitch_A','pitch_B')` → 0. `SELECT count(*) FROM orders` → 6025 (igual que
+antes del borrado, ninguna orden se perdió). El código (`PITCH_PREFIX`,
+`DIMENSION_PREFIX`, `NEXT_PUBLIC_AB_PITCH_B_SEC`, segundo del control) **no
+se tocó**: el próximo visitante que entre a `/upsell` con el video nuevo va a
+seguir emitiendo `pitch_A`/`pitch_B` con los mismos 265 s/300 s, y como la
+tabla está vacía la card `CardPitch.tsx` arranca a contar desde cero sola,
+sin cambios de deploy.
+
+**Pendiente / no verificado:** no se corrió ningún deploy ni cambio en
+`testfunnel` — el reemplazo del video en sí queda fuera de este cambio. Si el
+video nuevo termina necesitando otros segundos de revelado (la curva de
+retención va a ser distinta), eso es un cambio de env var aparte, no de este
+reset.
+
 ## 2026-09-08 — El tablero de Tareas se veía mal en desktop: columnas sin relleno, board achatado y modal sin techo
 
 Toca `app/(panel)/tareas/Columna.tsx`, `app/(panel)/tareas/TableroView.tsx`,
