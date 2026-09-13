@@ -10,6 +10,93 @@ Lo más nuevo va arriba. Las reglas de cómo se escribe una entrada están en
 
 ---
 
+## 2026-09-09 — Wrapper por SSH para cargar la key de IA y dejarla funcionando sin deploy
+
+**Qué pasaba.** `scripts/setear-openai-key.sh` (entrada de más abajo, misma
+fecha) resolvía escribir la key, pero había que entrar a la VPS a mano y, sobre
+todo, **no alcanzaba para que el análisis con IA funcione**: escribe
+`/srv/panel/shared/.env.production`, que NO es el archivo que lee el panel.
+`deploy.sh` paso 5 instala una copia con `install -m 600` dentro de
+`<release>/.next/standalone/`, y `current` apunta ahí; el proceso de PM2 corre
+con `cwd: /srv/panel/current` (`deploy/ecosystem.config.js`) y el cron con
+`node --env-file=.env.production` desde el mismo directorio. Es decir: el
+consejo que imprimía el script (`pm2 reload panel-3005 --update-env`) relee un
+archivo que sigue sin la key, y la feature quedaba apagada hasta el próximo
+deploy completo.
+
+**Por qué se resolvió así.** `scripts/setear-openai-key-remoto.sh` corre en la
+máquina local y hace los cuatro pasos: pide la key, sube el script al temporal
+de la VPS y lo corre, copia `shared/.env.production` a la release viva con el
+mismo `install -m 600` que usa el deploy, recarga `panel-3005` con
+`--update-env` y verifica con el mismo health check del deploy (200 o 307 en
+`/`).
+
+Decisiones y descartes:
+
+- **La key viaja por el STDIN del ssh, nunca como argumento.** Un
+  `ssh host "OPENAI_API_KEY=sk-... bash ..."` la deja en el `~/.bash_history`
+  local, en el `ps` de la VPS y en los logs de auth de sshd, que registran el
+  comando ejecutado. Se descartó también `scp` de un archivo temporal con la
+  key: quedaría en disco, aunque sea un rato.
+- **Sube el script en vez de llamar a `/srv/panel/repo/scripts/`.** Ese archivo
+  está en la rama `feat/openai-key-script`, no en `main`, y el deploy hace
+  `git reset --hard origin/main`: hoy no existe en la VPS. Subirlo desde el
+  working tree funciona con la rama mergeada o sin mergear. El temporal se borra
+  en un `trap EXIT`.
+- **La key se valida y se confirma en el lado local.** El script remoto, si la
+  key no arranca con `sk-`, pregunta si seguir leyendo de STDIN — y con STDIN
+  siendo un pipe ese `read` ve EOF y cancela. Se resuelve preguntando acá y
+  mandando la `s` como segunda línea. Se descartó tocar el script remoto para
+  quitarle el prompt: sigue sirviendo correrlo a mano.
+- **Avisa si `shared` ya difiere de la release viva, y no copia sin permiso.**
+  Copiar `shared` sobre una release viva arrastra CUALQUIER cambio pendiente de
+  env, no solo el de OpenAI. Se comparan los dos archivos en la VPS y se
+  imprimen solo los **nombres** de las claves que difieren (`sed 's/=.*//'`),
+  nunca los valores. Si se contesta que no, igual escribe `shared` (que es la
+  fuente de verdad y sobrevive al deploy) y deja la activación para un deploy
+  normal.
+- **La prueba real es opcional y avisa que se paga.** Corre
+  `generar-insights.ts --ambito=resumen` sobre la release viva: es la única
+  forma de saber si la key sirve y si `gpt-5.6-luna` existe en la cuenta con
+  `json_schema`/`strict`. Un ámbito y no los dos para que sea una llamada y no
+  dos. Con `--sin-prueba` no pregunta nada. Si falla, el mensaje distingue 401
+  (key inválida) de 404 `model_not_found` (modelo inexistente) y de
+  `limite_diario`, que no es un error.
+- El PATH del bloque remoto se fija a mano (`/usr/bin:/usr/local/bin:$PATH`) y
+  `pm2` se busca en tres rutas conocidas: un `ssh host comando` no interactivo
+  entra con un PATH mínimo y el `~/.bashrc` de `deploy` corta temprano para
+  shells no interactivos, así que `pm2` a secas puede no resolver.
+
+No toca infinix: todo apunta a `/srv/panel`. Por `.kiro/steering/instancias.md`,
+`/srv/panel-infinix` sigue sin `OPENAI_API_KEY` y por lo tanto sin la feature.
+
+De paso se corrigió el mensaje final de `scripts/setear-openai-key.sh`, que
+decía que con `pm2 reload panel-3005 --update-env` alcanzaba: no alcanza, por lo
+de arriba. Ahora imprime el `install -m 600` a `current/.env.production` antes
+del reload, o el deploy normal.
+
+**Qué se verificó.** `bash -n` y `shellcheck -S warning` limpios (el SC2087 del
+primer intento se resolvió pasando `BASE`/`PROCESO` como argumentos de
+`bash -s --` con heredoc entre comillas, en vez de interpolar el heredoc). Se
+corrió un banco de pruebas local desechable que simula la VPS (sandbox con
+`shared/`, `releases/1/.next/standalone/`, symlink `current`, y shims de `ssh`,
+`pm2` y `curl`), con dos casos y todas las aserciones en verde: **(A)** sin
+deriva → `shared` queda con `OPENAI_API_KEY` y `OPENAI_MODEL=gpt-5.6-luna` sin
+duplicar líneas, `DATABASE_URL` (que tiene un `=` en la contraseña) y
+`DASHBOARD_PASSWORD` intactas, los dos archivos en `600`, la release viva con la
+key, y ningún temporal olvidado en `/tmp`; **(B)** con deriva (`DASHBOARD_TZ`
+solo en `shared`) → lista el nombre de la variable, se contesta `N`, `shared` se
+escribe igual y la release viva queda byte-idéntica (`diff -q`). El banco se
+borró después de correr.
+
+**Sin verificar, y es lo que queda por hacer:** no se corrió contra la VPS real
+(hace falta la key, que no está en este entorno), así que no está probado el
+`pm2 reload` real ni el health check real, ni que `gpt-5.6-luna` exista en la
+cuenta de OpenAI y soporte `response_format: json_schema` con `strict: true`.
+Eso lo contesta el paso 4 en la primera corrida de verdad.
+
+---
+
 ## 2026-09-09 — Script para cargar OPENAI_API_KEY en hilvanapp (sin tocar infinix)
 
 **Qué pasaba.** El módulo de insights con IA (`lib/ia/openai.ts`, T de

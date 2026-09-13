@@ -126,8 +126,14 @@ echo
 echo "OK. $ENV_FILE actualizado: OPENAI_API_KEY seteada, OPENAI_MODEL=$MODELO_FIJO."
 echo "Permisos: $(stat -c '%a %U:%G' "$ENV_FILE" 2>/dev/null || stat -f '%Lp %Su:%Sg' "$ENV_FILE")"
 echo
-echo "Esto NO reinicia el panel. Para que tome efecto:"
-echo "  sudo -u deploy bash /srv/panel/repo/deploy/deploy.sh"
-echo "  (o, si solo cambiás env sin código nuevo: sudo -u deploy pm2 reload panel-3005 --update-env)"
+echo "Esto NO reinicia el panel, y OJO: un 'pm2 reload' a secas NO alcanza."
+echo "El panel y el cron NO leen este archivo, leen la copia que deploy.sh instala"
+echo "en <release>/.next/standalone/ (que es a donde apunta 'current'). Opciones:"
+echo "  · Deploy normal (recomendado):"
+echo "      sudo -u deploy bash /srv/panel/repo/deploy/deploy.sh"
+echo "  · Sólo activar el env en la release que ya está sirviendo:"
+echo "      install -m 600 /srv/panel/shared/.env.production /srv/panel/current/.env.production"
+echo "      pm2 reload panel-3005 --update-env"
+echo "    (es lo que hace por vos scripts/setear-openai-key-remoto.sh desde tu máquina)"
 echo
 echo "infinix NO fue tocado (sigue sin OPENAI_API_KEY, como corresponde)."
