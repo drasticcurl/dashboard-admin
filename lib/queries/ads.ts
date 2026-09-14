@@ -64,7 +64,7 @@ export function extraerIdDeUtm(utm: string): string | null {
 }
 
 /** La expresión SQL de la extracción, idéntica a la del plan (§4). */
-const EXTRAE_SQL = (col: string): string => String.raw`
+export const EXTRAE_SQL = (col: string): string => String.raw`
     CASE
       WHEN ${col} ~ '\|\s*[0-9]{6,}\s*$' THEN btrim(substring(${col} from '[0-9]+\s*$'))
       WHEN ${col} ~ '^\s*[0-9]{9,}\s*$' THEN btrim(${col})
@@ -423,16 +423,34 @@ function comun(
        AND (${pAccounts}::text[] IS NULL OR cardinality(${pAccounts}) = 0 OR a.account_id = ANY(${pAccounts}))
   ),
   jerarquia_camps AS (
-    SELECT c.*, cu."funnelId"
-      FROM ad_campaigns c JOIN cuenta cu ON cu."accountId" = c.account_id
+    -- El funnel del objeto es el de SU CAMPAÑA si está mapeada (migración 033) y
+    -- el de la cuenta si no. Una cuenta puede servir a varios funnels: la de AR
+    -- tiene además las campañas de LATAM y de gelatina, y sin este COALESCE las
+    -- tres filas dirían "Chau Hinchazón" en la columna Funnel.
+    --
+    -- Esto es SOLO la etiqueta: la atribución de las ventas de esta pantalla
+    -- nunca dependió del funnel (el CTE de ordenes no lo filtra, cruza por el ID
+    -- de Meta que viene en los UTMs). Lo que cambia es qué dice la columna, y con
+    -- la tabla de mapeo vacía dice exactamente lo que decía antes.
+    SELECT c.*, COALESCE(m.funnel_id, cu."funnelId") AS "funnelId"
+      FROM ad_campaigns c
+      JOIN cuenta cu ON cu."accountId" = c.account_id
+      LEFT JOIN ad_campaign_funnel m ON m.campaign_id = c.campaign_id
   ),
   jerarquia_sets AS (
-    SELECT s.*, cu."funnelId"
-      FROM ad_sets s JOIN cuenta cu ON cu."accountId" = s.account_id
+    -- Un conjunto hereda el mapeo de su campaña: en Meta el destino se decide a
+    -- nivel campaña, así que no hay un mapeo propio de conjunto que consultar.
+    SELECT s.*, COALESCE(m.funnel_id, cu."funnelId") AS "funnelId"
+      FROM ad_sets s
+      JOIN cuenta cu ON cu."accountId" = s.account_id
+      LEFT JOIN ad_campaign_funnel m ON m.campaign_id = s.campaign_id
   ),
   jerarquia_ads AS (
-    SELECT a.*, cu."funnelId"
-      FROM ads a JOIN cuenta cu ON cu."accountId" = a.account_id
+    -- Igual que los conjuntos: hereda el mapeo de su campaña.
+    SELECT a.*, COALESCE(m.funnel_id, cu."funnelId") AS "funnelId"
+      FROM ads a
+      JOIN cuenta cu ON cu."accountId" = a.account_id
+      LEFT JOIN ad_campaign_funnel m ON m.campaign_id = a.campaign_id
   ),
   ordenes AS (
     SELECT o.id, o.amount_eur, o.commission_amount_eur, o.cost_amount_eur, o.status, o.purchased_at,

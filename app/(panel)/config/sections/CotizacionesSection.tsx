@@ -1,11 +1,17 @@
 'use client';
 
 /**
- * CotizacionesSection — pesos por euro (1/rate) (T07 §3).
+ * CotizacionesSection — las cotizaciones que el panel usa para consolidar (T07 §3).
  *
- * La tabla guarda 1 ARS en EUR, que es ilegible; acá se muestra 1/rate. La
- * carga manual es la vía de escape de D13 y pisa la del cron para ese día
- * (source=manual).
+ * La tabla guarda "1 unidad de base en quote" (0,0005682 para ARS→EUR), que es
+ * ilegible para el peso; por eso se muestra también la inversa. Desde el
+ * 2026-09-14 hay MÁS DE UN PAR: el cron archiva ARS→moneda de reporte y además
+ * la paridad de cada moneda de venta que no sea el peso (USD→EUR, del funnel
+ * LATAM). De ahí la columna "Par": sin ella, un 0,8622 se lee como si fuera un
+ * rate del peso y parece un error de tres órdenes de magnitud.
+ *
+ * La carga manual es la vía de escape de D13 y pisa la del cron para ese día
+ * (source=manual). Cubre sólo el par del peso: el endpoint escribe base='ARS'.
  */
 
 import { useState } from 'react';
@@ -48,15 +54,22 @@ export function CotizacionesSection({
   return (
     <Card
       title="Cotizaciones"
-      hint="Pesos por euro (1/rate): la tabla guarda 1 ARS en EUR, que es ilegible. La carga manual es la vía de escape de D13."
+      hint={`El cron archiva un par por moneda de venta: ARS→${MONEDA_REPORTE} con dolarapi, y la paridad directa de las demás (el funnel LATAM vende en USD). La carga manual es la vía de escape de D13 y sólo cubre el par del peso.`}
     >
       <Table
         rows={fx}
         empty="Todavía no hay cotizaciones (corré scripts/fetch-fx.ts o cargá una a mano)"
         columns={[
           { key: 'day', header: 'Día', render: (r) => <span className="tabular-nums text-neutral-300">{r.day}</span> },
-          { key: 'ars', header: `Pesos por ${MONEDA_REPORTE}`, align: 'right', render: (r) => <span className="tabular-nums text-neutral-200">{fmtInt(Math.round(r.arsPerEuro))}</span> },
-          { key: 'rate', header: `1 ARS → ${MONEDA_REPORTE}`, align: 'right', render: (r) => <span className="tabular-nums text-neutral-400">{Number(r.rate).toFixed(7)}</span> },
+          // La columna del par no es decorativa: sin ella, una fila USD→EUR se lee
+          // como si fuera pesos por euro y 1,16 parece un error de mil veces.
+          { key: 'par', header: 'Par', render: (r) => <span className="tabular-nums text-neutral-400">{r.base} → {r.quote}</span> },
+          { key: 'rate', header: `1 unidad → ${MONEDA_REPORTE}`, align: 'right', render: (r) => <span className="tabular-nums text-neutral-200">{Number(r.rate).toFixed(r.base === 'ARS' ? 7 : 4)}</span> },
+          { key: 'inversa', header: 'Inversa', align: 'right', render: (r) => (
+            <span className="tabular-nums text-neutral-400">
+              {r.base === 'ARS' ? fmtInt(Math.round(r.arsPerEuro)) : r.arsPerEuro.toFixed(4)} {r.base}
+            </span>
+          ) },
           { key: 'source', header: 'Fuente', render: (r) => <Badge tone={r.source === 'manual' ? 'info' : r.source === 'dolarapi' ? 'good' : 'neutral'}>{r.source}</Badge> },
           { key: 'fetched', header: 'Obtenida', render: (r) => <span className="text-neutral-400">{fmtDateTime(r.fetchedAt)}</span> },
         ]}

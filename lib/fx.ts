@@ -18,8 +18,16 @@ export type FxLookup = { rate: number; day: string; stale: boolean; source: stri
  * Cotización para un día. Si no existe la del día pedido, devuelve la más
  * reciente anterior con stale=true. Si no hay ninguna, devuelve null: el
  * llamador guarda la venta sin amount_eur, nunca la descarta.
+ *
+ * Los códigos de moneda se comparan en MAYÚSCULA. No es cosmético: el checkout
+ * propio guardaba `orders.currency` en minúscula ('usd'), y una fila `base='USD'`
+ * en `fx_rates` no matcheaba — la venta quedaba sin convertir sin ningún error a
+ * la vista. La normalización va acá, en el borde de la lectura, para que también
+ * las 2 filas viejas que ya están en minúscula encuentren su cotización.
  */
 export async function getRate(day: string, base: string, quote: string): Promise<FxLookup | null> {
+  const b = base.toUpperCase();
+  const qt = quote.toUpperCase();
   // Dos subconsultas de una fila cada una unidas con FULL OUTER JOIN: el día
   // exacto gana; si no existe, cae a la última anterior. COALESCE no alcanza
   // sin saber cuál de las dos filas es la buena, y el flag stale sale de ahí.
@@ -29,12 +37,12 @@ export async function getRate(day: string, base: string, quote: string): Promise
             COALESCE(dr.source, lr.source) AS source,
             (dr.rate IS NULL AND lr.rate IS NOT NULL) AS stale
      FROM (SELECT rate, day, source FROM fx_rates
-           WHERE day = $1 AND base = $2 AND quote = $3) AS dr
+           WHERE day = $1 AND upper(base) = $2 AND upper(quote) = $3) AS dr
      FULL OUTER JOIN (SELECT rate, day, source FROM fx_rates
-                      WHERE base = $2 AND quote = $3 AND day < $1
+                      WHERE upper(base) = $2 AND upper(quote) = $3 AND day < $1
                       ORDER BY day DESC LIMIT 1) AS lr ON true
      LIMIT 1`,
-    [day, base, quote],
+    [day, b, qt],
   );
   if (!row || row.rate === null) return null;
   return { rate: Number(row.rate), day: row.day!, stale: row.stale, source: row.source! };
@@ -59,13 +67,18 @@ export async function toReportCurrency(
   currency: string,
   day: string,
 ): Promise<{ amountEur: number; rate: number; fxDay: string; stale: boolean } | null> {
+  // En MAYÚSCULA antes de comparar: con `currency = 'usd'` (así lo guardaba el
+  // checkout propio) y MONEDA_REPORTE = 'USD' este corto circuito no se
+  // disparaba y la venta salía a buscar una cotización de la moneda contra sí
+  // misma, que no existe.
+  const cur = currency.toUpperCase();
   // Una venta que ya está en la moneda de reporte no necesita cotización: sin
   // este corto circuito, un funnel que venda en la moneda de reporte quedaría
   // esperando una fila ARS→X que nadie escribe.
-  if (currency === MONEDA_REPORTE) {
+  if (cur === MONEDA_REPORTE) {
     return { amountEur: round2(amount), rate: 1, fxDay: day, stale: false };
   }
-  const fx = await getRate(day, currency, MONEDA_REPORTE);
+  const fx = await getRate(day, cur, MONEDA_REPORTE);
   if (!fx) return null;
   return { amountEur: round2(amount * fx.rate), rate: fx.rate, fxDay: fx.day, stale: fx.stale };
 }

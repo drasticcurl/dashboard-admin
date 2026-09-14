@@ -80,7 +80,12 @@ export async function upsertOrder(
   const orderNumber = order.order_number != null ? String(order.order_number) : order.name ?? null;
   const email = buyerEmail(order) || null;
   const amount = Number.parseFloat(order.total_price ?? order.current_total_price ?? '0') || 0;
-  const currency = order.currency ?? 'ARS';
+  // En MAYÚSCULA como el resto: Shopify manda ISO-4217 en mayúscula, así que
+  // esto no cambia ninguna fila existente, pero deja la columna con una sola
+  // forma canónica. La que la unen contra `fx_rates.base` y
+  // `funnels.sell_currency` (lib/queries/sales.ts, scripts/rollup.ts) es
+  // sensible al caso.
+  const currency = (order.currency ?? 'ARS').toUpperCase();
   const purchasedAt = order.processed_at || order.created_at || new Date().toISOString();
   const country =
     order.billing_address?.country_code ?? order.shipping_address?.country_code ?? null;

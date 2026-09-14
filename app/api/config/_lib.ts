@@ -219,15 +219,25 @@ export async function setSetting(key: string, value: unknown): Promise<void> {
 
 export type FxRateRow = {
   day: string;
+  /** Moneda de origen. Desde la 032 siempre en mayúscula. */
+  base: string;
+  /** Moneda de reporte bajo la que se archivó (ver lib/fx-fetch.ts:saveRate). */
+  quote: string;
   rate: string; // 1 base en quote — numeric viene como string de pg
-  arsPerEuro: number; // 1/rate, que es como se lee (D13)
+  /**
+   * 1/rate: cuántas unidades de `base` vale 1 de `quote`. Para ARS es "pesos por
+   * euro", que es como se lee esa fila; para USD→EUR es 1,16, que no se lee así
+   * pero es el mismo número. El nombre del campo quedó porque es el contrato del
+   * endpoint y la UI lo consume.
+   */
+  arsPerEuro: number;
   source: string;
   fetchedAt: string;
 };
 
 export async function listFxRates(limit = 20): Promise<FxRateRow[]> {
-  const rows = await q<{ day: Date; rate: string; source: string; fetchedAt: Date }>(
-    `SELECT day, rate::text AS rate, source, fetched_at AS "fetchedAt"
+  const rows = await q<{ day: Date; base: string; quote: string; rate: string; source: string; fetchedAt: Date }>(
+    `SELECT day, base, quote, rate::text AS rate, source, fetched_at AS "fetchedAt"
      FROM fx_rates
      ORDER BY day DESC, fetched_at DESC
      LIMIT $1`,
@@ -235,6 +245,8 @@ export async function listFxRates(limit = 20): Promise<FxRateRow[]> {
   );
   return rows.map((r) => ({
     day: r.day instanceof Date ? r.day.toISOString().slice(0, 10) : String(r.day).slice(0, 10),
+    base: r.base,
+    quote: r.quote,
     rate: r.rate,
     arsPerEuro: Number(r.rate) > 0 ? 1 / Number(r.rate) : 0,
     source: r.source,
@@ -293,8 +305,12 @@ export async function getSystemStatus(opts: {
       ),
       q1<{ at: Date }>(`SELECT max(computed_at) AS at FROM daily_metrics`),
       q1<{ day: Date; rate: string; source: string }>(
+        // Sólo el par del PESO: desde que el cron archiva también
+        // <moneda de venta>→moneda de reporte (USD→EUR del funnel LATAM), la fila
+        // más reciente de la tabla puede ser de otro par, y el widget de Salud
+        // mostraría "1 $/€" sin que nada falle.
         `SELECT day, rate::text AS rate, source
-         FROM fx_rates ORDER BY day DESC, fetched_at DESC LIMIT 1`,
+         FROM fx_rates WHERE base = 'ARS' ORDER BY day DESC, fetched_at DESC LIMIT 1`,
       ),
       // Las particiones de events son tablas hijas de la particionada: el
       // catálogo de pg_inherits es la única fuente de verdad de cuántas hay.

@@ -70,7 +70,13 @@ export async function upsertOrderCheckoutPropio(
   // que "vino algo" ≠ cadena vacía (misma regla que lib/ingest/schema.ts).
   const fbclid = cleanUtmValue(payload.fbclid) || null;
 
-  const currency = payload.moneda.toLowerCase();
+  // MAYÚSCULA. Guardaba `.toLowerCase()` y eso dejó las dos ventas LATAM del
+  // 2026-09-14 con `currency = 'usd'`, que no matchea con nada:
+  // `funnels.sell_currency` es 'USD', y tanto AD_SPEND_SQL (lib/queries/sales.ts)
+  // como el rollup unen `fx_rates.base = f.sell_currency`. La venta se convertía
+  // solo porque alguien cargó a mano una fila `base='usd'`; el gasto de la misma
+  // campaña, que se lee por `sell_currency`, seguía dando 0.
+  const currency = payload.moneda.toUpperCase();
   const amount = Number.parseFloat(payload.monto) || 0;
 
   // D2: resolveFunnel() SIN attrFunnel — esta venta no tiene cart attribute,

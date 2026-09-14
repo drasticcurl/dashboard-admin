@@ -15,7 +15,15 @@
 #   ls -lh /srv/panel/backups/ | tail -3
 # ══════════════════════════════════════════════════════════════════════════════
 
-# Cotización ARS→EUR (T03).
+# Cotizaciones del día (T03).
+#
+# Desde el 2026-09-14 esta corrida archiva MÁS DE UN PAR: ARS→EUR con dolarapi
+# (y er-api de respaldo) y, además, la paridad directa de cada moneda de venta
+# que no sea el peso — hoy USD→EUR, del funnel `chauhinchazon-latam`, que vende
+# en dólares. Sin esa fila sus ventas quedaban con `amount_eur` en NULL y el
+# funnel mostraba €0 de ingresos con ventas reales adentro. El script sale 1 si
+# falla cualquiera de los pares, pero el par del peso y el backfill se hacen
+# igual: un fallo del par nuevo no puede dejar sin convertir las ventas en pesos.
 #
 # 05:10 Y NO 03:10, Y LA HORA NO ES ARBITRARIA. LEER ANTES DE MOVERLA.
 #

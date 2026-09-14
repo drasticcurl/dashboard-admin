@@ -10,7 +10,8 @@
 
 import { useEffect, useState } from 'react';
 import type { Funnel } from '@/lib/funnels';
-import { Badge, Banner, Card, Table, fmtDateTime, fmtInt } from '@/components/ui';
+import { Badge, Banner, Card, Table, fmtDateTime, fmtInt, fmtMoney } from '@/components/ui';
+import { MONEDA_REPORTE } from '@/lib/moneda-reporte';
 import { btnGhost, inputCls, type ConfigShell } from '../kit';
 
 type AdAccount = {
@@ -28,6 +29,29 @@ type AdsPayload = {
   tokenError: string | null;
 };
 
+type Campania = {
+  campaignId: string;
+  campaignName: string | null;
+  status: string | null;
+  effectiveStatus: string | null;
+  desaparecidoAt: string | null;
+  funnelId: number | null;
+  funnelName: string | null;
+  nota: string | null;
+  funnelEfectivoId: number | null;
+  funnelEfectivoName: string | null;
+  spendEur: number;
+  ultimoDia: string | null;
+  ventasPorFunnel: Array<{ funnelId: number | null; funnelName: string; ventas: number }>;
+};
+type CampaniasPayload = {
+  accountId: string;
+  cuentaFunnelId: number | null;
+  cuentaFunnelName: string | null;
+  dias: number;
+  campanias: Campania[];
+};
+
 export function PublicidadSection({
   funnels,
   shell,
@@ -37,6 +61,12 @@ export function PublicidadSection({
 }): JSX.Element {
   const { api, show, busy, setBusy } = shell;
   const [ads, setAds] = useState<AdsPayload | null>(null);
+  // Qué cuenta tiene el panel de campañas abierto. Se pide al abrirlo y no con
+  // la sección: son 270 campañas en la cuenta grande y no hacen falta para
+  // mirar las cuentas.
+  const [abierta, setAbierta] = useState<string | null>(null);
+  const [camps, setCamps] = useState<CampaniasPayload | null>(null);
+  const [filtro, setFiltro] = useState('');
 
   useEffect(() => {
     api<AdsPayload>('/api/config/ads')
@@ -44,6 +74,40 @@ export function PublicidadSection({
       .catch(() => setAds({ accounts: [], descubiertas: [], tokenError: 'no se pudo consultar' }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  async function cargarCampanias(accountId: string, q = ''): Promise<void> {
+    setCamps(null);
+    const qs = q.trim() === '' ? '' : `&q=${encodeURIComponent(q.trim())}`;
+    try {
+      setCamps(await api<CampaniasPayload>(`/api/config/ads/campanas?accountId=${encodeURIComponent(accountId)}${qs}`));
+    } catch (e) {
+      show('bad', (e as Error).message);
+      setAbierta(null);
+    }
+  }
+
+  async function asignarCampania(accountId: string, campaignId: string, funnelId: number | null): Promise<void> {
+    setBusy(true);
+    try {
+      const r = await api<{ reasignadas: number; rollup: { from: string; to: string } | null }>(
+        '/api/config/ads/campanas',
+        { method: 'POST', body: JSON.stringify({ accountId, campaignId, funnelId }) },
+      );
+      await cargarCampanias(accountId, filtro);
+      setAds(await api<AdsPayload>('/api/config/ads'));
+      show(
+        'good',
+        r.reasignadas > 0
+          ? `Campaña guardada — ${r.reasignadas} filas de gasto reimputadas` +
+              (r.rollup ? ` y el resumen recalculado del ${r.rollup.from} al ${r.rollup.to}` : '')
+          : 'Campaña guardada — no había gasto para reimputar',
+      );
+    } catch (e) {
+      show('bad', (e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function saveAdAccount(accountId: string, funnelId: number | null, extra?: Partial<AdAccount>) {
     setBusy(true);
@@ -190,30 +254,154 @@ export function PublicidadSection({
                     <Badge tone="neutral">nunca</Badge>
                   ) },
                 { key: 'acciones', header: '', align: 'right', render: (a) => (
-                  <button
-                    type="button"
-                    className={btnGhost}
-                    disabled={busy}
-                    onClick={async () => {
-                      if (!confirm(`Dar de baja ${a.accountId}? El gasto ya guardado NO se borra.`)) return;
-                      setBusy(true);
-                      try {
-                        await api(`/api/config/ads?accountId=${encodeURIComponent(a.accountId)}`, { method: 'DELETE' });
-                        setAds(await api<AdsPayload>('/api/config/ads'));
-                        show('good', 'Cuenta dada de baja — el gasto histórico se conservó');
-                      } catch (e) {
-                        show('bad', (e as Error).message);
-                      } finally {
-                        setBusy(false);
-                      }
-                    }}
-                  >
-                    Dar de baja
-                  </button>
+                  <div className="flex justify-end gap-2">
+                    <button
+                      type="button"
+                      className={btnGhost}
+                      onClick={() => {
+                        const siguiente = abierta === a.accountId ? null : a.accountId;
+                        setAbierta(siguiente);
+                        setFiltro('');
+                        if (siguiente) void cargarCampanias(siguiente);
+                      }}
+                    >
+                      {abierta === a.accountId ? 'Ocultar campañas' : 'Campañas'}
+                    </button>
+                    <button
+                      type="button"
+                      className={btnGhost}
+                      disabled={busy}
+                      onClick={async () => {
+                        if (!confirm(`Dar de baja ${a.accountId}? El gasto ya guardado NO se borra.`)) return;
+                        setBusy(true);
+                        try {
+                          await api(`/api/config/ads?accountId=${encodeURIComponent(a.accountId)}`, { method: 'DELETE' });
+                          setAds(await api<AdsPayload>('/api/config/ads'));
+                          show('good', 'Cuenta dada de baja — el gasto histórico se conservó');
+                        } catch (e) {
+                          show('bad', (e as Error).message);
+                        } finally {
+                          setBusy(false);
+                        }
+                      }}
+                    >
+                      Dar de baja
+                    </button>
+                  </div>
                 ) },
               ]}
             />
           </div>
+
+          {abierta !== null && (
+            <div className="mt-4 rounded-xl border border-border-subtle bg-overlay/2 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs font-semibold uppercase tracking-wide text-neutral-500">
+                  Campañas de {ads.accounts.find((a) => a.accountId === abierta)?.name ?? abierta}
+                </p>
+                <input
+                  className={inputCls}
+                  placeholder="Filtrar por nombre o id"
+                  value={filtro}
+                  onChange={(e) => setFiltro(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && void cargarCampanias(abierta, filtro)}
+                />
+              </div>
+
+              {/* Por qué esto existe, en una línea y en el lugar donde se usa. */}
+              <p className="mt-2 text-xs text-neutral-500">
+                Una cuenta puede servir a varios funnels. Lo que se elige acá es la{' '}
+                <strong className="text-neutral-400">excepción</strong>: la campaña que no se toca
+                hereda el funnel de la cuenta
+                {camps?.cuentaFunnelName ? ` (${camps.cuentaFunnelName})` : ' (sin asignar)'}. Al
+                guardar se reimputa el gasto ya registrado y se recalcula el resumen de esos días.
+              </p>
+
+              {camps === null ? (
+                <p className="mt-3 text-xs text-neutral-500">Cargando campañas…</p>
+              ) : (
+                <div className="mt-3">
+                  <Table
+                    rows={camps.campanias}
+                    empty="Esta cuenta no tiene campañas todavía (el sync de la jerarquía corre cada 15 minutos)"
+                    columns={[
+                      {
+                        key: 'name',
+                        header: 'Campaña',
+                        render: (c) => (
+                          <span className="text-neutral-300">
+                            {c.campaignName ?? c.campaignId}
+                            {c.desaparecidoAt ? (
+                              <Badge tone="neutral">ya no está en Meta</Badge>
+                            ) : c.status && c.status !== 'ACTIVE' ? (
+                              <span className="ml-2 text-neutral-500">{c.status.toLowerCase()}</span>
+                            ) : null}
+                          </span>
+                        ),
+                      },
+                      {
+                        key: 'spend',
+                        header: `Gasto ${camps.dias}d`,
+                        align: 'right',
+                        render: (c) => (
+                          <span className="tabular-nums text-neutral-300">
+                            {c.spendEur > 0 ? fmtMoney(c.spendEur, MONEDA_REPORTE) : '—'}
+                          </span>
+                        ),
+                      },
+                      {
+                        // El detector: de qué funnel son las ventas que se le
+                        // atribuyeron por UTM. Si no coincide con la columna de
+                        // al lado, el mapeo está mal — y se ve sin abrir SQL.
+                        key: 'ventas',
+                        header: `Ventas ${camps.dias}d`,
+                        render: (c) =>
+                          c.ventasPorFunnel.length === 0 ? (
+                            <span className="text-neutral-600">—</span>
+                          ) : (
+                            <span className="flex flex-wrap gap-1">
+                              {c.ventasPorFunnel.map((v) => (
+                                <Badge
+                                  key={`${c.campaignId}-${v.funnelId ?? 'sin'}`}
+                                  tone={v.funnelId === c.funnelEfectivoId ? 'neutral' : 'warn'}
+                                >
+                                  {v.funnelName}: {fmtInt(v.ventas)}
+                                </Badge>
+                              ))}
+                            </span>
+                          ),
+                      },
+                      {
+                        key: 'funnel',
+                        header: 'Se imputa a',
+                        render: (c) => (
+                          <select
+                            className={inputCls}
+                            value={c.funnelId ?? ''}
+                            disabled={busy}
+                            onChange={(e) =>
+                              asignarCampania(
+                                camps.accountId,
+                                c.campaignId,
+                                e.target.value === '' ? null : Number(e.target.value),
+                              )
+                            }
+                          >
+                            <option value="">
+                              — hereda: {camps.cuentaFunnelName ?? 'sin asignar'} —
+                            </option>
+                            {funnels.map((f) => (
+                              <option key={f.id} value={f.id}>{f.name}</option>
+                            ))}
+                          </select>
+                        ),
+                      },
+                    ]}
+                  />
+                </div>
+              )}
+            </div>
+          )}
 
           {ads.descubiertas.length > 0 && (
             <div className="mt-4 rounded-xl border border-border-subtle bg-overlay/2 p-4">

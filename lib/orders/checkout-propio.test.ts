@@ -226,9 +226,19 @@ describe('upsertOrderCheckoutPropio', () => {
     expect(e.lastInsert!.params[COL.email]).toBeNull();
   });
 
-  it('moneda se guarda en minúsculas, igual que armarPayloadIngest ya hace (D del contrato A)', async () => {
+  // Antes esperaba 'usd' (se guardaba `.toLowerCase()` para espejar lo que hace
+  // `armarPayloadIngest` del checkout). El espejo era cosmético y costaba plata:
+  // `funnels.sell_currency` es 'USD' y las queries de gasto de Ventas y del
+  // rollup unen `fx_rates.base = f.sell_currency`, así que la moneda en
+  // minúscula no matcheaba ninguna cotización. Ver lib/fx.ts:getRate.
+  it('moneda se guarda en MAYÚSCULAS, como funnels.sell_currency y fx_rates.base', async () => {
+    await upsertOrderCheckoutPropio(payload({ moneda: 'usd' }));
+    expect(e.lastInsert!.params[COL.currency]).toBe('USD');
+  });
+
+  it('moneda que ya viene en mayúsculas se guarda igual (idempotente)', async () => {
     await upsertOrderCheckoutPropio(payload({ moneda: 'USD' }));
-    expect(e.lastInsert!.params[COL.currency]).toBe('usd');
+    expect(e.lastInsert!.params[COL.currency]).toBe('USD');
   });
 
   it('monto llega como string decimal y se guarda como number', async () => {

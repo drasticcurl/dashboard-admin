@@ -279,7 +279,7 @@ export async function syncAdSpend(opts: {
                                  spend, currency, spend_eur, fx_rate, impressions, clicks,
                                  video_plays, video_thruplay, video_p25, video_p50, video_p75, video_p100,
                                  synced_at)
-           SELECT 'meta', $1, $2::smallint, u.day, 'ad',
+           SELECT 'meta', $1, COALESCE(m.funnel_id, $2::smallint), u.day, 'ad',
                   u.campaign_id, u.campaign_name, u.adset_id, u.adset_name, u.ad_id, u.ad_name,
                   u.spend, $3, u.spend_eur, u.rate, u.impressions, u.clicks,
                   u.video_plays, u.video_thruplay, u.video_p25, u.video_p50, u.video_p75, u.video_p100,
@@ -291,6 +291,17 @@ export async function syncAdSpend(opts: {
                 AS u(day, campaign_id, campaign_name, adset_id, adset_name,
                      ad_id, ad_name, spend, spend_eur, rate, impressions, clicks,
                      video_plays, video_thruplay, video_p25, video_p50, video_p75, video_p100)
+           -- LA CASCADA DE IMPUTACIÓN (migración 033). El funnel de la fila sale
+           -- del mapeo de SU campaña y, si no está mapeada, del funnel de la
+           -- cuenta ($2) — que es como se comportaba todo antes de que existiera
+           -- la tabla, así que con ad_campaign_funnel vacía esto es idéntico a la
+           -- versión anterior.
+           --
+           -- Se resuelve acá, en el INSERT, y no en TypeScript: la fila ya trae
+           -- su campaign_id y así el mapeo se aplica también a los upserts que
+           -- pisan filas viejas (el DO UPDATE de abajo incluye funnel_id), sin un
+           -- round-trip extra por campaña.
+           LEFT JOIN ad_campaign_funnel m ON m.campaign_id = u.campaign_id
            ON CONFLICT (platform, account_id, day, level, campaign_id, adset_id, ad_id)
            DO UPDATE SET
              spend = EXCLUDED.spend,

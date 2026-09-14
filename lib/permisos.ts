@@ -287,6 +287,7 @@ export const MAPA_API: Record<string, readonly Seccion[] | 'admin' | 'publica'> 
 
   // ── Config → sección 'config', una por una, sin comodines ────────────────
   '/api/config/ads': ['config'],
+  '/api/config/ads/campanas': ['config'],
   '/api/config/commissions': ['config'],
   '/api/config/settings': ['config'],
   '/api/config/products': ['config'],

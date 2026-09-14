@@ -1,7 +1,15 @@
 #!/usr/bin/env node
 /**
- * Cron diario de la cotización ARS→moneda de reporte (T03, D12/D13 del plan).
- * El par lo decide NEXT_PUBLIC_REPORT_CURRENCY (ver lib/moneda-reporte.ts).
+ * Cron diario de las cotizaciones que el panel necesita para consolidar (T03,
+ * D12/D13 del plan).
+ *
+ * Archiva DOS clases de par:
+ *   · ARS → moneda de reporte, con dolarapi como fuente primaria y er-api como
+ *     respaldo. Es el par histórico y el que decide la moneda de reporte
+ *     (NEXT_PUBLIC_REPORT_CURRENCY, ver lib/moneda-reporte.ts).
+ *   · <moneda de venta> → moneda de reporte para cada funnel activo que no venda
+ *     en pesos ni en la moneda de reporte (hoy USD, del funnel LATAM), con la
+ *     paridad directa de er-api. Ver `fetchParidad` en lib/fx-fetch.ts.
  *
  * Línea de cron (la instalación de la máquina la escribe T12):
  *   # Cotización ARS→moneda de reporte, todos los días a las 03:10 hora de Argentina
@@ -12,8 +20,8 @@
  * que la cotización se asocia al día correcto.
  *
  * Uso: tsx scripts/fetch-fx.ts [--day=YYYY-MM-DD] [--force]
- * Exit 0 si guardó, 1 si no pudo con ninguna de las dos fuentes: ese código
- * de salida es lo que hace que el cron avise.
+ * Exit 0 si guardó, 1 si no pudo con alguno de los pares: ese código de salida
+ * es lo que hace que el cron avise.
  */
 
 import { existsSync } from 'node:fs';
@@ -21,7 +29,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { getPool, q, q1 } from '../lib/db';
 import { today } from '../lib/day';
-import { fetchRate, saveRate, type FxFetchResult } from '../lib/fx-fetch';
+import { fetchParidad, fetchRate, monedasDeVentaAExtraer, saveRate, type FxFetchResult } from '../lib/fx-fetch';
 import { MONEDA_REPORTE } from '../lib/moneda-reporte';
 import { runBackfill } from './backfill-fx';
 
@@ -117,9 +125,52 @@ export async function main(args: string[] = process.argv.slice(2)): Promise<void
     );
   }
 
+  // ─── Las otras monedas de venta ───────────────────────────────────────────
+  //
+  // Hasta el 2026-09-14 este cron archivaba UN par: ARS→moneda de reporte. El
+  // funnel `chauhinchazon-latam` vende en USD, así que sus ventas buscaban una
+  // cotización USD→EUR que nadie escribía nunca y quedaban con `amount_eur` en
+  // NULL: el funnel mostraba €0 de ingresos con ventas reales adentro, y el
+  // ROAS de una campaña LATAM salía 0 con gasto real (que es lo que pausaría
+  // una regla). El usuario venía cargando la fila a mano.
+  //
+  // Un fallo acá NO tumba lo de arriba (el par del peso ya está guardado) ni el
+  // backfill de abajo: se junta y se tira al final, para que el cron avise con
+  // exit 1 pero el trabajo que sí se pudo hacer quede hecho.
+  const fallos: string[] = [];
+  for (const base of await monedasDeVentaAExtraer()) {
+    try {
+      const yaEsta = await q1<{ source: string }>(
+        `SELECT source FROM fx_rates WHERE day = $1 AND base = $2 AND quote = $3`,
+        [day, base, MONEDA_REPORTE],
+      );
+      if (yaEsta?.source === 'manual') {
+        console.log(`fx ${day} ${base}→${MONEDA_REPORTE}: no se pisa la cotización manual`);
+        continue;
+      }
+      if (yaEsta && !force) {
+        console.log(`fx ${day} ${base}→${MONEDA_REPORTE}: ya existe una fila (${yaEsta.source}), --force para pisar`);
+        continue;
+      }
+      const par = await fetchParidad(base);
+      await saveRate(day, par.rate, par.source, base);
+      console.log(
+        `${day} ${base}→${MONEDA_REPORTE} ${fmtRate(par.rate)} (${par.source}, 1 ${base} = ${par.rate.toFixed(4)} ${MONEDA_REPORTE})`,
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      fallos.push(`${base}: ${msg}`);
+      console.error(`fx ${day} ${base}→${MONEDA_REPORTE} falló: ${msg}`);
+    }
+  }
+
   // Corre también cuando el día ya estaba guardado: si la corrida anterior
   // guardó y falló antes del backfill, esto lo sana sin esperar a mañana.
   await runBackfill({ limit: 5000, dryRun: false });
+
+  if (fallos.length > 0) {
+    throw new Error(`no se pudo cotizar ${fallos.length} par(es): ${fallos.join('; ')}`);
+  }
 }
 
 const isMain =

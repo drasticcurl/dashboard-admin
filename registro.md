@@ -10,6 +10,186 @@ Lo más nuevo va arriba. Las reglas de cómo se escribe una entrada están en
 
 ---
 
+## 2026-09-14 — Cotización diaria de las monedas de venta, y una cuenta publicitaria repartida entre varios funnels
+
+Dos cambios de la misma tanda. Van juntos porque son las dos mitades del mismo
+número: para leer el ROI de una campaña LATAM que corre en la cuenta de AR hacen
+falta las dos.
+
+### 1. El cron de cotizaciones archivaba UN par y hay funnels que no venden en pesos
+
+**Qué pasaba.** `lib/fx-fetch.ts` escribía únicamente `ARS → moneda de reporte`.
+El funnel `chauhinchazon-latam` vende en USD (Hotmart y el checkout propio), así
+que sus ventas llamaban a `getRate(day, 'USD', 'EUR')` contra una tabla que no
+tenía ni una fila de ese par y entraban con `amount_eur = NULL` y
+`fx_stale = true`. En producción, el 14/09: las dos ventas del checkout propio del
+funnel 3 con `amount_eur` vacío, `daily_metrics` del funnel 3 con
+`revenue_gross_eur = 0.00` y 2 órdenes. La única fila `usd→EUR` de `fx_rates`
+estaba cargada **a mano** por el usuario.
+
+Y había una segunda mitad, más silenciosa: esa fila manual tenía `base = 'usd'` en
+minúscula, porque `lib/orders/checkout-propio.ts` guardaba
+`payload.moneda.toLowerCase()` (con un test que fijaba `'usd'`). Las dos queries
+que convierten el gasto de publicidad a la moneda del funnel —`AD_SPEND_SQL` en
+`lib/queries/sales.ts` y la de `ad_spend` en `scripts/rollup.ts`— unen
+`fr.base = f.sell_currency`, o sea contra `funnels.sell_currency`, que dice
+`'USD'`. Con la fila en minúscula la subconsulta devuelve NULL, el
+`NULLIF(...,0)` la propaga y el `COALESCE(sum(...), 0)` la convierte en un cero
+creíble. Verificado en local, misma fila y mismo rollup, cambiando sólo el caso de
+`base`:
+
+```
+ funnel_id | ad_spend (moneda del funnel) | ad_spend_eur
+         3 |                         0.00 |        59.00   ← base='usd'
+         3 |                        68.43 |        59.00   ← base='USD'
+```
+
+**Por qué se resolvió así.**
+
+- **Las bases salen de `funnels.sell_currency`, no de una lista en el código**
+  (`monedasDeVentaAExtraer`). Agregar un funnel que venda en otra moneda no
+  requiere tocar el fetcher. Y como excluye ARS y la moneda de reporte, la
+  instancia de infinix (reporta en USD, funnels en ARS) devuelve un array vacío y
+  queda byte-idéntica: es la regla de `.kiro/steering/instancias.md`.
+- **La paridad se pide a er-api (`/v6/latest/<BASE>`) y NO se cruza vía peso.**
+  Se descartó calcular USD→EUR dividiendo los dos valores de dolarapi (pesos por
+  dólar ÷ pesos por euro): ese cruce le mete el spread del mercado argentino a una
+  venta que se cobró en dólares y se consolida en euros, dos monedas que nunca
+  pasaron por un peso. El valor de la venta quedaría atado a la brecha de ese día.
+- **La defensa del par nuevo es `base_code`, no una banda numérica.** La banda de
+  `assertPlausible` (1e-6..1e-2) está escrita para el peso y rechazaría un 0,86;
+  la nueva (`assertPlausibleParidad`, 1e-4..1e4) atrapa ceros, strings y comas
+  corridas, pero **no puede** atrapar el error grave de este archivo, que es
+  invertir el valor: 1/0,862246 = 1,16 y pasa cualquier banda razonable. Lo que lo
+  ataja es que er-api dice contra qué moneda está expresado `rates`, y
+  `fetchParidad` tira si no es la que se pidió. Hay un test que documenta el
+  límite (`la banda de paridad NO discrimina de qué par es el número`) para que
+  nadie lo "arregle" apretando el rango y rompa monedas legítimas: COP→EUR es
+  2,2e-4.
+- **Un fallo del par nuevo no puede arrastrar al del peso.** Los errores se juntan
+  y se tiran DESPUÉS del backfill, así que el cron sale 1 y avisa, pero las ventas
+  en pesos del día se convierten igual. Hay un test que fija ese orden.
+- **`saveRate(day, rate, source, base = 'ARS')`**: la base va última y con default
+  para no tocar los llamadores que ya existían.
+- **La normalización a mayúscula va en tres lugares, no en uno.** `getRate`
+  compara con `upper()` en las dos puntas (así las 2 filas viejas en minúscula
+  siguen encontrando su cotización), `checkout-propio.ts` y `upsert.ts` guardan
+  `toUpperCase()`, y la migración 032 normaliza lo que ya está escrito. Sólo con
+  el borde de lectura no alcanzaba: las queries de gasto unen columna contra
+  columna dentro del SQL.
+- Se **descartó** normalizar hacia minúscula: son 6476 orders en `'ARS'`, 105
+  filas de `fx_rates`, `funnels.sell_currency` y todos los `WHERE currency = 'ARS'`
+  del código contra 3 filas en minúscula.
+
+**Qué se verificó.** `npx tsx scripts/fetch-fx.ts` contra la base local y las APIs
+reales escribió las dos filas y el par nuevo dio **0,862246 — exactamente el valor
+que el usuario había cargado a mano**. Después, `scripts/backfill-fx.ts` convirtió
+dos órdenes sembradas, una con `'USD'` y otra con `'usd'` (9,90 → 8,54 las dos,
+que es el mismo número que quedó en producción). La migración 032 se corrió sobre
+datos sembrados en los dos casos que le importan: minúscula sin gemela (sube a
+mayúscula) y minúscula con gemela (se borra y gana la mayúscula). 19 tests nuevos
+en `lib/fx-fetch.paridad.test.ts`.
+
+**Lo que NO se hizo.** La carga manual de `/api/config/fx` sigue escribiendo sólo
+`base='ARS'`: la vía de escape de D13 no cubre el par nuevo. Si er-api se cae un
+día, la fila de USD queda pendiente y las ventas de ese día se completan con el
+backfill de la corrida siguiente (quedan `fx_stale` mientras tanto, y el panel lo
+muestra). No se agregó el formulario porque el cron ya cubre el caso que motivó
+todo esto; si aparece la necesidad, el endpoint acepta un `base` en tres líneas.
+
+### 2. Una cuenta publicitaria, varios funnels: el mapeo por campaña (migración 033)
+
+**Qué pasaba.** `ad_accounts.funnel_id` es un solo funnel por cuenta y
+`lib/ads/sync.ts` copiaba ese valor a cada fila de `ad_spend`. El 14/09 la cuenta
+`act_2501344510302910` (HIlvanapp → funnel 1) tenía además 4 campañas
+`LATAM 14/09 TEST …` gastando **~€59 de los €149,12** que `daily_metrics` le
+imputaba ese día al funnel 1, mientras el funnel 3 figuraba con €0,00 y 2 ventas.
+O sea: Chau Hinchazón pagaba el gasto de LATAM, LATAM parecía gratis, y el plan es
+meter también las campañas de `gelatina` en la misma cuenta.
+
+Lo que **no** estaba roto, y por eso el cambio es chico: la pestaña de Anuncios.
+`lib/queries/ads.ts` atribuye las ventas al objeto de Meta por el ID que viene en
+los UTMs y su CTE `ordenes` no filtra por funnel, así que la venta LATAM del 14/09
+ya se había cruzado con el anuncio correcto de la cuenta de AR sin que nadie
+tocara nada. El ROAS por campaña siempre estuvo bien; lo que estaba mal era a qué
+funnel se le cobraba el gasto.
+
+**Por qué se resolvió así.**
+
+- **Por campaña y no por conjunto ni por anuncio.** La campaña es la unidad en la
+  que ya se separan los destinos en Meta. Un conjunto no cambia de funnel sin
+  cambiar de campaña, y mapear a nivel anuncio son 270 filas de mantenimiento sin
+  caso de uso. La tabla admite un `adset_id` después sin migrar datos.
+- **Por ID y NO por prefijo del nombre** (`LATAM %`). Es la misma decisión que ya
+  había tomado la 014 para cruzar gasto con ventas: se une por ID para que un
+  rename en Meta no parta la serie. Con un prefijo, renombrar
+  `LATAM 14/09 TEST BIDCAP` a `TEST BIDCAP` reimputaría un mes de gasto para
+  atrás, en silencio. El nombre sí se usa para *sugerir* y para el filtro de la UI.
+- **NO se deriva de las ventas.** Se podría mirar de qué funnel son las ventas
+  atribuidas a cada campaña. Es circular y falla justo el día que importa: una
+  campaña que gastó y no vendió no tendría funnel, y ése es el gasto que hay que
+  ver. Quedó como **detector**: el GET del endpoint devuelve las ventas por funnel
+  de cada campaña y la UI las pinta en ámbar cuando no coinciden con el funnel que
+  paga.
+- **Tabla aparte y no una columna en `ad_campaigns`.** Ese espejo lo escribe el
+  sync de la jerarquía y sus filas se marcan `desaparecido_at`; este mapeo es dato
+  del negocio, tipeado por una persona. Es la misma razón por la que `ad_spend` no
+  tiene FK hacia la jerarquía (comentario de la 016). Beneficio concreto: se puede
+  mapear una campaña que el sync de la jerarquía todavía no trajo.
+- **`funnel_id` es NOT NULL: "sin asignar" es la AUSENCIA de fila.** Con NULL
+  habría dos formas de decir lo mismo y una de ellas significaría "gasto sin
+  asignar" en vez de "heredá de la cuenta".
+- **La cascada se resuelve en el INSERT del sync** (`COALESCE(m.funnel_id, $2)`),
+  no en TypeScript: así se aplica también a los upserts que pisan filas viejas —el
+  `ON CONFLICT` ya incluía `funnel_id`— sin un round-trip por campaña. Con la
+  tabla vacía el comportamiento es idéntico al anterior.
+- **El endpoint recorre el rollup del rango afectado.** Es el paso fácil de
+  olvidar: `daily_metrics.ad_spend_eur` es un agregado congelado, no una vista, así
+  que sin recomputarlo el Resumen, el brief de IA y la reconciliación siguen
+  mostrando la imputación vieja hasta el cron nocturno de 35 días.
+
+**Qué se verificó.** Tests de integración contra Postgres: 5 en
+`lib/ads/sync.cascada.test.ts` (sin mapeo todo va a la cuenta; con mapeo la
+campaña va a su funnel y el resto hereda; mapear después de que el gasto ya entró
+lo corrige en el sync siguiente; borrar el mapeo lo devuelve; cuenta sin funnel +
+campaña mapeada) y 8 en `app/api/config/ads/campanas/route.test.ts`, que incluyen
+el caso completo: €99 imputados a un funnel quedan 40/59 repartidos **y
+`daily_metrics` lo refleja en la misma request**. La suite entera pasó: 129
+archivos, 1689 tests (baseline antes de tocar nada: 126 y 1656). `npx tsc
+--noEmit` limpio salvo un error preexistente en `app/(panel)/tareas/tablero.test.ts`
+que no toqué. `npm run build` compila y registra `/api/config/ads/campanas`.
+
+**Qué queda pendiente, y sin esto los números no cambian en producción.**
+
+1. Correr las migraciones (`npm run db:migrate` lo hace el deploy): **032**
+   normaliza el caso de las monedas, **033** crea la tabla vacía.
+2. Entrar a Config → Publicidad → **Campañas** de la cuenta de HIlvanapp y asignar
+   las 4 campañas `LATAM 14/09 TEST …` al funnel LATAM. Recién ahí se reimputan
+   los ~€59 y se recalcula el Resumen de esos días. Lo mismo con las de gelatina
+   cuando entren a esa cuenta.
+3. Después de la 032, correr `rollup.ts --days=N` sobre el rango con gasto de
+   funnels que no venden en pesos: `daily_metrics` guarda la conversión que se
+   calculó cuando la fila decía `usd`, y es un agregado congelado. (Hoy en
+   producción no hay filas de `ad_spend` imputadas al funnel 3 —están todas en el
+   1—, así que en la práctica esto se resuelve solo con el paso 2, que ya recorre
+   el rollup del rango que mueve.)
+4. `fx_rates` tiene USD→EUR **sólo desde el 2026-09-14**: el cron escribe el día
+   que corre, no el histórico. Una venta en USD con fecha anterior entraría con
+   `amount_eur` en NULL hasta que alguien cargue la cotización de ese día (no hay
+   equivalente de `backfill-fx-historico.ts` para este par). Las dos que existen
+   ya están convertidas.
+4. `COMO-DEPLOYAR.md` dice que el próximo número de migración libre es el 032 y lo
+   reserva para copiar `029_funnel_gelatina.sql` al repo. **Esta tanda usó 032 y
+   033**, así que esa copia pasa a ser la 034.
+5. Las **reglas de anuncios siguen siendo por cuenta** (`ad_rules.account_id`,
+   migración 021). Con tres funnels en la misma cuenta, una regla evalúa las
+   campañas de los tres con el mismo umbral, y el margen de gelatina no es el de
+   Chau Hinchazón. Mientras no haya filtro por funnel, se acota con `name_filter`
+   en modo `contains`, que ya existe. No se tocó a propósito: cambiar el alcance de
+   las reglas es tocar el worker que pausa campañas con plata real.
+
+---
+
 ## 2026-09-09 — Wrapper por SSH para cargar la key de IA y dejarla funcionando sin deploy
 
 **Qué pasaba.** `scripts/setear-openai-key.sh` (entrada de más abajo, misma
