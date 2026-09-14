@@ -323,6 +323,11 @@ export const MAPA_API: Record<string, readonly Seccion[] | 'admin' | 'publica'> 
   '/api/ingest': 'publica',
   '/api/webhooks/shopify': 'publica',
   '/api/webhooks/hotmart': 'publica',
+  // Venta de checkout-kashhhpay (T02, plan panel-y-capi): auth propia por
+  // Bearer token contra funnels.ingest_key_hash, igual que /api/ingest. Sin
+  // esta línea, el middleware exigiría sesión de usuario y el cron de
+  // salidas de checkout-kashhhpay recibiría 401 antes de llegar al handler.
+  '/api/webhooks/checkout-propio': 'publica',
 };
 
 // ─── guardSeccion (el reemplazo de guard(req) para las routes) ──────────────
