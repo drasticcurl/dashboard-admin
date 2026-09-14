@@ -462,8 +462,12 @@ describe.skipIf(!(dbAvailable && schemaReady))('ingest (integración)', () => {
         visitorId: randomUUID(),
         variant: 'ar',
         events: [
-          { name: 'step_view', at: '2026-08-11T14:00:00.000Z', stepIndex: 0, stepSlug: 'landing_hook' },
-          { name: 'step_view', at: '2026-08-11T14:01:00.000Z', stepIndex: 3, stepSlug: 'donde_acumula' },
+          // Fechas relativas a "ahora" (no fijas): una fecha fija queda fuera
+          // de PAST_CLAMP_MS (30 días) apenas pasa ese tiempo desde que se
+          // escribió el test, y entonces el warning esperado ([]) deja de
+          // cumplirse sin que el código tenga ningún bug real.
+          { name: 'step_view', at: new Date(Date.now() - 60_000).toISOString(), stepIndex: 0, stepSlug: 'landing_hook' },
+          { name: 'step_view', at: new Date(Date.now() - 30_000).toISOString(), stepIndex: 3, stepSlug: 'donde_acumula' },
         ],
       });
       const res = await POST(ingestReq(body, { authorization: `Bearer ${ingestKey}` }));

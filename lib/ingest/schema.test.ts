@@ -1,12 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import { DIRECT_LABEL, cleanUtmValue, parseIngestPayload } from './schema';
 
+// Fecha relativa a "ahora" (mismo patrón que el test de "hace 2 días" más
+// abajo): una fecha fija ('2026-08-11...') queda dentro de PAST_CLAMP_MS
+// (30 días) el día que se escribe el test, pero deja de estarlo apenas pasan
+// esos 30 días — y entonces basePayload() empieza a disparar el warning
+// clamped_at en TODOS los tests que la usan por default, no solo en los que
+// prueban el clamp a propósito. Con "hace 1 hora" nunca vence.
+const AT_RECIENTE = new Date(Date.now() - 60 * 60_000).toISOString();
+
 function basePayload(over: Record<string, unknown> = {}) {
   return {
     sessionId: '550e8400-e29b-41d4-a716-446655440000',
     visitorId: '6ba7b810-9dad-11d1-80b4-00c04fd430c8',
     events: [
-      { name: 'step_view', at: '2026-08-11T14:03:11.000Z', stepIndex: 3, stepSlug: 'donde_acumula' },
+      { name: 'step_view', at: AT_RECIENTE, stepIndex: 3, stepSlug: 'donde_acumula' },
     ],
     ...over,
   };
@@ -36,7 +44,7 @@ describe('parseIngestPayload', () => {
 
   it('stepIndex fuera de 0..200 → falla (el catálogo nunca va a llegar tan lejos)', () => {
     expect(() =>
-      parseIngestPayload(basePayload({ events: [{ name: 'step_view', at: '2026-08-11T14:03:11.000Z', stepIndex: 250 }] })),
+      parseIngestPayload(basePayload({ events: [{ name: 'step_view', at: AT_RECIENTE, stepIndex: 250 }] })),
     ).toThrow();
   });
 
@@ -112,7 +120,7 @@ describe('parseIngestPayload', () => {
   it('props de más de 4 KB serializados → falla el schema', () => {
     expect(() =>
       parseIngestPayload(
-        basePayload({ events: [{ name: 'step_view', at: '2026-08-11T14:03:11.000Z', props: { basura: 'x'.repeat(5000) } }] }),
+        basePayload({ events: [{ name: 'step_view', at: AT_RECIENTE, props: { basura: 'x'.repeat(5000) } }] }),
       ),
     ).toThrow(/4 KB/);
   });
@@ -120,7 +128,7 @@ describe('parseIngestPayload', () => {
   it('props chicas pasan y quedan intactas', () => {
     const { payload } = parseIngestPayload(
       basePayload({
-        events: [{ name: 'step_view', at: '2026-08-11T14:03:11.000Z', props: { source: 'quiz', n: 3 } }],
+        events: [{ name: 'step_view', at: AT_RECIENTE, props: { source: 'quiz', n: 3 } }],
       }),
     );
     expect(payload.events[0].props).toEqual({ source: 'quiz', n: 3 });
