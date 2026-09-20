@@ -191,6 +191,24 @@ export async function upsertOrderCheckoutPropio(
       return { orderId: null as number | null, isNew: false as const };
     }
     const orderId = ins.rows[0].id as number;
+
+    // Mismo patrón que lib/orders/upsert.ts (Shopify): sin este UPDATE la
+    // venta queda bien guardada en `orders` (con session_id correcto) pero
+    // el embudo nunca la cuenta, porque "Compraron" lee
+    // sessions.purchased_at, no orders. Bug real encontrado en producción
+    // (2026-09-20): 6 ventas de Alma Gemela con sessionId válido y existente
+    // no aparecían en "Compraron" porque este UPDATE no existía en el flujo
+    // de checkout-propio (solo estaba en el de Shopify).
+    // `LEAST` no pisa una fecha anterior si la sesión ya tenía purchased_at
+    // (p.ej. un segundo ítem de la misma sesión). El AND funnel_id evita que
+    // un sessionId cruzado marque como compradora la sesión de otro funnel.
+    if (sessionId) {
+      await c.query(
+        'UPDATE sessions SET purchased_at = LEAST(purchased_at, $2::timestamptz) WHERE id = $1 AND funnel_id = $3',
+        [sessionId, payload.purchasedAt, funnel.funnelId],
+      );
+    }
+
     return { orderId, isNew: true as const };
   });
 

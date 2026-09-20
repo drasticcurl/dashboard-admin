@@ -10,6 +10,49 @@ Lo más nuevo va arriba. Las reglas de cómo se escribe una entrada están en
 
 ---
 
+## 2026-09-20 — Las ventas de checkout-propio no marcaban `sessions.purchased_at`: el embudo nunca las contaba
+
+**Qué pasaba.** Ventas reales del funnel Alma Gemela (`funnel_id=5`) llegaban
+por `POST /api/webhooks/checkout-propio` con `sessionId` válido y correcto —
+verificado a mano contra `sessions`: la fila existía, con `max_step_index`,
+`sales_view_at` y `checkout_click_at` reales. La orden se insertaba bien en
+`orders` con ese `session_id`. Pero "Compraron" en `/embudo` seguía en 0: esa
+métrica lee `sessions.purchased_at IS NOT NULL`
+(`lib/queries/funnel.ts:totalsRow`), no `orders`, y esa columna nunca se
+tocaba.
+
+**Por qué se resolvió así.** `lib/orders/upsert.ts` (el flujo de Shopify) ya
+resuelve exactamente este problema con un
+`UPDATE sessions SET purchased_at = LEAST(purchased_at, $2::timestamptz) WHERE id = $1 AND funnel_id = $3`
+después del INSERT en `orders` — se agregó ese mismo UPDATE, con el mismo
+`AND funnel_id` (evita que un `sessionId` cruzado marque como compradora la
+sesión de OTRO funnel) y el mismo `LEAST` (no pisa una fecha anterior si la
+sesión ya tenía compra). `lib/orders/checkout-propio.ts` (checkout-kashhhpay /
+Mercado Pago) nunca lo tuvo — quedó afuera cuando se armó ese flujo como
+"más simple" que el de Shopify (sin `order_items`), y esa simplificación se
+llevó por delante un UPDATE que no tenía nada que ver con `order_items`.
+
+Se descartó "marcar a mano en el panel las ventas ya cargadas atándolas a
+cualquier sesión que esté cerca en el tiempo": una sesión sin dueño confirmado
+tiene su propio país/dispositivo/variante, y pisarla con una venta ajena
+ensucia esos desgloses para todo el resto de sesiones que sí se midieron bien.
+Solo se corrigieron a mano las órdenes donde el equipo del funnel confirmó el
+par sessionId/visitorId real contra su propio log (dos órdenes, 2026-09-20
+~14:30) — el resto de las ventas de ese día quedaron sin sesión asociada
+porque no había forma de confirmarlo sin inventar.
+
+**Qué se verificó.** `npx vitest run lib/orders/checkout-propio.test.ts` → 17/17
+verde, con 3 tests nuevos que cubren el fix (UPDATE se dispara con
+`sessionId`, no se dispara sin él, no se repite en un reenvío duplicado).
+`npm run build` compila. El resto de la suite (`npx vitest run`) tiene 156
+tests fallando por `ECONNREFUSED 127.0.0.1:5433` — Postgres local no estaba
+levantado en esta sesión, no relacionado a este cambio (confirmado: mismo
+fallo en archivos que no tocan este código). Falta correr el rollup en
+producción después del deploy para que las ventas ya cargadas con sessionId
+correcto aparezcan en el embudo sin esperar el cron de 10 minutos.
+
+---
+
 ## 2026-09-14 — Cotización diaria de las monedas de venta, y una cuenta publicitaria repartida entre varios funnels
 
 Dos cambios de la misma tanda. Van juntos porque son las dos mitades del mismo

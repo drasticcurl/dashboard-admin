@@ -25,6 +25,11 @@ type CapturedInsert = {
   params: unknown[];
 };
 
+type CapturedSessionsUpdate = {
+  sql: string;
+  params: unknown[];
+};
+
 function estadoInicial() {
   return {
     funnelResolution: { funnelId: null as number | null, how: 'none', warnings: [] as string[] },
@@ -38,6 +43,10 @@ function estadoInicial() {
     existingRows: new Map<string, number>(),
     nextId: 1,
     lastInsert: null as CapturedInsert | null,
+    // T02 bugfix (2026-09-20): captura el UPDATE sessions.purchased_at, el
+    // mismo patrón que ya usa lib/orders/upsert.ts (Shopify) y que faltaba
+    // en este flujo — ver comentario en checkout-propio.ts junto al fix.
+    sessionsUpdates: [] as CapturedSessionsUpdate[],
   };
 }
 
@@ -69,6 +78,10 @@ vi.mock('../db', () => ({
           const id = e.nextId++;
           e.existingRows.set(externalId, id);
           return { rowCount: 1, rows: [{ id }] };
+        }
+        if (sql.includes('UPDATE sessions')) {
+          e.sessionsUpdates.push({ sql, params });
+          return { rowCount: 1, rows: [] };
         }
         return { rowCount: 0, rows: [] };
       }),
@@ -244,5 +257,40 @@ describe('upsertOrderCheckoutPropio', () => {
   it('monto llega como string decimal y se guarda como number', async () => {
     await upsertOrderCheckoutPropio(payload({ monto: '29.90' }));
     expect(e.lastInsert!.params[COL.amount]).toBe(29.9);
+  });
+
+  // T02 bugfix (2026-09-20, encontrado en producción): 6 ventas reales de
+  // Alma Gemela llegaron con sessionId válido y existente en `sessions`,
+  // pero "Compraron" del embudo seguía en 0 porque este flujo nunca
+  // actualizaba sessions.purchased_at (a diferencia de lib/orders/upsert.ts
+  // de Shopify, que sí lo hace). La venta quedaba bien guardada en `orders`
+  // pero invisible para el embudo.
+  it('6. sessionId presente → actualiza sessions.purchased_at (mismo patrón que Shopify)', async () => {
+    e.funnelResolution = { funnelId: 5, how: 'product_map', warnings: [] };
+    await upsertOrderCheckoutPropio(
+      payload({ sessionId: '11111111-1111-1111-1111-111111111111', purchasedAt: '2026-09-20T12:00:00Z' }),
+    );
+
+    expect(e.sessionsUpdates).toHaveLength(1);
+    const [sid, purchasedAt, funnelId] = e.sessionsUpdates[0]!.params;
+    expect(sid).toBe('11111111-1111-1111-1111-111111111111');
+    expect(purchasedAt).toBe('2026-09-20T12:00:00Z');
+    expect(funnelId).toBe(5);
+  });
+
+  it('7. sin sessionId en el payload → no se toca sessions (nada que actualizar)', async () => {
+    await upsertOrderCheckoutPropio(payload({ sessionId: undefined }));
+    expect(e.sessionsUpdates).toHaveLength(0);
+  });
+
+  it('8. reenvío duplicado (mismo cobroId) → el UPDATE de sessions NO se repite en la segunda llamada', async () => {
+    const p = payload({ cobroId: 'cobro-dup-sesion', sessionId: '22222222-2222-2222-2222-222222222222' });
+
+    await upsertOrderCheckoutPropio(p);
+    expect(e.sessionsUpdates).toHaveLength(1);
+
+    await upsertOrderCheckoutPropio(p);
+    // ON CONFLICT DO NOTHING → rowCount 0 → se sale antes del UPDATE de sessions.
+    expect(e.sessionsUpdates).toHaveLength(1);
   });
 });
