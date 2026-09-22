@@ -157,12 +157,12 @@ describe.skipIf(!dbAvailable)('lib/queries/usuarios — contra Postgres', () => 
     expect([...s!.secciones]).toEqual([]);
   });
 
-  it('16b. un admin devuelve las 8 secciones aunque no tenga filas', async () => {
+  it('16b. un admin devuelve las 9 secciones aunque no tenga filas', async () => {
     const id = await crear({ usuario: n('jefe'), nombre: 'Jefe', esAdmin: true });
     cookieActual = signSessionToken(id)!;
     const s = await sesionActual();
     expect(s!.esAdmin).toBe(true);
-    expect(s!.secciones).toHaveLength(8);
+    expect(s!.secciones).toHaveLength(9);
   });
 
   it('17. sesionActual() de un usuario activo=false devuelve null', async () => {

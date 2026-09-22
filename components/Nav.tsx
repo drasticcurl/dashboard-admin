@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * Nav — las ocho tabs del panel + el selector de funnel.
+ * Nav — las nueve tabs del panel + el selector de funnel.
  *
  * El selector vive acá y no en cada sección porque Embudo y Ventas lo
  * comparten: cambiar de funnel no puede perder el rango elegido, y viceversa.
@@ -40,6 +40,9 @@ const TABS = [
   // Tareas es una pantalla de uso diario. Apunta a /tareas, que existe recién
   // con T06 (§7 del plan): hasta entonces el link da 404, y es esperado.
   { href: '/tareas', label: 'Tareas', seccion: 'tareas' },
+  // Creativos, junto a Tareas: también es una pantalla de uso diario y no de
+  // configuración (034).
+  { href: '/creativos', label: 'Creativos', seccion: 'creativos' },
   { href: '/config', label: 'Config', seccion: 'config' },
 ] satisfies { href: string; label: string; seccion: Seccion }[];
 

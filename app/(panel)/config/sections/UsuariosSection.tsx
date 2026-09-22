@@ -4,7 +4,7 @@
  * UsuariosSection — Config → Sistema → Usuarios (T04 §6).
  *
  * Crear usuarios, activarlos/desactivarlos, resetear su clave y prender/apagar
- * sus 8 pestañas con switches. El admin ve todo y no se puede tocar (D11).
+ * sus 9 pestañas con switches. El admin ve todo y no se puede tocar (D11).
  *
  * Los datos se leen client-side (`GET /api/usuarios`) al montar: esta sección no
  * puede alimentar `initial` desde el server component de Config (page.tsx no es
@@ -22,10 +22,10 @@ import type { Usuario } from '@/lib/queries/usuarios';
 import { btnGhost, btnPrimary, inputCls, type ConfigShell } from '../kit';
 
 /**
- * El vocabulario de las 8 pestañas, EN ORDEN. Se define acá y no se importa
+ * El vocabulario de las 9 pestañas, EN ORDEN. Se define acá y no se importa
  * `SECCIONES` de `@/lib/permisos` a propósito: ese módulo importa `next/headers`
  * (es server-only) y arrastrarlo a un componente `'use client'` rompe el build.
- * La validación de verdad —que estas 8 son EXACTAMENTE las de `SECCIONES`— vive
+ * La validación de verdad —que estas 9 son EXACTAMENTE las de `SECCIONES`— vive
  * en el SERVER: el route valida `secciones` con `z.enum(SECCIONES)` (§5.6). Acá
  * es sólo la lista para pintar los checkboxes; si divergiera, el server rechaza.
  */
@@ -38,6 +38,7 @@ const LABEL_SECCION = {
   leads: 'Leads',
   config: 'Config',
   tareas: 'Tareas',
+  creativos: 'Creativos',
 } as const;
 
 type Seccion = keyof typeof LABEL_SECCION;

@@ -23,7 +23,7 @@ function sesion(parcial: Partial<Sesion>): Sesion {
 }
 
 describe('puedeVer', () => {
-  it('10. un admin con secciones:[] ve las 8', () => {
+  it('10. un admin con secciones:[] ve las 9', () => {
     const admin = sesion({ esAdmin: true, secciones: [] });
     for (const s of SECCIONES) {
       expect(puedeVer(admin, s)).toBe(true);
@@ -47,14 +47,18 @@ describe('puedeVer', () => {
 });
 
 describe('SECCIONES', () => {
-  it('11. es EXACTAMENTE el vocabulario del CHECK usuario_secciones_valida de la 030', () => {
-    const sql = readFileSync(
-      path.join(process.cwd(), 'db', 'migrations', '030_usuarios.sql'),
+  it('11. es EXACTAMENTE el vocabulario del CHECK usuario_secciones_valida vigente (030, reemplazado por la 034)', () => {
+    // El CHECK nace en la 030 y la 034 lo reemplaza entero (DROP + ADD) para
+    // sumar 'creativos' — mismo patrón que cualquier ALTER de vocabulario en
+    // este repo. El vigente es el de la migración MÁS RECIENTE que lo toca, no
+    // el original: leer sólo la 030 compararía el código contra un vocabulario
+    // que ya no es el que corre en la base.
+    const sql034 = readFileSync(
+      path.join(process.cwd(), 'db', 'migrations', '034_creativos.sql'),
       'utf8',
     );
-    // Extrae el bloque IN ('...') del CHECK usuario_secciones_valida.
-    const m = sql.match(/usuario_secciones_valida\s+CHECK\s*\(\s*seccion\s+IN\s*\(([^)]*)\)/i);
-    expect(m, 'no encontré el CHECK usuario_secciones_valida en la 030').toBeTruthy();
+    const m = sql034.match(/usuario_secciones_valida\s+CHECK\s*\(\s*seccion\s+IN\s*\(([^)]*)\)/i);
+    expect(m, 'no encontré el CHECK usuario_secciones_valida reemplazado en la 034').toBeTruthy();
     const delCheck = m![1]
       .split(',')
       .map((s) => s.trim().replace(/^'|'$/g, ''))
@@ -64,9 +68,9 @@ describe('SECCIONES', () => {
     expect(deCodigo).toEqual(delCheck);
   });
 
-  it('no tiene duplicados y son 8', () => {
-    expect(SECCIONES).toHaveLength(8);
-    expect(new Set(SECCIONES).size).toBe(8);
+  it('no tiene duplicados y son 9', () => {
+    expect(SECCIONES).toHaveLength(9);
+    expect(new Set(SECCIONES).size).toBe(9);
   });
 });
 

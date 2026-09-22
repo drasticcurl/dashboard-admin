@@ -24,8 +24,9 @@ import {
 
 // ─── Las 8 pestañas ─────────────────────────────────────────────────────────
 
-/** Las 8 pestañas del header. El vocabulario tiene que ser IGUAL al CHECK
- *  `usuario_secciones_valida` de la 030 — hay un test que lo compara. */
+/** Las 9 pestañas del header. El vocabulario tiene que ser IGUAL al CHECK
+ *  `usuario_secciones_valida` de la 030 (extendido por la 034 con 'creativos')
+ *  — hay un test que lo compara. */
 export const SECCIONES = [
   'resumen',
   'embudo',
@@ -35,6 +36,7 @@ export const SECCIONES = [
   'leads',
   'config',
   'tareas',
+  'creativos',
 ] as const;
 export type Seccion = (typeof SECCIONES)[number];
 
@@ -45,7 +47,7 @@ export type Sesion = {
   nombre: string;
   esAdmin: boolean;
   debeCambiarClave: boolean;
-  /** Las 8 si es admin (D11). Vacío si no se le otorgó nada. */
+  /** Las 9 si es admin (D11). Vacío si no se le otorgó nada. */
   secciones: readonly Seccion[];
   /** true = entró por el fallback de DASHBOARD_PASSWORD con la tabla vacía (D10). */
   esFallback: boolean;
@@ -304,6 +306,9 @@ export const MAPA_API: Record<string, readonly Seccion[] | 'admin' | 'publica'> 
   '/api/tareas/mover': ['tareas'],
   '/api/tareas/links': ['tareas'],
   '/api/tareas/comentarios': ['tareas'],
+
+  // ── Creativos: tracker de eficiencia de videos (034) ──────────────────────
+  '/api/creativos': ['creativos'],
 
   // ── LAS TRES QUE UN MAPA POR PREFIJO SE COMERÍA ───────────────────────────
   // Lo llama components/WidgetGrid.tsx:408, que se monta en Resumen y en Ventas.

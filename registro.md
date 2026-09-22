@@ -10,6 +10,81 @@ Lo más nuevo va arriba. Las reglas de cómo se escribe una entrada están en
 
 ---
 
+## 2026-09-22 — Nueva pestaña "Creativos": tracker manual de eficiencia de videos
+
+**Qué pasaba.** No había forma de anotar cómo le fue a cada video (creativo) sin
+salir del panel. El pedido: una pestaña para registrar nombre/nota corta, link
+del video y rendimiento en alto/medio/bajo — nada más.
+
+**Por qué se resolvió así.**
+
+Es una novena pestaña, así que toca tres archivos que estaban "cerrados" con un
+número fijo: el CHECK `usuario_secciones_valida` (030), `SECCIONES` de
+`lib/permisos.ts`, y el vocabulario duplicado de `UsuariosSection.tsx` (Config →
+Usuarios). Las tres cambiaron de 8 a 9. Se agregaron además dos tests
+preexistentes que hardcodeaban el número 8 y hubieran quedado en rojo sin decir
+por qué: `lib/permisos.test.ts` ("11", que comparaba `SECCIONES` contra el CHECK
+de la 030 — ahora compara contra el de la 034, que es el que reemplaza a ese
+CHECK) y `lib/queries/usuarios.test.ts` ("16b", `toHaveLength(8)`).
+
+El otorgamiento de la sección nueva fue la decisión no obvia. `030_usuarios.sql`
+documenta que `usuario_secciones` es **opt-in a propósito** ("no hay fila" ES
+"no lo ve", para que una sección nueva no aparezca visible para todos sin que
+nadie lo pidiera). El pedido para Creativos fue lo inverso: que todos los
+usuarios existentes la vean ya, y que bloquearla sea la excepción manual. Se
+resolvió sin invertir el diseño de permisos para siempre: la migración 034
+agrega `'creativos'` al CHECK y en la misma migración hace un
+`INSERT ... SELECT ... WHERE es_admin = false ON CONFLICT DO NOTHING` que otorga
+la sección a cada usuario no-admin que existe HOY. Un usuario creado *después* de
+esta migración entra por el flujo normal (sin secciones, el admin las otorga a
+mano desde Config) — el pedido era sobre el estado actual, no sobre cambiar cómo
+funciona el sistema de permisos de acá en adelante.
+
+Se descartó invertir la semántica de la tabla sólo para esta sección (que
+`creativos` sea "negado sólo si hay una fila de bloqueo explícito"): hubiera
+dejado dos sistemas de permisos distintos convivendo en la misma tabla, y el día
+que alguien lea `usuario_secciones` asumiendo que es opt-in en todos los casos
+—que es lo que dice su propio comentario de creación— iba a introducir un bug.
+
+Sin dueño por fila, a diferencia de `tareas` (031): cualquiera con la sección
+edita o borra cualquier creativo. `creado_por` se guarda igual (nullable, `ON
+DELETE SET NULL`) pero es puramente informativo — el route no lo usa para
+autorizar nada, sólo la capa de datos lo resuelve a un nombre para mostrar
+"cargado por X".
+
+La UI (`CreativosView.tsx`) reventó el build la primera vez: importaba
+`RENDIMIENTOS` (un valor, no un tipo) desde `lib/queries/creativos.ts`, que
+importa `lib/db.ts` (pg, server-only). Webpack tiraba "Module not found:
+fs/net/tls" al bundlear el cliente. Mismo problema ya resuelto en este repo para
+`Nav.tsx` (con `lib/permisos`) y para `app/(panel)/tareas/prioridad.ts` (con
+`lib/queries/tareas`): se creó `app/(panel)/creativos/rendimiento.ts`, un módulo
+puro que duplica la constante `RENDIMIENTOS` y agrega
+`tonoDeRendimiento`/`etiquetaDeRendimiento`, y `CreativosView.tsx` pasó a hacer
+`import type` puro (sin valores) desde la capa de datos.
+
+**Qué se verificó.** Migración 034 corrida contra Postgres local
+(`npm run db:migrate`, aplicada sin errores). `npx tsc --noEmit`: sin errores
+nuevos (el único que queda, `tablero.test.ts` TS2783, es preexistente y no
+tocado en esta tanda). `npm run build`: compila, `/creativos` y `/api/creativos`
+aparecen en el árbol de rutas. Tests nuevos: `lib/queries/creativos.test.ts` (12
+casos, integración contra Postgres — CRUD, validaciones de nombre/link/CHECK de
+rendimiento, FK de `creado_por`, `SET NULL` al borrar el usuario) y
+`app/api/creativos/route.test.ts` (16 casos con mocks — guard, forma del body,
+que `creado_por` sale de la sesión y no del payload, y que un no-admin puede
+editar/borrar cualquier fila porque no hay chequeo de dueño). Los dos en verde.
+La suite completa (`npm test`) da 1711/1720 con 9 fallos preexistentes en
+`lib/queries/funnel.test.ts` y `app/api/ads/reglas/route.test.ts`, no
+relacionados: `funnel.test.ts` pasa 34/34 en aislamiento (`npx vitest --run
+lib/queries/funnel.test.ts`), así que son de concurrencia entre archivos de test
+que comparten la misma Postgres, no de este cambio.
+
+Sin verificar: el comportamiento en la instancia infinix (moneda/marca no
+aplican acá, pero el otorgamiento retroactivo corre en el próximo deploy de las
+dos instancias — cada una migra su propia base, así que cada una otorga
+`creativos` a sus propios usuarios no-admin).
+
+---
+
 ## 2026-09-20 — Las ventas de checkout-propio no marcaban `sessions.purchased_at`: el embudo nunca las contaba
 
 **Qué pasaba.** Ventas reales del funnel Alma Gemela (`funnel_id=5`) llegaban
