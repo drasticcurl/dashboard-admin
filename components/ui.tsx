@@ -246,17 +246,34 @@ export function Table<T>({
   rows,
   columns,
   empty = 'Sin datos',
+  sticky = true,
 }: {
   rows: T[];
   columns: Column<T>[];
   empty?: string;
+  /**
+   * ¿La primera columna queda pegada al scrollear en horizontal? (rediseño v3.)
+   *
+   * Por defecto SÍ, porque es lo que hace usable una tabla en 360px de ancho:
+   * sin la primera columna fija, scrollear hasta la columna «costo por
+   * resultado» deja las cifras en pantalla sin el nombre de la campaña al que
+   * pertenecen, o sea una grilla de números sin sujeto.
+   *
+   * Se puede apagar para las tablas cuya primera columna no identifica la fila
+   * (un checkbox, un icono de estado): ahí el sticky sólo ocupa ancho.
+   */
+  sticky?: boolean;
 }): JSX.Element {
   return (
-    <div className="overflow-x-auto">
+    // `overflow-x-auto` + `-mx-4 px-4` en mobile: el scroll horizontal arranca en
+    // el borde de la pantalla en lugar de dentro del padding de la tarjeta. Sin
+    // eso, la última columna queda debajo del padding y parece cortada por un bug
+    // en lugar de por el scroll.
+    <div className="-mx-4 overflow-x-auto px-4 panel:mx-0 panel:px-0">
       <table className="w-full text-left text-sm">
         <thead>
           <tr className="border-b border-border-subtle">
-            {columns.map((c) => (
+            {columns.map((c, i) => (
               /*
                 Encabezado en caja normal, no en VERSALITAS. Los headers ya
                 vienen en sentence case desde las vistas ("Campaña",
@@ -269,6 +286,14 @@ export function Table<T>({
                 scope="col"
                 className={`px-3 pb-2.5 pt-1 text-xs font-medium text-neutral-400 ${
                   c.align === 'right' ? 'text-right' : ''
+                } ${
+                  /* La celda fija necesita fondo SÓLIDO: con un fondo
+                     transparente se ve pasar el contenido de las otras columnas
+                     por debajo mientras se scrollea. El z-index la deja por
+                     encima de esas celdas. */
+                  sticky && i === 0
+                    ? 'sticky left-0 z-10 bg-surface after:absolute after:inset-y-0 after:right-0 after:w-px after:bg-border-subtle after:content-[""]'
+                    : ''
                 } ${c.className ?? ''}`}
               >
                 {c.header}
@@ -287,13 +312,20 @@ export function Table<T>({
             rows.map((row, i) => (
               <tr
                 key={i}
-                className="border-b border-overlay/4 transition-colors duration-150 last:border-0 hover:bg-overlay/4"
+                className="group border-b border-overlay/4 transition-colors duration-150 last:border-0 hover:bg-overlay/4"
               >
-                {columns.map((c) => (
+                {columns.map((c, j) => (
                   <td
                     key={c.key}
                     className={`px-3 py-3 text-neutral-200 ${
                       c.align === 'right' ? 'font-mono text-right tabular-nums' : ''
+                    } ${
+                      /* `group-hover:bg-surface-raised` replica el hover de la
+                         fila en la celda fija: sin eso, la primera columna es la
+                         única que no se ilumina y la fila se ve partida en dos. */
+                      sticky && j === 0
+                        ? 'sticky left-0 z-10 bg-surface transition-colors duration-150 after:absolute after:inset-y-0 after:right-0 after:w-px after:bg-border-subtle after:content-[""] group-hover:bg-surface-raised'
+                        : ''
                     } ${c.className ?? ''}`}
                   >
                     {c.render(row)}
@@ -788,8 +820,12 @@ export function IconButton({
         `globals.css`, que es el mismo anillo para todo el panel. Antes cada
         control traía su propia variante (había cuatro distintas) y el resultado
         era que el foco cambiaba de forma según dónde estuvieras.
+
+        `max-panel:h-11 max-panel:w-11` y no la clase `.tap`: acá el 44px tiene
+        que pisar el `h-8 w-8`, y `.tap` usa `min-height`, que con un `height`
+        explícito de 32px no gana. Es el único botón del panel con alto fijo.
       */
-      className={`press inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border-subtle bg-surface-raised shadow-inset-highlight transition-[background-color,border-color,color] duration-250 hover:border-overlay/16 hover:bg-surface-overlay hover:text-neutral-50 disabled:cursor-not-allowed disabled:opacity-40 ${
+      className={`press inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border-subtle bg-surface-raised shadow-inset-highlight transition-[background-color,border-color,color] duration-250 hover:border-overlay/16 hover:bg-surface-overlay hover:text-neutral-50 disabled:cursor-not-allowed disabled:opacity-40 max-panel:h-11 max-panel:w-11 ${
         tone === 'neutral' ? 'text-neutral-300' : TONE_TEXT[tone]
       }`}
     >

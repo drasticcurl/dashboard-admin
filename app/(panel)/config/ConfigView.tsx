@@ -178,7 +178,7 @@ export function ConfigView({
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
-        <h1 className="text-lg font-semibold text-neutral-50">Configuración</h1>
+        <h1 className="text-[22px] font-medium -tracking-[0.01em] text-neutral-50 panel:text-[26px]">Configuración</h1>
         {busy && <span className="text-xs text-neutral-500">Guardando…</span>}
       </div>
 

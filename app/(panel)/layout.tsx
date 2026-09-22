@@ -21,7 +21,6 @@
 import type { ReactNode } from 'react';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
-import Link from 'next/link';
 import { listFunnels } from '@/lib/funnels';
 import {
   PANEL_COOKIE_NAME,
@@ -29,11 +28,8 @@ import {
 } from '@/lib/auth';
 import { sesionActual } from '@/lib/permisos';
 import { faltanSaldosDeHoy } from '@/lib/queries/saldo';
-import { PANEL_TITLE } from '@/lib/brand';
 import { AvisoSaldo } from '@/components/AvisoSaldo';
-import { Nav } from '@/components/Nav';
-import { PanelLogo } from '@/components/PanelLogo';
-import { RangePicker } from '@/components/RangePicker';
+import { Shell } from '@/components/Shell';
 
 export const dynamic = 'force-dynamic';
 
@@ -79,80 +75,46 @@ export default async function PanelLayout({ children }: { children: ReactNode })
       <div aria-hidden className="grain" />
 
       {/*
-        Salto al contenido: el header tiene ~10 controles antes del <main>, así
-        que sin esto quien navega con teclado tabula por las 7 tabs, el select
-        de funnel, el de rango y Salir en CADA carga de página.
+        Salto al contenido: antes del <main> hay la hamburguesa, los dos filtros
+        y —en desktop— los nueve links del sidebar, así que sin esto quien navega
+        con teclado tabula por todo eso en CADA carga de página.
       */}
       <a
         href="#contenido"
-        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-lg focus:bg-surface-raised focus:px-3 focus:py-2 focus:text-sm focus:font-semibold focus:text-neutral-50 focus:shadow-float"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[60] focus:rounded-lg focus:bg-surface-raised focus:px-3 focus:py-2 focus:text-sm focus:font-semibold focus:text-neutral-50 focus:shadow-float"
       >
         Saltar al contenido
       </a>
 
       {/*
-        El header es la única superficie de vidrio de verdad del panel: el
-        contenido pasa POR DEBAJO difuminado. El borde inferior no es una línea
-        pareja sino un degradado que se apaga en los extremos, así el header se
-        apoya sobre el contenido en lugar de cortarlo.
+        El shell (sidebar en desktop, drawer en mobile) es un componente client:
+        necesita el pathname para marcar la sección activa y estado para el
+        drawer. El `<form>` del logout se le pasa YA RENDERIZADO como prop,
+        porque la server action vive acá y no puede importarse desde un
+        'use client'.
       */}
-      <header className="glass-bar sticky top-0 z-20">
-        <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-3 lg:flex-row lg:items-center lg:justify-between lg:gap-6">
-          <Link
-            href="/resumen"
-            className="flex shrink-0 items-center gap-2.5 text-sm font-semibold tracking-tight text-neutral-100 transition-colors hover:text-neutral-50"
-          >
-            <PanelLogo />
-            {/* El nombre sale de PANEL_BRAND (lib/brand.ts): varias instancias
-                deployan de este mismo repo y cada una muestra su proyecto. */}
-            <span className="hidden sm:inline">{PANEL_TITLE}</span>
-            <span className="sm:hidden">Panel</span>
-          </Link>
-
-          <div className="flex flex-wrap items-center gap-2.5">
-            <Nav
-              funnels={funnels}
-              saldoPendiente={saldo.faltan.length > 0}
-              seccionesPermitidas={sesion.secciones}
-              nombre={sesion.nombre}
-            />
-            <RangePicker />
-            <form action={logoutAction}>
-              <button
-                type="submit"
-                className="press rounded-lg px-2.5 py-1.5 text-sm font-medium text-neutral-400 transition-colors duration-250 hover:bg-overlay/8 hover:text-neutral-100"
-              >
-                Salir
-              </button>
-            </form>
-          </div>
-        </div>
-        <div
-          aria-hidden
-          className="h-px bg-gradient-to-r from-transparent via-overlay/12 to-transparent"
-        />
-      </header>
-
-      {/*
-        Padding inferior más grande que el superior: ópticamente, un bloque con
-        el mismo aire arriba y abajo se ve caído hacia el final de la página.
-      */}
-      {/*
-        `reveal` escalona la entrada de los bloques de la pantalla (ver
-        globals.css): la cabecera, y después cada tarjeta con 45ms de
-        diferencia. Va acá, a nivel de página, y NO en el primitivo `Grid`:
-        los hijos de esa grilla son los widgets arrastrables y llevan un
-        `transform` inline de dnd-kit que una animación CSS pisaría, porque en
-        la cascada las animaciones ganan a los estilos inline. Animar la grilla
-        entera es seguro; animar sus items rompería el drag.
-      */}
-      <main id="contenido" className="reveal mx-auto max-w-7xl px-4 pb-16 pt-7">
+      <Shell
+        funnels={funnels}
+        saldoPendiente={saldo.faltan.length > 0}
+        seccionesPermitidas={sesion.secciones}
+        nombre={sesion.nombre}
+        salir={
+          <form action={logoutAction}>
+            <button
+              type="submit"
+              className="tap press w-full rounded-lg border border-border-strong bg-surface-raised px-2.5 py-1.5 text-sm font-medium text-neutral-300 shadow-inset-highlight transition-colors duration-250 hover:border-overlay/16 hover:bg-surface-overlay hover:text-neutral-100"
+            >
+              Salir
+            </button>
+          </form>
+        }
+      >
         {children}
-      </main>
+      </Shell>
 
       {/*
-        Fuera del <main> y del `reveal`: el aviso no es contenido de la pantalla
-        y no tiene que entrar en la animación escalonada de las tarjetas. Se
+        Fuera del `reveal` del <main>: el aviso no es contenido de la pantalla y
+        no tiene que entrar en la animación escalonada de las tarjetas. Se
         oculta solo dentro de /finanzas, donde el botón ya está latiendo.
       */}
       {/*

@@ -359,7 +359,7 @@ export function TableroView({
   return (
     <div>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-lg font-semibold -tracking-[0.01em] text-neutral-50">Tareas</h1>
+        <h1 className="text-[22px] font-medium -tracking-[0.01em] text-neutral-50 panel:text-[26px]">Tareas</h1>
         <div className="flex items-center gap-3">
           <label className="flex items-center gap-2 text-xs text-neutral-500">
             Mostrar

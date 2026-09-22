@@ -27,8 +27,15 @@ export type ConfigShell = {
 */
 export const inputCls =
   'rounded-lg border border-border-strong bg-canvas/50 px-2.5 py-1.5 text-sm text-neutral-200 shadow-[inset_0_1px_2px_0_rgba(4,6,14,0.45)] transition-colors duration-250 placeholder:text-neutral-600 hover:border-overlay/16 focus:border-good-500/60';
+/*
+  `tap` (globals.css) le pone 44×44 de mínimo SÓLO debajo de 760px: es el
+  mínimo táctil del handoff v3. Va en la clase base compartida y no botón por
+  botón porque estos dos estilos cubren los ~120 botones de Config, Finanzas y
+  Tareas: ponerlo en cada call site garantizaba que el próximo botón se olvidara.
+  En desktop `tap` no emite nada, así que la densidad de la UI no cambia.
+*/
 export const btnCls =
-  'press rounded-lg px-3 py-1.5 text-xs font-semibold transition-[background-color,border-color,color,filter] duration-250 disabled:cursor-not-allowed disabled:opacity-40';
+  'tap press rounded-lg px-3 py-1.5 text-xs font-semibold transition-[background-color,border-color,color,filter] duration-250 disabled:cursor-not-allowed disabled:opacity-40';
 /* Degradado vertical y texto oscuro: el botón primario es el único relleno
    sólido de color del panel, así que es el que más se nota si se ve plano. */
 export const btnPrimary = `${btnCls} bg-gradient-to-b from-good-400 to-good-600 text-canvas shadow-glow-good hover:brightness-110`;
