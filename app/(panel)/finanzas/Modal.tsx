@@ -55,6 +55,7 @@ export function Modal({
   descripcion,
   onCerrar,
   children,
+  pie,
   ancho = 'md',
 }: {
   titulo: string;
@@ -62,6 +63,17 @@ export function Modal({
   descripcion?: string;
   onCerrar: () => void;
   children: ReactNode;
+  /**
+   * El pie FIJO: el resumen de lo que se va a guardar y los botones.
+   *
+   * Es una prop y no parte de `children` porque tiene que quedar FUERA del div
+   * que scrollea. Cuando los botones viven adentro del cuerpo, un modal con 6
+   * cuentas los empuja abajo del área visible y el único scroll que los trae de
+   * vuelta es el del cuerpo — que nadie busca, porque un modal se lee como algo
+   * que entra entero. Es el bug de «Corregir saldos» que el rediseño v3 vino a
+   * arreglar: el botón de guardar existía y no se veía.
+   */
+  pie?: ReactNode;
   /** `lg` para las secciones con tabla; `md` para un formulario solo. */
   ancho?: 'md' | 'lg';
 }): JSX.Element {
@@ -123,7 +135,19 @@ export function Modal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-canvas/80 p-4 backdrop-blur-sm sm:items-center"
+      /*
+        `overflow-hidden` y no `overflow-y-auto`: el scroll del overlay era el
+        parche que hacía "alcanzable" un modal más alto que la ventana, y es
+        justo el que nadie encuentra. Con la tarjeta acotada a
+        calc(100dvh - 48px) el overlay no necesita scrollear NUNCA, así que
+        dejárselo habilitado sólo deja abierta la puerta a que el bug vuelva sin
+        que nada se vea raro.
+
+        `items-stretch` en mobile + `items-center` desde 760px: en mobile la
+        tarjeta es una hoja que va de 24px del tope hasta abajo (handoff), y para
+        eso tiene que poder estirarse.
+      */
+      className="fixed inset-0 z-50 flex items-stretch justify-center overflow-hidden bg-canvas/80 pt-6 backdrop-blur-sm panel:items-center panel:p-4"
       // `onMouseDown` en el overlay y el chequeo de target: cierra sólo cuando
       // el gesto EMPEZÓ en el fondo. Con onClick, seleccionar texto de adentro
       // y soltar afuera cerraba el modal y perdía lo tipeado.
@@ -140,30 +164,30 @@ export function Modal({
         aria-describedby={descripcion ? idDesc : undefined}
         tabIndex={-1}
         /*
-          `max-h` + `flex-col` + el scroll ADENTRO, no en el overlay.
-          Antes la tarjeta no tenía techo y crecía todo lo que pedía el
-          contenido: el scroll lo hacía el overlay, así que en un viewport de
-          laptop (~670px de alto) el detalle de una tarea —formulario + enlaces +
-          comentarios + borrar— quedaba con la mitad fuera de pantalla y el botón
-          de guardar sólo aparecía scrolleando el fondo, que es lo que nadie
-          intenta cuando ve un modal. Con el techo, la tarjeta SIEMPRE entra, el
-          encabezado y el botón Cerrar quedan fijos, y lo que se mueve es el
-          contenido.
+          Tres partes: encabezado fijo, cuerpo con scroll, pie fijo. El techo de
+          la tarjeta es `calc(100dvh - 48px)` (handoff v3): 24px de aire arriba y
+          24 abajo, y NUNCA más alta que la ventana.
 
           `dvh` y no `vh` por lo mismo que `min-h-dvh` en el layout del panel:
-          `100vh` en Safari de iOS cuenta la barra de direcciones que se esconde.
-          El `-2rem` es el `p-4` del overlay: sin restarlo la tarjeta mide el
-          viewport entero y se come su propio margen.
+          `100vh` en Safari de iOS cuenta la barra de direcciones que se esconde
+          al scrollear, así que con `vh` el pie fijo queda tapado por la barra
+          justo en el navegador donde el modal se usa con el pulgar.
 
-          El molde es el modal de `anuncios/reglas/ReglasView.tsx`, que ya
-          resolvía esto con `max-h-[calc(100vh-2rem)] flex-col overflow-hidden`.
+          En mobile es una hoja: ocupa todo el ancho, arranca a 24px del tope
+          (el `pt-6` del overlay) y llega hasta abajo, con las esquinas
+          redondeadas sólo arriba. Desde 760px es una tarjeta centrada de
+          min(560px, 100% − 32px), que es el `max-w-[560px]` + el `p-4` del
+          overlay.
         */
-        className={`my-auto flex max-h-[calc(100dvh-2rem)] w-full flex-col ${
-          ancho === 'lg' ? 'max-w-4xl' : 'max-w-xl'
-        } rounded-2xl border border-border-strong bg-surface p-5 shadow-float outline-none`}
+        className={`flex max-h-[calc(100dvh-48px)] w-full flex-col overflow-hidden rounded-t-2xl border border-border-strong bg-surface shadow-float outline-none panel:my-auto panel:rounded-2xl ${
+          ancho === 'lg' ? 'panel:max-w-4xl' : 'panel:max-w-[560px]'
+        }`}
       >
-        <div className="mb-4 flex shrink-0 items-start justify-between gap-4">
-          <div>
+        {/* Encabezado FIJO. `shrink-0` para que no lo aplaste el cuerpo, y el
+            divisor abajo para que se lea como una franja y no como el borde de
+            la primera fila del contenido. */}
+        <div className="flex shrink-0 items-start justify-between gap-4 border-b border-divider p-4 panel:px-5">
+          <div className="min-w-0">
             <h2 id={idTitulo} className="text-base font-semibold -tracking-[0.01em] text-neutral-50">
               {titulo}
             </h2>
@@ -181,9 +205,12 @@ export function Modal({
           <button
             type="button"
             onClick={onCerrar}
-            className="press shrink-0 rounded-lg border border-border-strong px-2.5 py-1.5 text-sm text-neutral-300 transition-colors duration-250 hover:bg-overlay/6 hover:text-neutral-100"
+            className="tap press shrink-0 rounded-lg border border-border-strong px-2.5 py-1.5 text-sm text-neutral-300 transition-colors duration-250 hover:bg-overlay/6 hover:text-neutral-100"
           >
-            Cerrar <span aria-hidden className="ml-1 text-neutral-500">Esc</span>
+            Cerrar{' '}
+            <span aria-hidden className="ml-1 hidden text-neutral-500 panel:inline">
+              Esc
+            </span>
           </button>
         </div>
         {/*
@@ -192,11 +219,16 @@ export function Modal({
           su contenido, así que sin esto el `overflow-y-auto` nunca se activa y la
           tarjeta desborda el `max-h` igual que antes. Es la trampa clásica de
           "puse overflow-auto y no scrollea".
-
-          `-mr-2 pr-2` mete la barra de scroll adentro del padding de la tarjeta,
-          para que no corte el borde derecho de los inputs.
         */}
-        <div className="-mr-2 min-h-0 flex-1 overflow-y-auto pr-2">{children}</div>
+        <div className="min-h-0 flex-1 overflow-y-auto p-4 panel:px-5">{children}</div>
+        {pie && (
+          // El pie FIJO, fuera del scroll. `shrink-0` por el mismo motivo que el
+          // encabezado. El `safe-area-inset-bottom` es para el iPhone: sin él la
+          // barra de gestos del sistema se come la mitad del botón de guardar.
+          <div className="shrink-0 border-t border-divider bg-surface p-4 pb-[max(1rem,env(safe-area-inset-bottom))] panel:px-5 panel:pb-4">
+            {pie}
+          </div>
+        )}
       </div>
     </div>
   );

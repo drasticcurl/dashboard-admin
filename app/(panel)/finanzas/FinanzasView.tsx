@@ -156,13 +156,13 @@ function Botonera({
         }
       >
         <span className="flex flex-col gap-0.5">
-          <span>{falta ? 'Cargar saldo de hoy' : 'Saldo de hoy cargado'}</span>
+          <span>{falta ? 'Cargar saldo de hoy' : 'Corregir saldos'}</span>
           <span className={`text-xs font-normal ${falta ? 'text-warn-300' : 'text-neutral-500'}`}>
             {falta
               ? faltanHoy.length === 1
                 ? `falta ${faltanHoy[0]}`
                 : `faltan ${faltanHoy.length} cuentas`
-              : 'editar o cargar otro día'}
+              : 'saldo de hoy cargado · editar o cargar otro día'}
           </span>
         </span>
         <span aria-hidden className="shrink-0 text-base">
@@ -737,18 +737,17 @@ export function FinanzasView({
         </Card>
       </div>
 
+      {/* CargaDiaria monta su propio Modal desde el rediseño v3: el pie fijo con
+          el resumen de ajustes y los botones necesita el total y el guardar() que
+          viven adentro del formulario. Envolverlo desde acá obligaba a duplicar
+          ese estado en esta vista. */}
       {vista === 'saldo' && (
-        <Modal
-          titulo="Cargar los saldos del día"
-          descripcion="Una vez al día: cuánto hay en cada cuenta. El patrimonio es la suma con el signo de cada tipo."
+        <CargaDiaria
+          cuentas={saldo.cuentas}
+          hoy={saldo.hoyStr}
+          onGuardado={() => router.refresh()}
           onCerrar={cerrarVista}
-        >
-          <CargaDiaria
-            cuentas={saldo.cuentas}
-            hoy={saldo.hoyStr}
-            onGuardado={() => router.refresh()}
-          />
-        </Modal>
+        />
       )}
 
       {vista === 'movimientos' && (

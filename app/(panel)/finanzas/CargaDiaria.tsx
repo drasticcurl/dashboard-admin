@@ -30,8 +30,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { formatearMontoParaInput } from '@/lib/monto';
 import type { AccountWithBalance } from '@/lib/queries/saldo';
-import { Badge, Banner, Card, EmptyState, Spinner, fmtMoney } from '@/components/ui';
+import { Badge, Banner, EmptyState, Spinner, fmtMoney } from '@/components/ui';
 import { btnGhost, btnPrimary, inputCls } from '../config/kit';
+import { Modal } from './Modal';
 import {
   leerPatrimonio,
   parsearSaldo,
@@ -78,6 +79,7 @@ export function CargaDiaria({
   cuentas,
   hoy,
   onGuardado,
+  onCerrar,
 }: {
   /** Las vigentes hoy, con el saldo de hoy si ya está cargado. */
   cuentas: AccountWithBalance[];
@@ -85,6 +87,13 @@ export function CargaDiaria({
   hoy: string;
   /** T06 pasa el `router.refresh()`. */
   onGuardado: () => void;
+  /**
+   * Cierra el modal. El componente monta su propio `<Modal>` desde el rediseño
+   * v3 y no lo recibe como envoltorio: el pie con el resumen y los botones
+   * necesita el `total` y el `guardar()` que viven acá, y pasarlos para arriba
+   * significaba duplicar el estado del formulario en FinanzasView.
+   */
+  onCerrar: () => void;
 }): JSX.Element {
   const [day, setDay] = useState(hoy);
   const [valores, setValores] = useState<Valores>(() => valoresIniciales(cuentas, true));
@@ -209,19 +218,99 @@ export function CargaDiaria({
 
   if (cuentas.length === 0) {
     return (
-      <Card title="Cargar los saldos del día">
+      <Modal titulo="Corregir saldos" onCerrar={onCerrar}>
         <EmptyState
           title="Todavía no hay cuentas vigentes"
-          hint="El patrimonio se mide sumando el saldo de cada cuenta, así que primero hay que crear las cuentas donde vive la plata. Se administran más abajo."
+          hint="El patrimonio se mide sumando el saldo de cada cuenta, así que primero hay que crear las cuentas donde vive la plata. Se administran en «Cuentas»."
         />
-      </Card>
+      </Modal>
     );
   }
 
+  /**
+   * Cuántas cuentas cambian de número con lo que está escrito, para el resumen
+   * del pie.
+   *
+   * Se cuenta contra el saldo REGISTRADO y no contra "el campo tiene algo":
+   * reabrir el modal precarga los saldos de hoy, así que con el criterio ingenuo
+   * el pie diría "6 ajustes" sin que el usuario haya tocado nada — y eso
+   * convierte al resumen en ruido, que es lo mismo que no tenerlo.
+   */
+  const ajustes = esHoy
+    ? cuentas.filter((c) => {
+        const raw = (valores[c.id] ?? '').trim();
+        if (raw === '') return c.amountEur !== null; // vaciar un saldo cargado ES un cambio
+        const n = parsearSaldo(raw);
+        return n.ok && n.valor !== c.amountEur;
+      }).length
+    : cuentas.filter((c) => (valores[c.id] ?? '').trim() !== '').length;
+
+  const pie = (
+    <div className="flex flex-col gap-3">
+      {/* El total en vivo. Dice si es el patrimonio o un PARCIAL: por D5 un total
+          al que le falta una cuenta no es un número que falta, es un número
+          equivocado que se ve igual de bien que uno correcto. */}
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <div className="min-w-0">
+          <p className="text-xs font-medium text-neutral-400">
+            {total.completo ? `Patrimonio del ${day}` : 'Suma parcial de lo que escribiste'}
+          </p>
+          <p className="mt-0.5 text-xs text-neutral-500">
+            {total.completo
+              ? `Están las ${total.esperadas} cuentas: este día va a contar en el gráfico.`
+              : `Faltan ${total.esperadas - total.cargadas} de ${total.esperadas} — así como está, este día NO tiene patrimonio y no se dibuja.`}
+          </p>
+        </div>
+        <p
+          className={`num font-mono text-xl font-semibold tracking-tight ${
+            total.completo
+              ? total.totalEur < 0
+                ? 'text-bad-400'
+                : 'text-neutral-50'
+              : 'text-neutral-400'
+          }`}
+        >
+          {fmtMoney(total.totalEur, MONEDA_REPORTE)}
+        </p>
+      </div>
+
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        {/* El motivo al lado del botón, y el botón NUNCA gris sin explicación:
+            es la regla del proyecto desde el 2026-08-24. Sólo se deshabilita
+            mientras hay un pedido en vuelo. */}
+        {!busy && falta !== null && (
+          <span className="mr-auto text-xs text-warn-300" aria-live="polite">
+            {falta}
+          </span>
+        )}
+        {!busy && falta === null && !total.completo && (
+          <span className="mr-auto text-xs text-neutral-500" aria-live="polite">
+            se puede guardar así, pero el día queda incompleto
+          </span>
+        )}
+        {busy && (
+          <span className="mr-auto flex items-center gap-2 text-xs text-neutral-500">
+            <Spinner /> Guardando…
+          </span>
+        )}
+        <button type="button" className={`${btnGhost} tap`} onClick={onCerrar} disabled={busy}>
+          Cancelar
+        </button>
+        <button type="button" className={`${btnPrimary} tap`} disabled={busy} onClick={guardar}>
+          {ajustes === 0
+            ? 'Guardar ajustes'
+            : `Guardar ${ajustes} ajuste${ajustes === 1 ? '' : 's'}`}
+        </button>
+      </div>
+    </div>
+  );
+
   return (
-    <Card
-      title="Cargar los saldos del día"
-      hint="Una vez al día: mirá cada cuenta y escribí cuánto hay. El patrimonio es esta suma, no un cálculo. Un día cuenta sólo si están TODAS las cuentas: si falta una, ese día no aparece en el gráfico."
+    <Modal
+      titulo="Corregir saldos"
+      descripcion="Una vez al día: mirá cada cuenta y escribí cuánto hay de verdad. El patrimonio es esta suma, no un cálculo. Un día cuenta sólo si están TODAS las cuentas."
+      onCerrar={onCerrar}
+      pie={pie}
     >
       {error && (
         <div className="mb-3">
@@ -242,18 +331,16 @@ export function CargaDiaria({
         <label className="flex flex-col gap-1 text-xs text-neutral-500">
           Día de los saldos
           <input
-            className={inputCls}
+            className={`${inputCls} h-11`}
             type="date"
             value={day}
             onChange={(e) => setDay(e.target.value)}
           />
         </label>
         {esHoy ? (
-          <p className="pb-2 text-xs text-neutral-500">
-            Hoy, en la zona horaria del panel.
-          </p>
+          <p className="pb-3 text-xs text-neutral-500">Hoy, en la zona horaria del panel.</p>
         ) : (
-          <button type="button" className={`${btnGhost} mb-1`} onClick={() => setDay(hoy)}>
+          <button type="button" className={`${btnGhost} tap mb-1`} onClick={() => setDay(hoy)}>
             Volver a hoy ({hoy})
           </button>
         )}
@@ -277,13 +364,18 @@ export function CargaDiaria({
           const raw = valores[c.id] ?? '';
           const n = raw.trim() === '' ? null : parsearSaldo(raw);
           const yaCargado = esHoy && c.amountEur !== null;
+          // La diferencia contra el saldo REGISTRADO, en vivo. Sólo tiene sentido
+          // en hoy: en otro día el panel no sabe qué hay cargado (ver
+          // `valoresIniciales`), así que compararlo sería inventar un baseline.
+          const diferencia =
+            esHoy && n !== null && n.ok && c.amountEur !== null ? n.valor - c.amountEur : null;
 
           return (
             <div
               key={c.id}
-              className="grid items-center gap-x-3 gap-y-1 rounded-xl border border-border-subtle bg-overlay/2 p-3 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,10rem)]"
+              className="grid items-center gap-x-3 gap-y-2 rounded-xl border border-border-subtle bg-overlay/2 p-3 panel:grid-cols-[minmax(0,1fr)_auto]"
             >
-              <div className="flex min-w-0 items-center gap-2">
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
                 <label
                   htmlFor={`saldo-${c.id}`}
                   className="truncate text-sm font-medium text-neutral-200"
@@ -292,51 +384,81 @@ export function CargaDiaria({
                   {c.name}
                 </label>
                 <Badge tone={KIND_TONE[c.kind]}>{KIND_LABEL[c.kind]}</Badge>
+                {/* `whitespace-nowrap`: "Falta hoy" partido en dos líneas dentro
+                    de una fila de 44px de alto rompe la alineación de todas las
+                    demás. */}
+                {esHoy && c.amountEur === null && (
+                  <span className="whitespace-nowrap rounded-md border border-good-700 px-1.5 py-0.5 text-[11px] font-medium text-good-300">
+                    Falta hoy
+                  </span>
+                )}
               </div>
 
-              <div className="flex items-center gap-1.5">
-                {/* El `−` de la deuda va AFUERA del input: la persona escribe
-                    cuánto debe, en positivo, y el signo se muestra para que no
-                    haya dudas de cómo entra al total (D4). */}
-                <span
-                  aria-hidden
-                  className={`w-3 text-center font-mono text-sm ${
-                    c.kind === 'deuda' ? 'text-bad-400' : 'text-neutral-600'
-                  }`}
-                >
-                  {c.kind === 'deuda' ? '−' : '+'}
-                </span>
-                <input
-                  id={`saldo-${c.id}`}
-                  className={`${inputCls} w-32 text-right font-mono tabular-nums`}
-                  inputMode="decimal"
-                  /* "sin cargar" y no "0.00": el placeholder es lo que
-                     distingue un campo vacío (que no cuenta, y al guardar borra)
-                     de un cero tipeado (que es una cuenta vacía, y sí cuenta). */
-                  placeholder="sin cargar"
-                  aria-label={`Saldo de ${c.name}${c.kind === 'deuda' ? ' (cuánto se debe, en positivo)' : ''}`}
-                  value={raw}
-                  onChange={(e) => setValores({ ...valores, [c.id]: e.target.value })}
-                />
-                <span className="w-8 text-xs text-neutral-600">{MONEDA_REPORTE}</span>
+              <div className="flex items-center justify-between gap-3 panel:justify-end">
+                <div className="flex flex-col gap-0.5 text-right">
+                  <span className="whitespace-nowrap text-[11px] text-neutral-600">Registrado</span>
+                  <span className="whitespace-nowrap font-mono text-xs tabular-nums text-neutral-500">
+                    {c.amountEur === null || !esHoy
+                      ? '—'
+                      : fmtMoney(signoDeSaldo(c.kind, c.amountEur), MONEDA_REPORTE)}
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-1.5">
+                  {/* El `−` de la deuda va AFUERA del input: la persona escribe
+                      cuánto debe, en positivo, y el signo se muestra para que no
+                      haya dudas de cómo entra al total (D4). */}
+                  <span
+                    aria-hidden
+                    className={`w-3 text-center font-mono text-sm ${
+                      c.kind === 'deuda' ? 'text-bad-400' : 'text-neutral-600'
+                    }`}
+                  >
+                    {c.kind === 'deuda' ? '−' : '+'}
+                  </span>
+                  {/* 44px de alto (h-11): es el mínimo táctil del handoff y este
+                      es el campo que se tipea con el pulgar todos los días. */}
+                  <input
+                    id={`saldo-${c.id}`}
+                    className={`${inputCls} h-11 w-28 text-right font-mono text-base tabular-nums`}
+                    inputMode="decimal"
+                    /* "sin cargar" y no "0.00": el placeholder es lo que
+                       distingue un campo vacío (que no cuenta, y al guardar borra)
+                       de un cero tipeado (que es una cuenta vacía, y sí cuenta). */
+                    placeholder="sin cargar"
+                    aria-label={`Saldo real de ${c.name}${c.kind === 'deuda' ? ' (cuánto se debe, en positivo)' : ''}`}
+                    value={raw}
+                    onChange={(e) => setValores({ ...valores, [c.id]: e.target.value })}
+                  />
+                </div>
               </div>
 
-              <div className="text-xs sm:text-right">
-                {n === null ? (
+              {/* La diferencia en vivo, a todo el ancho de la fila. Es lo que
+                  convierte "escribí un número" en "esto es el ajuste que estoy
+                  haciendo": sin ella, corregir 4.812,30 a 4.821,30 se ve igual
+                  que no cambiar nada. */}
+              <div className="text-xs panel:col-span-2">
+                {n !== null && !n.ok ? (
+                  <span className="text-pretty text-warn-300" aria-live="polite">
+                    {n.error}
+                  </span>
+                ) : diferencia !== null && diferencia !== 0 ? (
+                  <span
+                    className="font-mono tabular-nums text-good-400"
+                    aria-live="polite"
+                  >
+                    Ajuste {diferencia > 0 ? '+' : '−'}
+                    {fmtMoney(Math.abs(diferencia), MONEDA_REPORTE)}
+                  </span>
+                ) : diferencia === 0 ? (
+                  <span className="text-neutral-600">Sin diferencia</span>
+                ) : n === null ? (
                   <span className="text-neutral-600">
                     {yaCargado ? 'vaciar el campo BORRA este saldo' : 'sin cargar'}
                   </span>
-                ) : n.ok ? (
-                  <span
-                    className={`font-mono tabular-nums ${
-                      c.kind === 'deuda' ? 'text-bad-300' : 'text-neutral-300'
-                    }`}
-                  >
-                    {fmtMoney(signoDeSaldo(c.kind, n.valor), MONEDA_REPORTE)}
-                  </span>
                 ) : (
-                  <span className="text-pretty text-warn-300" aria-live="polite">
-                    {n.error}
+                  <span className="font-mono tabular-nums text-neutral-400">
+                    Queda en {fmtMoney(signoDeSaldo(c.kind, n.valor), MONEDA_REPORTE)}
                   </span>
                 )}
               </div>
@@ -345,67 +467,11 @@ export function CargaDiaria({
         })}
       </div>
 
-      {/* El total en vivo. Dice si es el patrimonio o un PARCIAL: por D5 un total
-          al que le falta una cuenta no es un número que falta, es un número
-          equivocado que se ve igual de bien que uno correcto. */}
-      <div
-        className={`mt-3 flex flex-wrap items-baseline justify-between gap-2 rounded-xl border p-3 ${
-          total.completo
-            ? 'border-good-500/20 bg-good-500/6'
-            : 'border-border-subtle bg-overlay/2'
-        }`}
-      >
-        <div>
-          <p className="text-xs font-medium text-neutral-400">
-            {total.completo ? `Patrimonio del ${day}` : 'Suma parcial de lo que escribiste'}
-          </p>
-          <p className="mt-0.5 text-xs text-neutral-500">
-            {total.completo
-              ? 'Están las ' + total.esperadas + ' cuentas: este día va a contar en el gráfico.'
-              : `Faltan ${total.esperadas - total.cargadas} de ${total.esperadas} cuentas — así como está, este día NO tiene patrimonio y no se dibuja.`}
-          </p>
-        </div>
-        <p
-          className={`font-mono text-2xl font-semibold tabular-nums tracking-tight ${
-            total.completo
-              ? total.totalEur < 0
-                ? 'text-bad-400'
-                : 'text-neutral-50'
-              : 'text-neutral-400'
-          }`}
-        >
-          {fmtMoney(total.totalEur, MONEDA_REPORTE)}
-        </p>
-      </div>
-
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        <button type="button" className={btnPrimary} disabled={busy} onClick={guardar}>
-          Guardar los {cuentas.length === 1 ? 'saldos' : `${cuentas.length} saldos`} del día
-        </button>
-        {busy && (
-          <span className="flex items-center gap-2 text-xs text-neutral-500">
-            <Spinner /> Guardando…
-          </span>
-        )}
-        {/* El motivo, al lado del botón. `aria-live` para que un lector de
-            pantalla lo anuncie cuando cambia sin que se recargue nada. */}
-        {!busy && falta !== null && (
-          <span className="text-xs text-warn-300" aria-live="polite">
-            {falta}
-          </span>
-        )}
-        {!busy && falta === null && !total.completo && (
-          <span className="text-xs text-neutral-500" aria-live="polite">
-            se puede guardar así, pero el día queda incompleto
-          </span>
-        )}
-      </div>
-
-      <p className="mt-2 text-xs text-neutral-500">
+      <p className="mt-3 text-xs text-neutral-500">
         Los decimales van con coma: <span className="text-neutral-400">1234,56</span>. Un{' '}
         <span className="text-neutral-400">0</span> es una cuenta vacía y cuenta como cargada; el
         campo en blanco es &laquo;sin cargar&raquo;.
       </p>
-    </Card>
+    </Modal>
   );
 }
