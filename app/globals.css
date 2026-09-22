@@ -284,4 +284,103 @@
   .reveal > *:nth-child(7) { animation-delay: 270ms; }
   .reveal > *:nth-child(8) { animation-delay: 315ms; }
   .reveal > *:nth-child(n + 9) { animation-delay: 360ms; }
+
+  /* ───────────────────────────────────────────────────────────────────────────
+     Rediseño v3. Cuatro recetas que no se pueden escribir con utilidades de
+     Tailwind, y por eso viven acá y no en el markup.
+     ─────────────────────────────────────────────────────────────────────────── */
+
+  /*
+    El número de un KPI que NO se sale de su tarjeta.
+
+    Es el bug del handoff §Resumen, y son tres propiedades que tienen que viajar
+    juntas porque cada una tapa un agujero distinto:
+
+      · `min-width: 0` en el HIJO no alcanza — hay que ponerlo también en la
+        tarjeta (utilidad `min-w-0` en el markup), porque un item de grid tiene
+        `min-width: auto` y se niega a ser más angosto que su contenido: es lo
+        que hace que la COLUMNA entera se ensanche y desborde la grilla en lugar
+        de que el texto se acomode.
+      · `overflow-wrap: anywhere` y no `break-word`: `break-word` sólo corta
+        cuando la palabra no entra por sí sola en la línea, así que
+        "$1.234.567,89" —que no tiene espacios— desborda igual. `anywhere`
+        además le dice al algoritmo de ancho mínimo que puede contar con el
+        corte, que es lo que impide que la caja crezca.
+      · `tabular-nums` para que dos KPIs apilados no bailen (la regla de
+        @layer base sólo cubre th/td/input).
+
+    No es `break-all`: eso cortaría también donde no hace falta, y un separador
+    de miles partido al medio se lee como dos números.
+  */
+  .num {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /*
+    El mínimo táctil de 44px, SOLO en mobile (handoff §General).
+
+    Va por clase y no como override global de `button` porque el panel tiene
+    botones que son iconos de 12px dentro de una celda de tabla: estirarlos a 44
+    en desktop rompería la altura de la fila. Debajo de 760px, donde el dedo es
+    el puntero, sí se estiran todos los que llevan la clase.
+
+    `inline-flex` + centrado: sin eso el `min-height` agranda la caja pero deja
+    el texto pegado arriba.
+  */
+  @media (max-width: 759px) {
+    .tap {
+      min-height: 44px;
+      min-width: 44px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+  }
+
+  /*
+    La hoja de mobile: sube desde abajo. `translateY` y no `height`/`bottom`
+    para que la componga la GPU (misma razón que `.lift`).
+
+    Se apaga sola con prefers-reduced-motion por la regla de @layer base.
+  */
+  .hoja-sube {
+    animation: hoja-sube 260ms cubic-bezier(0.32, 0.72, 0, 1) both;
+  }
+
+  @keyframes hoja-sube {
+    from {
+      transform: translateY(100%);
+    }
+    to {
+      transform: translateY(0);
+    }
+  }
+
+  /*
+    El toast de confirmación: abajo al centro, 2.4s (handoff §Interacciones).
+    Entra subiendo y sale bajando en el mismo keyframe, con los porcentajes
+    calculados sobre los 2.4s, así no hace falta un segundo timer en JS para la
+    salida: cuando la animación termina el componente ya se desmontó.
+  */
+  .toast-pasa {
+    animation: toast-pasa 2400ms cubic-bezier(0.32, 0.72, 0, 1) both;
+  }
+
+  @keyframes toast-pasa {
+    0% {
+      opacity: 0;
+      transform: translateY(12px);
+    }
+    8%,
+    88% {
+      opacity: 1;
+      transform: translateY(0);
+    }
+    100% {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+  }
 }

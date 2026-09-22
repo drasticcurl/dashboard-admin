@@ -84,7 +84,21 @@ export default {
     './lib/**/*.{ts,tsx}',
   ],
   theme: {
+    /**
+     * `extend.screens` y no `screens` a secas: así sobreviven sm/md/lg/xl, que
+     * son los que usan las ~300 clases responsive que ya existen.
+     *
+     * `panel` es el corte del rediseño v3: 760px. No es ninguno de los de
+     * Tailwind (sm=640, md=768) y no se puede aproximar con `md`, porque el
+     * handoff define el shell entero contra ese número —sidebar a partir de
+     * 760, drawer por debajo— y un layout que cambia a 768 mientras el resto
+     * del CSS cambia a 760 deja 8px de viewport con el sidebar y el header
+     * móvil montados a la vez.
+     */
     extend: {
+      screens: {
+        panel: '760px',
+      },
       colors: {
         canvas: panelColors.canvas,
         surface: panelColors.surface,
@@ -95,6 +109,15 @@ export default {
         overlay: '#ffffff',
         'border-subtle': 'rgba(255, 255, 255, 0.06)',
         'border-strong': 'rgba(255, 255, 255, 0.10)',
+        /**
+         * El `divider` del handoff v3 (rgba(255,255,255,.08)): el separador de
+         * las piezas nuevas (sidebar, header del modal, footer del popover).
+         * Queda EN MEDIO de subtle (.06) y strong (.10) a propósito: los dos que
+         * ya existían son el borde de una tarjeta y el de un control, y una
+         * línea que divide dos zonas de la MISMA superficie necesita más peso
+         * que el primero y menos que el segundo.
+         */
+        divider: 'rgba(255, 255, 255, 0.08)',
         /**
          * El grafito frío que reemplaza al `neutral` puro de Tailwind (ver
          * decisión 2 arriba). Mismo hue que el canvas para que texto y fondo
@@ -113,12 +136,31 @@ export default {
           900: '#191c24',
           950: '#0e1015',
         },
+        /**
+         * El acento. Los tonos 100 y 700..900 los agregó el rediseño v3: son
+         * los rellenos OSCUROS del acento, que antes no existían.
+         *
+         * Hacían falta porque hasta v3 "esto está seleccionado" se pintaba con
+         * un blanco translúcido (`bg-overlay/8`) que es el MISMO relleno que usa
+         * el hover. En una tabla de 14 columnas donde la fila abierta tiene un
+         * popover encima, "la fila con la que estoy trabajando" y "la fila
+         * debajo del mouse" no pueden verse igual. Con `bg-good-900` el estado
+         * activo es del color del acento y el hover sigue siendo neutro.
+         *
+         * Los valores son los del handoff (accent-100/700/800/900). 900 es tan
+         * oscuro (#0b2c21) que funciona como fondo de fila sin tapar el texto:
+         * `text-good-100` sobre `bg-good-900` da ~11:1.
+         */
         good: {
+          100: '#cdf5e3',
           200: '#a8f2d7',
           300: '#6fe7bd',
           400: '#3ed7a0',
           500: panelColors.good,
           600: '#16a372',
+          700: '#157a57',
+          800: '#10513b',
+          900: '#0b2c21',
         },
         warn: {
           200: '#fbe0b4',
@@ -215,6 +257,15 @@ export default {
         /** Popovers y modales: la misma luz, más caída. */
         float:
           'inset 0 1px 0 0 rgba(255, 255, 255, 0.06), 0 24px 60px -20px rgba(4, 6, 14, 0.9)',
+        /**
+         * El popover anclado a una fila y la hoja de mobile (shadow-lg del
+         * handoff v3). Se diferencia de `float` en el anillo de 1px: `float`
+         * apoya sobre el canvas, y este apoya sobre una TABLA con sus propias
+         * líneas de grilla, así que sin un borde explícito el canto del popover
+         * se confunde con el borde de la celda que tiene detrás.
+         */
+        popover:
+          '0 0 0 1px rgba(255, 255, 255, 0.14), 0 16px 40px rgba(0, 0, 0, 0.7)',
         /** La pastilla activa de un control segmentado (Nav, toggles). */
         lozenge:
           'inset 0 1px 0 0 rgba(255, 255, 255, 0.11), 0 1px 2px 0 rgba(4, 6, 14, 0.6), 0 4px 12px -6px rgba(4, 6, 14, 0.7)',
