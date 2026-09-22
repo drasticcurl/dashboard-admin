@@ -76,7 +76,12 @@ function tamañoLabel(size: WidgetSize): string {
 }
 
 function spanClases(placement: WidgetPlacement): string {
-  const ancho = placement.w === 2 ? 'md:col-span-2 xl:col-span-2' : '';
+  // `panel:` (760px) y no `md:`/`xl:`: desde el rediseño v3 la Grid usa
+  // `auto-fill` y no breakpoints, así que el ancho doble tiene que activarse en
+  // el MISMO punto en el que la grilla deja de tener una sola columna. Con `md:`
+  // (768) quedaban 8px de viewport donde la grilla ya era de dos columnas y el
+  // widget de ancho 2 todavía ocupaba una.
+  const ancho = placement.w === 2 ? 'panel:col-span-2' : '';
   const alto = placement.h === 2 ? 'row-span-2' : '';
   return `${ancho} ${alto}`.trim();
 }

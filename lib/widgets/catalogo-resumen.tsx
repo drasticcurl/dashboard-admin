@@ -102,13 +102,17 @@ function Kpi({ size, k }: { size: WidgetSize; k: KpiDatos }): JSX.Element {
     k.tone === 'good' ? 'text-good-400' : k.tone === 'bad' ? 'text-bad-400' : 'text-neutral-50';
   const hayTrend = typeof k.trend === 'number';
   return (
-    <div className="flex h-full flex-col">
-      {/* El número escala con el ancho: en 1x1 un text-2xl quedaba chico y
-          perdido en la tarjeta, que es la mitad de por qué los widgets se veían
-          flojos. La otra mitad era que el trend sólo aparecía en 2x1. */}
+    <div className="flex h-full min-w-0 flex-col">
+      {/* El número escala con el ancho: en 1x1 un número chico queda perdido en
+          la tarjeta, que es la mitad de por qué los widgets se veían flojos. La
+          otra mitad era que el trend sólo aparecía en 2x1.
+
+          Escala del handoff v3 (22/28px, peso 500) y clase `num`, que es la que
+          impide que un número de siete cifras ensanche la columna y desborde la
+          grilla en lugar de acomodarse. */}
       <div
-        className={`font-mono font-semibold tabular-nums tracking-tight ${toneCls} ${
-          size.w === 2 ? 'text-3xl' : 'text-2xl'
+        className={`num font-mono font-medium -tracking-[0.02em] ${toneCls} ${
+          size.w === 2 ? 'text-[28px]' : 'text-[22px]'
         }`}
       >
         {k.valor}

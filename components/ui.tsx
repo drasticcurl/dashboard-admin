@@ -142,11 +142,27 @@ export function StatCard({
       `lift` levanta la tarjeta 2px al hover con la curva spring. En una grilla
       de 4 KPIs, es lo que confirma que cada uno es un objeto separado.
     */
-    <div className="sheen lift rounded-2xl border border-border-subtle bg-surface p-4 shadow-card hover:border-overlay/11 hover:shadow-card-hover">
+    <div className="sheen lift min-w-0 rounded-xl border border-border-subtle bg-surface p-4 shadow-card hover:border-overlay/11 hover:shadow-card-hover panel:p-6">
       <div className="truncate text-xs font-medium text-neutral-400">{label}</div>
-      <div className="mt-2 flex items-baseline gap-2">
+      <div className="mt-2 flex flex-wrap items-baseline gap-2">
+        {/*
+          `num` (globals.css) = min-width:0 + overflow-wrap:anywhere +
+          tabular-nums. Es el fix del handoff §Resumen: los números nunca deben
+          salirse de la tarjeta.
+
+          El `min-w-0` de la tarjeta (arriba) es la mitad que falta y la que
+          menos se ve: un item de grid tiene `min-width: auto`, o sea que se
+          niega a ser más angosto que su contenido. Sin él, un KPI de
+          "$1.234.567,89" ensancha SU COLUMNA y desborda la grilla entera en
+          lugar de acomodar el texto — el número parecía el problema y el
+          problema era la caja.
+
+          Y el contenedor pasó a `flex-wrap`: cuando el número y la pastilla de
+          tendencia no entran en una línea, la pastilla baja en lugar de
+          comprimir el número hasta cortarlo.
+        */}
         <span
-          className={`font-mono text-[1.875rem] font-semibold leading-none tabular-nums -tracking-[0.03em] ${
+          className={`num font-mono text-[22px] font-medium leading-tight -tracking-[0.02em] panel:text-[26px] ${
             tone === 'neutral' ? 'text-neutral-50' : TONE_TEXT[tone]
           }`}
         >
@@ -522,7 +538,23 @@ export function fmtDateTime(iso: string): string {
 
 // ─── Primitivos nuevos del rediseño (T01) ──────────────────────────────────
 
-/** La grilla de 4 columnas del plan (D-R03). Colapsa a 2 en md y 1 en móvil. */
+/**
+ * La grilla de KPIs y widgets del panel.
+ *
+ * Pasó de `grid-cols-1 md:grid-cols-2 xl:grid-cols-4` a `auto-fill` con
+ * `minmax(min(100%, 210px), 1fr)` (handoff v3). La diferencia no es cosmética:
+ * con breakpoints fijos, una pantalla de 1100px mostraba DOS columnas de 530px
+ * cada una —widgets enormes con el número flotando en aire— porque `xl` recién
+ * entra a 1280. Con `auto-fill` la grilla mete tantas columnas como entren con
+ * un mínimo decente, así que 1100px da cuatro de ~265 y 1400 da cinco.
+ *
+ * El `min(100%, 210px)` del mínimo es el que evita el desborde en mobile: con
+ * `minmax(210px, 1fr)` pelado, un viewport de 360px con el padding del `<main>`
+ * deja 328px útiles, y aunque 210 < 328 el `1fr` no puede bajar del mínimo si el
+ * contenido empuja. Con `min(100%, …)` el mínimo se rinde al ancho disponible.
+ *
+ * `className` sigue existiendo para que un llamador pueda forzar otra grilla.
+ */
 export function Grid({
   children,
   className,
@@ -531,7 +563,10 @@ export function Grid({
   className?: string;
 }): JSX.Element {
   return (
-    <div className={`grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4 ${className ?? ''}`}>
+    <div
+      className={`grid gap-4 ${className ?? ''}`}
+      style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 210px), 1fr))' }}
+    >
       {children}
     </div>
   );
@@ -561,35 +596,41 @@ export function Widget({
 }): JSX.Element {
   return (
     <div
-      className={`sheen relative h-full rounded-2xl border border-border-subtle bg-surface shadow-card transition-[border-color,box-shadow] duration-250 hover:border-overlay/11 hover:shadow-card-hover ${
+      className={`sheen relative h-full min-w-0 rounded-xl border border-border-subtle bg-surface shadow-card transition-[border-color,box-shadow] duration-250 hover:border-overlay/11 hover:shadow-card-hover ${
         className ?? ''
       }`}
     >
       {/*
-        Padding contenido y label en mayúsculas chicas. Con `px-5 py-4` + `p-5`
-        un KPI de 1x1 quedaba con el número nadando en aire y la tarjeta se veía
-        vacía; el label en versalitas además lo separa del número de un vistazo
-        en lugar de competir con él, que es como se leen las tarjetas de un
-        panel y no como un título de sección.
+        Compactado al spec del handoff v3: título 13px/500 en caja normal (antes
+        eran 11px en VERSALITAS con tracking de 0.09em, que a ese tamaño se lee
+        peor y grita), descripción de 12px recortada a DOS líneas con el texto
+        completo en el `title`, y padding de 24px.
 
-        El `pr-16` del header deja lugar a los dos controles de edición, que
-        están posicionados absolutos arriba a la derecha: sin eso, un título
-        largo se les mete abajo.
+        El recorte a dos líneas es el cambio con más efecto: varios widgets de
+        Ventas tienen descripciones de cuatro o cinco líneas explicando cómo se
+        calcula el número, y en una grilla de 240px de alto eso dejaba al VALOR
+        —que es lo único que se mira todos los días— con 40px de lugar. El texto
+        no se perdió: está en el tooltip.
       */}
-      <div className="flex h-full flex-col">
+      <div className="flex h-full min-w-0 flex-col">
         {(title || hint) && (
-          <div className="flex flex-col gap-0.5 border-b border-border-subtle px-4 py-3 pr-16">
+          <div className="flex flex-col gap-0.5 border-b border-border-subtle px-4 py-3 pr-16 panel:px-6">
             {title && (
-              <h2 className="truncate text-[11px] font-semibold uppercase tracking-[0.09em] text-neutral-400">
+              <h2 className="truncate text-[13px] font-medium text-neutral-200" title={title}>
                 {title}
               </h2>
             )}
             {hint && (
-              <p className="text-pretty text-xs leading-snug text-neutral-500">{hint}</p>
+              <p
+                className="overflow-hidden text-pretty text-xs leading-snug text-neutral-500 [-webkit-box-orient:vertical] [-webkit-line-clamp:2] [display:-webkit-box]"
+                title={hint}
+              >
+                {hint}
+              </p>
             )}
           </div>
         )}
-        <div className="min-h-0 flex-1 p-4">{children}</div>
+        <div className="min-h-0 min-w-0 flex-1 p-4 panel:p-6">{children}</div>
       </div>
       {onEdit && (
         <div className="absolute right-2 top-2 flex items-center gap-1">

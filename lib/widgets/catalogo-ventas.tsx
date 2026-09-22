@@ -157,10 +157,22 @@ function KpiCuerpo({
   spark?: ReactNode;
 }): JSX.Element {
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full min-w-0 flex-col">
+      {/*
+        Escala del handoff v3: 22px en un widget normal y 28px en uno de ancho
+        doble (que es donde cae «Resultado», el neto menos el gasto en ads). Antes
+        eran text-2xl/text-3xl = 24/30px con font-semibold; el peso bajó a
+        `medium` porque el handoff usa 400/500 únicamente y a 28px el semibold se
+        ve como un titular.
+
+        `num` es lo que impide que el número se salga: min-width:0 +
+        overflow-wrap:anywhere. En un widget de 210px de ancho mínimo, un
+        resultado de siete cifras a 28px no entra, y sin esto ensanchaba la
+        columna en vez de acomodarse.
+      */}
       <div
-        className={`font-mono font-semibold tabular-nums tracking-tight ${TONE_TEXT[tone]} ${
-          tamaño.w === 2 ? 'text-3xl' : 'text-2xl'
+        className={`num font-mono font-medium -tracking-[0.02em] ${TONE_TEXT[tone]} ${
+          tamaño.w === 2 ? 'text-[28px]' : 'text-[22px]'
         }`}
       >
         {valor}
