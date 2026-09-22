@@ -48,7 +48,7 @@ import {
   useSortable,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { PencilSimple } from '@phosphor-icons/react';
+import { DotsThree, PencilSimple } from '@phosphor-icons/react';
 import type { ClaveOrden, MetricasObjeto, NivelAds } from '@/lib/ads/tipos';
 import {
   CLAVES_FIJAS,
@@ -60,7 +60,38 @@ import {
 import { AsaRedimension, ANCHO_MAX, ANCHO_MIN } from './AsaRedimension';
 import { EncabezadoOrdenable, ariaSortDe } from './EncabezadoOrdenable';
 import { MarcaFrescura, PresupuestoCelda, ToggleEstado, etiquetaEffective } from './celdas';
-import { Badge } from '@/components/ui';
+import {
+  PopoverFila,
+  posicionPopover,
+  presupuestoEditable,
+  useEsMobile,
+  type EstadoPopover,
+  type ModoPresupuesto,
+  type VistaPopover,
+} from './PopoverFila';
+import { Badge, fmtMoney } from '@/components/ui';
+import { MONEDA_REPORTE } from '@/lib/moneda-reporte';
+
+/** El importe de la celda de presupuesto. Mismo formato que `celdas.tsx`. */
+function money(n: number): string {
+  return fmtMoney(n, MONEDA_REPORTE);
+}
+
+/** El ancho de la columna del menú «⋯». 44px = el mínimo táctil. */
+const ANCHO_ACCIONES = 44;
+
+/**
+ * Alto con el que se decide si el popover entra abajo de la fila.
+ *
+ * Es una ESTIMACIÓN y no una medición, a propósito: medir el popover exige
+ * montarlo primero, y montarlo en la posición equivocada para después
+ * corregirla produce un salto visible de un frame. 300 es el alto del
+ * formulario de presupuesto, que es el más alto de los tres; con el menú (que
+ * mide ~180) el resultado es que a veces se abre arriba cuando abajo había
+ * lugar, que es inofensivo. Lo que no puede pasar es lo contrario: abrirse
+ * abajo y quedar cortado.
+ */
+const ALTO_POPOVER = 300;
 
 /** El token del borde de celda. Origen: el borde entre filas del Table
  *  compartido de `components/ui.tsx` (`border-b border-overlay/4`): R6 c2
@@ -109,8 +140,19 @@ export type PropsTablaAds = {
    * se ve en curso, que es exactamente lo que se veía antes de esta task.
    */
   togglesEnCurso?: ReadonlySet<string>;
-  /** Edición del nombre de UNA fila: abre el renombrado en modo exacto (R12 c1). */
-  onRenombrarFila: (fila: MetricasObjeto) => void;
+  /** Edición del nombre de UNA fila: abre el renombrado en modo exacto (R12 c1).
+   *
+   * `nombre` es el que el popover del rediseño v3 siembra en el campo. Es
+   * opcional: sin él el diálogo abre con el campo vacío, que es como se
+   * comportaba el lápiz de la celda antes del rediseño.
+   */
+  onRenombrarFila: (fila: MetricasObjeto, nombre?: string) => void;
+  /**
+   * Duplicar UNA fila desde el menú «⋯» (rediseño v3). Abre el
+   * Dialogo_Confirmacion de `duplicate` con esa fila como único alcance, igual
+   * que hace la barra de lote con la selección.
+   */
+  onDuplicarFila: (fila: MetricasObjeto) => void;
   /**
    * Filas fantasma de las copias en creación (R18 c4, c9): existen SOLO
    * mientras el lote está en vuelo, no son MetricasObjeto y se dibujan APARTE,
@@ -187,7 +229,62 @@ function CeldaOrdenable({
 export function TablaAds(props: PropsTablaAds): JSX.Element {
   const { filas, columnas, orden, seleccionados, grilla } = props;
   const contenedor = useRef<HTMLDivElement | null>(null);
+  /**
+   * El MARCO: el div `position:relative` que envuelve al scroller horizontal y
+   * que es el contexto de posicionamiento del popover.
+   *
+   * Tiene que ser un elemento distinto del scroller y no el scroller mismo:
+   * `overflow-x: auto` con el otro eje en `visible` hace que el navegador
+   * compute `overflow-y: auto` también, así que un popover absoluto adentro del
+   * scroller queda RECORTADO abajo (o le agrega una barra de scroll vertical a
+   * la tabla). Es la trampa clásica de "puse el popover adentro del contenedor
+   * con scroll y desaparece".
+   */
+  const marco = useRef<HTMLDivElement | null>(null);
   const [anchoVisible, setAnchoVisible] = useState<number>(1200);
+  const esMobile = useEsMobile();
+
+  /** El popover anclado a una fila (rediseño v3). `null` = cerrado. */
+  const [popover, setPopover] = useState<EstadoPopover | null>(null);
+
+  const filaDelPopover = useMemo(
+    () => (popover ? (filas.find((f) => f.objectId === popover.filaId) ?? null) : null),
+    [popover, filas],
+  );
+
+  /**
+   * Si la fila del popover desaparece de la página —cambió el filtro, se pasó de
+   * página, el sync la dejó de devolver— el popover se cierra.
+   *
+   * Sin esto queda un formulario de presupuesto flotando sobre una tabla que ya
+   * no muestra la fila de la que habla, y Guardar aplicaría el importe a un
+   * objeto que no está en pantalla. Es el caso que hace que esto no sea una
+   * prolijidad.
+   */
+  useEffect(() => {
+    if (popover && filaDelPopover === null) setPopover(null);
+  }, [popover, filaDelPopover]);
+
+  /**
+   * Abre el popover midiendo la fila y el marco en el momento del click.
+   *
+   * El `closest('tr')` sale del botón y no de un id de fila: el botón siempre
+   * está dentro de su `<tr>`, y buscar el nodo por id obligaría a poner un id en
+   * cada fila sólo para esto.
+   */
+  const abrirPopover = (fila: MetricasObjeto, boton: HTMLElement, vista: VistaPopover): void => {
+    const tr = boton.closest('tr');
+    const cajaMarco = marco.current?.getBoundingClientRect();
+    if (!tr || !cajaMarco) return;
+    const { top, left } = posicionPopover({
+      ancla: boton.getBoundingClientRect(),
+      fila: tr.getBoundingClientRect(),
+      marco: cajaMarco,
+      alto: ALTO_POPOVER,
+      altoViewport: window.innerHeight,
+    });
+    setPopover({ vista, filaId: fila.objectId, top, left });
+  };
 
   // R5 c8: el ancho por defecto del nombre es el 25 % del ancho visible.
   useEffect(() => {
@@ -233,8 +330,8 @@ export function TablaAds(props: PropsTablaAds): JSX.Element {
   const algunas = !todasTildadas && filas.some((f) => seleccionados.has(f.objectId));
   const clavesNoFijas = columnas.filter((c) => !CLAVES_FIJAS.includes(c.clave as (typeof CLAVES_FIJAS)[number])).map((c) => c.clave);
 
-  // Presupuesto en edición por fila (estado local de la tabla, R5 c6).
-  const [editPresupuesto, setEditPresupuesto] = useState<Record<string, string>>({});
+  // El presupuesto ya no se edita en línea: lo hace el popover anclado a la fila
+  // (rediseño v3). El estado por fila que había acá se fue con el input.
 
   const celda = (c: ColumnaVisible, fila: MetricasObjeto, i: number): React.ReactNode => {
     if (c.clave === 'seleccion') {
@@ -289,20 +386,45 @@ export function TablaAds(props: PropsTablaAds): JSX.Element {
       );
     }
     if (c.clave === 'presupuesto') {
+      /*
+        Rediseño v3: cuando el presupuesto SE PUEDE editar, la celda es un botón
+        con lápiz que abre el popover anclado a la fila. La edición en línea que
+        había antes (un input dentro de la celda, de ~90px de ancho, en una tabla
+        con scroll horizontal) se iba de pantalla al costado justo cuando había
+        que leer el número que se estaba escribiendo.
+
+        Cuando NO se puede editar sigue siendo `PresupuestoCelda`, que es la que
+        tiene el texto del motivo por cada caso (nivel anuncio, presupuesto de
+        por vida, presupuesto en otro nivel). No se duplica ese texto acá.
+      */
+      if (!presupuestoEditable(fila)) {
+        return (
+          <PresupuestoCelda
+            fila={fila}
+            edit={undefined}
+            onEdit={() => undefined}
+            onConfirm={() => undefined}
+          />
+        );
+      }
       return (
-        <PresupuestoCelda
-          fila={fila}
-          edit={editPresupuesto[fila.objectId]}
-          onEdit={(v) => setEditPresupuesto((p) => ({ ...p, [fila.objectId]: v }))}
-          onConfirm={(eur) => {
-            setEditPresupuesto((p) => {
-              const next = { ...p };
-              delete next[fila.objectId];
-              return next;
-            });
-            props.onEditarPresupuesto(fila, eur);
-          }}
-        />
+        <button
+          type="button"
+          onClick={(e) => abrirPopover(fila, e.currentTarget, 'presupuesto')}
+          aria-haspopup="dialog"
+          aria-expanded={popover?.filaId === fila.objectId && popover.vista === 'presupuesto'}
+          title="Editar presupuesto"
+          className="tap group flex items-center gap-1.5 rounded px-1 text-neutral-200 transition-colors duration-250 hover:text-neutral-50 focus:outline-none focus:ring-2 focus:ring-good-500/50"
+        >
+          <span className="tabular-nums">
+            {fila.dailyBudgetEur === null ? '—' : money(fila.dailyBudgetEur)}
+          </span>
+          <PencilSimple
+            size={12}
+            aria-hidden
+            className="shrink-0 text-neutral-500 transition-colors duration-250 group-hover:text-good-400"
+          />
+        </button>
       );
     }
 
@@ -342,147 +464,238 @@ export function TablaAds(props: PropsTablaAds): JSX.Element {
   };
 
   return (
-    <div ref={contenedor} className="overflow-x-auto">
-      {props.enProceso && props.enProceso.length > 0 && (
-        <div className="mb-2 space-y-1">
-          {props.enProceso.map((f) => (
-            <div
-              key={f.clave}
-              className="flex items-center gap-2 rounded-md border border-info-500/30 bg-info-500/[0.07] px-3 py-1.5 text-xs"
-            >
-              <Badge tone="info">creación en proceso</Badge>
-              <span className="truncate text-neutral-200" title={f.nombrePlanificado}>
-                {f.nombrePlanificado}
-              </span>
-              <span className="text-neutral-500">
-                {NIVEL_LABEL[f.nivel].toLowerCase()} copiando de {f.origenId}
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
-      <table className="w-full text-left text-sm" style={{ tableLayout: 'fixed' }}>
-        <colgroup>
-          {columnas.map((c) => (
-            <col key={c.clave} style={{ width: anchosEfectivos.get(c.clave) ?? acotar(c.ancho) }} />
-          ))}
-        </colgroup>
-        <thead>
-          <tr className={`border-b ${BORDE_ENCABEZADO}`}>
-            <DndContext sensors={sensores} collisionDetection={closestCenter} onDragEnd={alArrastrar}>
-              <SortableContext items={clavesNoFijas} strategy={horizontalListSortingStrategy}>
-                {columnas.map((c, i) => {
-                  const e = entrada(c.clave);
-                  const esFija = CLAVES_FIJAS.includes(c.clave as (typeof CLAVES_FIJAS)[number]);
-                  const esUltima = i === columnas.length - 1;
-                  const leftFija = c.clave === 'nombre' ? (anchosEfectivos.get('seleccion') ?? 48) : 0;
-                  const stickyClase = esFija ? 'sticky z-20 bg-surface' : '';
-                  const clases = `relative px-3 py-2 align-middle text-xs font-semibold uppercase tracking-wide ${stickyClase} ${
-                    grilla && !esUltima ? `border-r ${BORDE_CELDA}` : ''
-                  }`;
-                  const estilo: React.CSSProperties = esFija ? { position: 'sticky', left: leftFija } : {};
+    /*
+      El MARCO. No tiene overflow: es sólo el contexto de posicionamiento del
+      popover, y el scroll horizontal vive en el div de adentro. Ver el comentario
+      del ref `marco` para por qué no pueden ser el mismo elemento.
+    */
+    <div ref={marco} className="relative">
+      <div ref={contenedor} className="overflow-x-auto">
+        {props.enProceso && props.enProceso.length > 0 && (
+          <div className="mb-2 space-y-1">
+            {props.enProceso.map((f) => (
+              <div
+                key={f.clave}
+                className="flex items-center gap-2 rounded-md border border-info-500/30 bg-info-500/[0.07] px-3 py-1.5 text-xs"
+              >
+                <Badge tone="info">creación en proceso</Badge>
+                <span className="truncate text-neutral-200" title={f.nombrePlanificado}>
+                  {f.nombrePlanificado}
+                </span>
+                <span className="text-neutral-500">
+                  {NIVEL_LABEL[f.nivel].toLowerCase()} copiando de {f.origenId}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+        <table className="w-full text-left text-sm" style={{ tableLayout: 'fixed' }}>
+          <colgroup>
+            {columnas.map((c) => (
+              <col key={c.clave} style={{ width: anchosEfectivos.get(c.clave) ?? acotar(c.ancho) }} />
+            ))}
+            {/* La columna del menú «⋯». Va en el colgroup y NO en el catálogo de
+                columnas (`lib/ads/catalogo.ts`) a propósito: el catálogo define
+                las columnas que se pueden ocultar, reordenar y redimensionar, y
+                esta no es una de ellas — es el control de la fila y tiene que
+                estar siempre, en el mismo lugar. Meterla al catálogo la haría
+                ocultable, y un usuario que la oculta pierde el acceso a
+                duplicar y renombrar sin ninguna forma de darse cuenta. */}
+            <col style={{ width: ANCHO_ACCIONES }} />
+          </colgroup>
+          <thead>
+            <tr className={`border-b ${BORDE_ENCABEZADO}`}>
+              <DndContext sensors={sensores} collisionDetection={closestCenter} onDragEnd={alArrastrar}>
+                <SortableContext items={clavesNoFijas} strategy={horizontalListSortingStrategy}>
+                  {columnas.map((c, i) => {
+                    const e = entrada(c.clave);
+                    const esFija = CLAVES_FIJAS.includes(c.clave as (typeof CLAVES_FIJAS)[number]);
+                    // Con la columna de acciones al final, NINGUNA columna del
+                    // catálogo es la última: todas llevan su borde derecho, y la
+                    // de acciones es la que no lo lleva. Sigue dando N−1 bordes
+                    // verticales por fila (R6 c4), con N = columnas + 1.
+                    const esUltima = false;
+                    const leftFija = c.clave === 'nombre' ? (anchosEfectivos.get('seleccion') ?? 48) : 0;
+                    const stickyClase = esFija ? 'sticky z-20 bg-surface' : '';
+                    const clases = `relative px-3 py-2 align-middle text-xs font-semibold uppercase tracking-wide ${stickyClase} ${
+                      grilla && !esUltima ? `border-r ${BORDE_CELDA}` : ''
+                    }`;
+                    const estilo: React.CSSProperties = esFija ? { position: 'sticky', left: leftFija } : {};
 
-                  const contenido =
-                    c.clave === 'seleccion'
-                      ? (
-                          <input
-                            type="checkbox"
-                            checked={todasTildadas}
-                            ref={(el) => {
-                              if (el) el.indeterminate = algunas;
-                            }}
-                            onChange={() => props.onSeleccionTodas()}
-                            aria-label="Seleccionar todas las filas de la página"
-                            className="h-4 w-4 rounded border-overlay/20 bg-overlay/4 accent-good-500"
-                          />
-                        )
-                      : e
+                    const contenido =
+                      c.clave === 'seleccion'
                         ? (
-                            <EncabezadoOrdenable entrada={e} orden={orden} onOrden={props.onOrden}>
-                              {e.rotulo}
-                            </EncabezadoOrdenable>
+                            <input
+                              type="checkbox"
+                              checked={todasTildadas}
+                              ref={(el) => {
+                                if (el) el.indeterminate = algunas;
+                              }}
+                              onChange={() => props.onSeleccionTodas()}
+                              aria-label="Seleccionar todas las filas de la página"
+                              className="h-4 w-4 rounded border-overlay/20 bg-overlay/4 accent-good-500"
+                            />
                           )
-                        : c.clave;
+                        : e
+                          ? (
+                              <EncabezadoOrdenable entrada={e} orden={orden} onOrden={props.onOrden}>
+                                {e.rotulo}
+                              </EncabezadoOrdenable>
+                            )
+                          : c.clave;
 
-                  const cuerpo = (
-                    <>
-                      <span className="block truncate">{contenido}</span>
-                      <AsaRedimension
-                        ancho={anchosEfectivos.get(c.clave) ?? acotar(c.ancho)}
-                        onAncho={(a) => props.onAncho(c.clave, a)}
-                        label={`Ancho de la columna ${e?.rotulo ?? c.clave}`}
-                      />
-                    </>
-                  );
+                    const cuerpo = (
+                      <>
+                        <span className="block truncate">{contenido}</span>
+                        <AsaRedimension
+                          ancho={anchosEfectivos.get(c.clave) ?? acotar(c.ancho)}
+                          onAncho={(a) => props.onAncho(c.clave, a)}
+                          label={`Ancho de la columna ${e?.rotulo ?? c.clave}`}
+                        />
+                      </>
+                    );
 
-                  const ariaSort = e ? ariaSortDe(e, orden) : undefined;
+                    const ariaSort = e ? ariaSortDe(e, orden) : undefined;
 
-                  if (esFija) {
+                    if (esFija) {
+                      return (
+                        <th
+                          key={c.clave}
+                          scope="col"
+                          aria-sort={ariaSort}
+                          style={estilo}
+                          className={clases}
+                        >
+                          {cuerpo}
+                        </th>
+                      );
+                    }
                     return (
-                      <th
+                      <CeldaOrdenable
                         key={c.clave}
-                        scope="col"
-                        aria-sort={ariaSort}
-                        style={estilo}
+                        columna={c}
+                        ariaSort={ariaSort}
                         className={clases}
+                        style={estilo}
                       >
                         {cuerpo}
-                      </th>
+                      </CeldaOrdenable>
                     );
-                  }
-                  return (
-                    <CeldaOrdenable
-                      key={c.clave}
-                      columna={c}
-                      ariaSort={ariaSort}
-                      className={clases}
-                      style={estilo}
-                    >
-                      {cuerpo}
-                    </CeldaOrdenable>
-                  );
-                })}
-              </SortableContext>
-            </DndContext>
-          </tr>
-        </thead>
-        <tbody>
-          {filas.length === 0 ? (
-            <tr className={`border-b ${BORDE_CELDA}`}>
-              {/* Fila de ancho completo: sin bordes verticales internos (R6 c9). */}
-              <td colSpan={columnas.length} className="px-3 py-8 text-center text-sm text-neutral-500">
-                Sin filas para estos filtros
-              </td>
+                  })}
+                </SortableContext>
+              </DndContext>
+              {/* Sin rótulo visible: una columna de 44px no tiene lugar para una
+                  palabra, y "acciones" en mayúsculas cortado a "ACC…" es peor que
+                  nada. El nombre va en sr-only para el lector de pantalla. */}
+              <th scope="col" className="px-2 py-2">
+                <span className="sr-only">Acciones de la fila</span>
+              </th>
             </tr>
-          ) : (
-            filas.map((fila, i) => (
-              <tr
-                key={fila.objectId}
-                className={`border-b ${BORDE_CELDA} last:border-0 hover:bg-overlay/2`}
-              >
-                {columnas.map((c, j) => {
-                  const esFija = CLAVES_FIJAS.includes(c.clave as (typeof CLAVES_FIJAS)[number]);
-                  const esUltima = j === columnas.length - 1;
-                  const leftFija = c.clave === 'nombre' ? (anchosEfectivos.get('seleccion') ?? 48) : 0;
-                  return (
-                    <td
-                      key={c.clave}
-                      style={esFija ? { position: 'sticky', left: leftFija } : undefined}
-                      className={`px-3 py-2.5 align-middle text-neutral-200 ${
-                        esFija ? 'sticky z-20 bg-surface' : ''
-                      } ${c.clave !== 'seleccion' && c.clave !== 'nombre' && c.clave !== 'estado' && c.clave !== 'presupuesto' ? 'font-mono text-right tabular-nums' : ''} ${
-                        grilla && !esUltima ? `border-r ${BORDE_CELDA}` : ''
-                      }`}
-                    >
-                      {celda(c, fila, i)}
-                    </td>
-                  );
-                })}
+          </thead>
+          <tbody>
+            {filas.length === 0 ? (
+              <tr className={`border-b ${BORDE_CELDA}`}>
+                {/* Fila de ancho completo: sin bordes verticales internos (R6 c9). */}
+                <td
+                  colSpan={columnas.length + 1}
+                  className="px-3 py-8 text-center text-sm text-neutral-500"
+                >
+                  Sin filas para estos filtros
+                </td>
               </tr>
-            ))
-          )}
-        </tbody>
-      </table>
+            ) : (
+              filas.map((fila, i) => {
+                const abierta = popover?.filaId === fila.objectId;
+                return (
+                  <tr
+                    key={fila.objectId}
+                    /*
+                      La fila abierta se pinta con el acento OSCURO y no con el
+                      `bg-overlay/2` del hover: con el popover encima, "la fila que
+                      estoy editando" y "la fila que tengo debajo del mouse" tienen
+                      que ser distinguibles. El hover se suprime en la fila activa
+                      para que pasar el mouse no la apague.
+                    */
+                    className={`border-b ${BORDE_CELDA} last:border-0 ${
+                      abierta ? 'bg-good-900' : 'hover:bg-overlay/2'
+                    }`}
+                  >
+                    {columnas.map((c, j) => {
+                      const esFija = CLAVES_FIJAS.includes(c.clave as (typeof CLAVES_FIJAS)[number]);
+                      const esUltima = false;
+                      const leftFija = c.clave === 'nombre' ? (anchosEfectivos.get('seleccion') ?? 48) : 0;
+                      return (
+                        <td
+                          key={c.clave}
+                          style={esFija ? { position: 'sticky', left: leftFija } : undefined}
+                          className={`px-3 py-2.5 align-middle text-neutral-200 ${
+                            /* La celda sticky necesita fondo SÓLIDO o se ve pasar
+                               el contenido por debajo al scrollear. Cuando la fila
+                               está abierta, ese fondo tiene que ser el del acento
+                               y no `bg-surface`, o la primera columna queda como
+                               un parche gris en medio de la fila verde. */
+                            esFija ? (abierta ? 'sticky z-20 bg-good-900' : 'sticky z-20 bg-surface') : ''
+                          } ${c.clave !== 'seleccion' && c.clave !== 'nombre' && c.clave !== 'estado' && c.clave !== 'presupuesto' ? 'font-mono text-right tabular-nums' : ''} ${
+                            grilla && !esUltima ? `border-r ${BORDE_CELDA}` : ''
+                          }`}
+                        >
+                          {celda(c, fila, i)}
+                        </td>
+                      );
+                    })}
+                    <td className="px-2 py-2.5 align-middle">
+                      <button
+                        type="button"
+                        onClick={(e) => abrirPopover(fila, e.currentTarget, 'menu')}
+                        aria-haspopup="dialog"
+                        aria-expanded={abierta}
+                        aria-label={`Acciones de ${fila.objectName ?? fila.objectId}`}
+                        title="Presupuesto, renombrar, duplicar, pausar"
+                        className={`press flex h-7 w-7 items-center justify-center rounded-md transition-colors duration-250 focus:outline-none focus:ring-2 focus:ring-good-500/50 ${
+                          abierta
+                            ? 'bg-good-800 text-good-100'
+                            : 'text-neutral-500 hover:bg-overlay/8 hover:text-neutral-100'
+                        }`}
+                      >
+                        <DotsThree size={18} weight="bold" aria-hidden />
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {popover && filaDelPopover && (
+        <PopoverFila
+          estado={popover}
+          fila={filaDelPopover}
+          esMobile={esMobile}
+          onVista={(vista) => setPopover((p) => (p ? { ...p, vista } : p))}
+          onCerrar={() => setPopover(null)}
+          /* Guardar CIERRA el popover y abre el Dialogo_Confirmacion con el
+             importe sembrado. El popover no manda el POST: ver el encabezado de
+             PopoverFila.tsx para por qué eso no es una vuelta innecesaria. */
+          onPresupuesto={(eur: number, _modo: ModoPresupuesto) => {
+            setPopover(null);
+            props.onEditarPresupuesto(filaDelPopover, eur);
+          }}
+          onRenombrar={(nombre) => {
+            setPopover(null);
+            props.onRenombrarFila(filaDelPopover, nombre);
+          }}
+          onDuplicar={() => {
+            setPopover(null);
+            props.onDuplicarFila(filaDelPopover);
+          }}
+          onToggle={() => {
+            setPopover(null);
+            props.onToggleEstado(filaDelPopover);
+          }}
+        />
+      )}
     </div>
   );
 }

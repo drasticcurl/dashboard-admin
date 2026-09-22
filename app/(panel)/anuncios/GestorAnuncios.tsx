@@ -1936,7 +1936,19 @@ export function GestorAnuncios({
             onEditarPresupuesto={editarPresupuesto}
             togglesEnCurso={togglesEnCurso}
             onToggleEstado={(f) => void toggleEstado(f)}
-            onRenombrarFila={(fila) => abrirConfirmacion('rename', {}, [fila.objectId])}
+            onRenombrarFila={(fila, nombre) => {
+              abrirConfirmacion('rename', {}, [fila.objectId]);
+              // DESPUÉS de abrirConfirmacion, no antes: esa función ya siembra
+              // `dialogoRenombrar` con el nombre actual del objeto, así que un
+              // set previo lo perdería (los dos corren en el mismo handler y gana
+              // el último). El popover del rediseño v3 pasa el nombre YA EDITADO,
+              // que es lo que el usuario acaba de tipear; el lápiz de la celda no
+              // pasa nada y queda el comportamiento de siempre.
+              if (nombre !== undefined) {
+                setDialogoRenombrar((p) => ({ ...p, modo: 'exacto', nombreExacto: nombre }));
+              }
+            }}
+            onDuplicarFila={(fila) => abrirConfirmacion('duplicate', {}, [fila.objectId])}
             enProceso={enProceso}
             zona={data.rango.timezone}
             umbralFrescura={umbralFrescura}
