@@ -10,6 +10,146 @@ Lo más nuevo va arriba. Las reglas de cómo se escribe una entrada están en
 
 ---
 
+## 2026-09-23 — Rediseño v3 del panel: popover anclado, modal que no se corta, y el panel deja de ser inusable en un teléfono
+
+Seis commits en la rama `rediseno-panel-v3` (`0569cad`, `dcfebf5`, `b481846`,
+`9456405`, `c0edfd8`, `0e5e957`), uno por punto del pedido. El detalle completo,
+con las decisiones tomadas por cuenta propia, está en
+`docs/BITACORA-IMPLEMENTACION.md`; acá van los tres problemas que motivaron el
+trabajo y lo que se descartó.
+
+**Qué pasaba.** Tres síntomas, reportados como un rediseño:
+
+1. **Editar el presupuesto de una fila de Anuncios abría un formulario a mitad de
+   página**, lejos de la fila, y el formulario no decía de qué fila venía. Con 14
+   columnas y filas que se llaman `CH-ES-ABO-VID-03 | Intereses | 25-34`, el gesto
+   normal era mirar el formulario, volver a la fila para confirmar que era la
+   correcta, y volver. Editar el presupuesto de la fila equivocada es plata.
+
+2. **El botón de guardar de «Corregir saldos» no se veía** con 5 o 6 cuentas.
+   Estaba dentro del div que scrollea, así que existía y quedaba abajo del área
+   visible; el único gesto que lo traía era scrollear DENTRO del modal, que nadie
+   intenta. Peor: el overlay tenía `overflow-y-auto`, que era el parche que hacía
+   el modal "alcanzable" y a la vez el que escondía el problema.
+
+3. **El panel no tenía ningún tratamiento de mobile.** Las nueve tabs eran un
+   segmentado horizontal en un header sticky: en 390px hacía wrap a dos filas y
+   ~120px de alto quedaban ocupados de forma permanente por la navegación, un
+   tercio de la pantalla de un teléfono. Las tablas desbordaban sin scroll propio
+   ni columna ancla, y los botones medían 26px de alto.
+
+**Por qué se resolvió así, y qué se descartó.**
+
+- **El popover es la ENTRADA, no un camino nuevo a la API.** Guardar llama al
+  mismo `onEditarPresupuesto` / `onRenombrarFila` que ya usaba la celda, y ese
+  abre el `DialogoConfirmacion` con la `Previsualizacion`. Se descartó que el
+  popover mandara el POST directo —que era más corto y más "moderno"— porque toda
+  la validación de montos vive en esa cadena: el techo de `maxPresupuesto`,
+  `presupuesto.preservacion.test.ts`, `acciones.margen.test.ts`. Un popover que
+  escribiera solo se saltearía las cuatro y el primer aviso sería el importe ya
+  aplicado en Meta. **Si alguien lo "simplifica" conectándolo al endpoint, saca la
+  única red que hay sobre la plata.**
+
+- **El marco del popover es un div nuevo POR FUERA del scroller horizontal.** La
+  primera versión lo puso adentro del `overflow-x-auto` que ya existía, que es lo
+  natural de escribir, y el popover aparecía recortado: con un eje en `auto` y el
+  otro en `visible`, el navegador computa `overflow-y: auto`. Los dos no pueden
+  ser el mismo elemento.
+
+- **El pie del modal va como prop `pie` y no como `children`.** Si fuera children
+  volvería adentro del div que scrollea, y con él el bug. El overlay pasó a
+  `overflow-hidden` a propósito: con la tarjeta acotada a `calc(100dvh - 48px)` ya
+  no necesita scrollear nunca, y dejárselo habilitado sólo deja la puerta abierta
+  a que el corte vuelva sin que nada se vea raro.
+
+- **`dvh` y no `vh` en el techo del modal.** En Safari de iOS `100vh` cuenta la
+  barra de direcciones que se esconde al scrollear, así que con `vh` el pie fijo
+  queda tapado por la barra justo en el navegador donde el modal se usa con el
+  pulgar.
+
+- **Un breakpoint propio `panel` = 760px**, en `extend.screens`. Se descartó usar
+  `md` (768px): el handoff define el shell entero contra 760 —sidebar arriba,
+  drawer abajo— y con dos números distintos quedan 8px de viewport con el header
+  mobile y el sidebar montados a la vez.
+
+- **El sidebar es `fixed` + `padding-left` en el contenido, no un flex de dos
+  columnas.** Con flex el sidebar mide lo que mide la página: en una pantalla con
+  4000px de contenido, el logo y «Salir» quedan arriba y para cambiar de sección
+  hay que volver al tope.
+
+- **El drawer se DESMONTA al cerrarse**, no se esconde con `translate-x`. Un
+  drawer escondido pero montado deja sus nueve links en el orden de tabulación: con
+  teclado en mobile se tabula por un menú invisible antes de llegar al contenido.
+
+- **Los tonos oscuros del acento (`good-800/900`) existen por un motivo
+  concreto:** hasta ahora "esto está abierto/activo" se pintaba con
+  `bg-overlay/8`, que es EXACTAMENTE el mismo relleno del hover. En la tabla de
+  Anuncios con el popover encima, en las sub-pestañas y en los chips de Config, "lo
+  que estoy usando" y "lo que tengo debajo del mouse" se veían igual.
+
+- **`.num` = `min-width:0` + `overflow-wrap:anywhere` + `tabular-nums`.** Se
+  descartó `break-words`: `overflow-wrap: break-word` sólo corta cuando la palabra
+  no entra por sí sola, así que `$1.234.567,89` —que no tiene espacios— desborda
+  igual. Y el `min-width:0` tiene que ir TAMBIÉN en la tarjeta: un item de grid
+  tiene `min-width:auto` y se niega a ser más angosto que su contenido, que es lo
+  que hacía que la columna entera se ensanchara. El número parecía el problema y
+  el problema era la caja.
+
+- **Lo que se decidió NO cambiar:**
+  - **Los neutrales.** El handoff trae su propia escala `neutral-200…900`; la del
+    proyecto es un grafito frío del mismo hue que el canvas, con el motivo
+    documentado en `tailwind.config.ts` (mezclar un gris puro con un canvas
+    azulado es lo que hacía ver la UI "sucia"). Cambiarla repintaba ~500 usos de
+    `text-neutral-*` para volver atrás una decisión tomada a propósito.
+  - **Las Reglas de Anuncios.** Por pedido explícito: el cambio era visual y ese
+    módulo pausa y reactiva campañas de Meta con plata real.
+  - **La agrupación de Config.** Ya estaba en Funnels / Dinero / Fuentes /
+    Sistema con las mismas secciones que pide el handoff (T07 §3). Sólo cambió el
+    chip activo y la escala de la etiqueta.
+  - **Duplicar el título de la sección en el header de mobile.** El handoff lo
+    pide, pero las nueve pantallas ya renderizan su `<h1>` justo debajo y los dos
+    juntos se ven como un bug. El `<h1>` quedó como único título, subido a la
+    escala del handoff.
+  - **Habilitar «Total de por vida».** Se dibuja deshabilitado con el motivo en el
+    `title`: el módulo no escribe presupuestos `lifetime` en ningún nivel (D-A10).
+
+- **Ninguna tabla nueva, ninguna migración nueva.** Los tres datos que el pedido
+  daba por faltantes ya existen: reglas (016 + 021), estado del kanban (031) y
+  serie de patrimonio (028). El selector de base del embudo tampoco necesitó nada:
+  `pctOfBase` y `pctOfPrevious` ya venían los dos en `EmbudoEtapa`, sólo no había
+  forma de elegir cuál se leía.
+
+**Qué se verificó.** `npm run build` en verde después de cada punto, `tsc
+--noEmit` sin errores nuevos, y los tests de las zonas tocadas: 287 de
+`app/(panel)/anuncios` (incluidos los 40 de `numeroDeCampo.preservacion` y los 21
+de `togglePlazo`, que cubren la cadena de montos que este cambio no toca), 38 de
+`finanzas/serie`, 37 de `widgets/layout`, 30 de tareas + embudo, más `paleta` y
+`ui.tokens`. Se agregaron 6 tests en `popoverFila.test.ts` para la aritmética de
+posición: se abre arriba si abajo no entra, y `left` acotado a los dos cantos del
+marco (el caso de la columna «⋯» pegada a la derecha).
+
+Además se verificó **contra el CSS emitido** que las clases nuevas existen y no
+son clases muertas (`min-width:760px`, `.tap` bajo `max-width:759px`,
+`max-panel:h-11`, `bg-good-900`, `width:220px`, `max-width:1320px`,
+`-webkit-line-clamp:2`, `panel:col-span-2`, los `font-size` de 22/28/56px). No es
+paranoia: este repo ya se comió 58 clases que no emitían CSS —la escala de
+`opacity`— sin que la build avisara, y el síntoma fue `<select>` blancos en un
+panel oscuro.
+
+**Qué quedó sin verificar.** Nada se probó en un dispositivo táctil real, sólo con
+el emulador de ancho: quedan por mirar en pantalla el arrastre de la hoja de
+mobile, el `env(safe-area-inset-bottom)` del pie del modal y del drawer, y el drag
+& drop del kanban dentro del contenedor con `scroll-snap` (dnd-kit y `scroll-snap`
+conviven mal en algunos navegadores).
+
+**Consecuencia pendiente, ajena a este trabajo.**
+`lib/orders/attribution.test.ts` falla en el working tree por un cambio SIN
+COMMITEAR del fallback `sid`/`vid` de Alma Gemela que ya estaba en el árbol antes
+de empezar. Se verificó que en `main` limpio ese archivo pasa 13/13, así que no es
+de este rediseño y no se tocó. Queda para quien retome ese cambio.
+
+---
+
 ## 2026-09-22 — Nueva pestaña "Creativos": tracker manual de eficiencia de videos
 
 **Qué pasaba.** No había forma de anotar cómo le fue a cada video (creativo) sin
