@@ -238,9 +238,9 @@ function PatrimonioCard({ overview }: { overview: FinanceOverview }): JSX.Elemen
 
   if (total === null) {
     return (
-      <div className="rounded-2xl border border-border-subtle bg-surface p-5 shadow-inset-highlight">
+      <div className="rounded-xl border border-border-subtle bg-surface p-5 shadow-inset-highlight panel:p-6">
         <div className="truncate text-xs font-medium text-neutral-400">Patrimonio</div>
-        <div className="mt-1.5 font-mono text-3xl font-semibold tracking-tight text-neutral-500">
+        <div className="num mt-1.5 font-mono text-[40px] font-medium -tracking-[0.02em] text-neutral-500 panel:text-[56px]">
           sin información
         </div>
         <div className="mt-1 text-xs text-neutral-500">
@@ -255,19 +255,29 @@ function PatrimonioCard({ overview }: { overview: FinanceOverview }): JSX.Elemen
 
   return (
     <div
-      className={`rounded-2xl border bg-surface p-5 shadow-inset-highlight ${
+      className={`rounded-xl border bg-surface p-5 shadow-inset-highlight panel:p-6 ${
         negativo ? 'border-bad-500/20' : 'border-border-subtle'
       }`}
     >
       <div className="truncate text-xs font-medium text-neutral-400">Patrimonio</div>
+      {/*
+        El número GIGANTE del handoff: 56px en desktop, 40 en mobile, con
+        letter-spacing −0.02em. Es el único número del panel a ese tamaño, y es
+        deliberado: es LA pregunta de la pantalla.
+
+        `num` (globals.css) le pone min-width:0 + overflow-wrap:anywhere. A 56px,
+        un patrimonio de siete cifras con separadores de miles mide ~420px: sin
+        eso desborda la tarjeta en cualquier viewport angosto, y como no tiene
+        espacios no hay dónde cortar sin `anywhere`.
+      */}
       <div
-        className={`mt-1.5 font-mono text-4xl font-semibold tabular-nums tracking-tight ${
+        className={`num mt-1 font-mono text-[40px] font-medium leading-[1.05] -tracking-[0.02em] panel:text-[56px] ${
           negativo ? 'text-bad-400' : 'text-neutral-50'
         }`}
       >
         {fmtMoney(total, MONEDA_REPORTE)}
       </div>
-      <div className="mt-1 text-xs text-neutral-500">
+      <div className="mt-2 text-xs text-neutral-500">
         Medido{overview.diaPatrimonio ? ` al ${fmtDate(overview.diaPatrimonio)}` : ''} · el último día
         con todas las cuentas cargadas
       </div>
@@ -709,6 +719,13 @@ export function FinanzasView({
           tipeado ya incluye los gastos. */}
       <PatrimonioCard overview={overview} />
 
+      {/* El gráfico va PEGADO al número y arriba de la botonera (handoff v3: los
+          dos son el "hero" de la pantalla). Antes la botonera se metía en medio,
+          así que el número decía "cuánto hay hoy" y la respuesta a "¿vengo
+          subiendo?" quedaba después de cuatro botones. Son la misma pregunta
+          mirada de dos formas y ahora se leen juntas. */}
+      <GraficoSaldo diario={diario} mensual={mensual} />
+
       <Botonera
         faltanHoy={overview.faltanCargarHoy}
         atrasados={atrasados.length}
@@ -716,10 +733,6 @@ export function FinanzasView({
         cuentas={cuentas.length}
         onAbrir={setVista}
       />
-
-      {/* El gráfico. Es lo único, además del patrimonio, que se ve sin tocar
-          nada: son las dos cosas que el usuario quiere de un vistazo. */}
-      <GraficoSaldo diario={diario} mensual={mensual} />
 
       <div className="grid gap-4 lg:grid-cols-2">
         {/* La reconciliación NO depende de la IA y va primero: es el número, y el

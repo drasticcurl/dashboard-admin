@@ -32,10 +32,22 @@ export function SubNav(): JSX.Element {
             key={tab.href}
             href={{ pathname: tab.href, search: searchParams.toString() }}
             aria-current={active ? 'page' : undefined}
-            className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-good-500/50 ${
+            /*
+              Pestañas SUBRAYADAS (handoff v3) y no pastillas con relleno. El
+              relleno de la activa era `bg-overlay/8`, el mismo tono con el que
+              las inactivas responden al hover: pasar el mouse por «Reglas»
+              mientras estabas en «Campañas» dejaba las dos con el mismo fondo, y
+              cuál estaba abierta sólo lo decía el color de la letra.
+
+              El subrayado va como pseudo-elemento sobre el borde inferior, y las
+              inactivas llevan `border-transparent` del mismo grosor: sin eso el
+              rótulo se corre 2px al activarse y las otras dos pestañas se mueven
+              de lugar.
+            */
+            className={`tap flex items-center gap-1.5 border-b-2 px-3 py-2 text-sm transition-colors duration-250 focus:outline-none focus:ring-2 focus:ring-good-500/50 ${
               active
-                ? 'bg-overlay/8 text-neutral-50'
-                : 'text-neutral-400 hover:bg-overlay/5 hover:text-neutral-200'
+                ? 'border-good-500 font-medium text-neutral-50'
+                : 'border-transparent text-neutral-400 hover:border-overlay/16 hover:text-neutral-200'
             }`}
           >
             {tab.icon}

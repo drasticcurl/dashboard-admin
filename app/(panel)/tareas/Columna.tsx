@@ -48,7 +48,7 @@ export function Columna({
     */
     <section
       aria-label={`Columna ${titulo}`}
-      className="flex flex-col rounded-2xl border border-border-subtle bg-surface/60 p-3"
+      className="flex flex-1 flex-col rounded-xl border border-border-subtle bg-surface/60 p-3"
     >
       <header className="mb-3 flex items-center justify-between gap-2 px-1">
         <h2 className="text-xs font-semibold uppercase tracking-wide text-neutral-400">
@@ -63,14 +63,21 @@ export function Columna({
           vacía tenga superficie. El resaltado va por background/box-shadow, que
           no tocan el transform de dnd-kit.
 
-          El `min-h` sube a 20rem desde `lg`, que es el breakpoint en el que
-          TableroView pasa a 4 columnas: con 8rem fijos el tablero vacío era una
-          tira de 128px arriba de una pantalla de 700px de alto y no se leía como
-          un tablero. En mobile se queda en 8rem porque ahí las 4 columnas van
-          UNA DEBAJO DE OTRA y 20rem cada una serían 80rem de scroll vacío. */}
+          El `min-h` sube a 20rem desde `panel` (760px), que es el breakpoint en
+          el que TableroView pone las columnas una al lado de la otra: con 8rem
+          fijos el tablero vacío era una tira de 128px arriba de una pantalla de
+          700px de alto y no se leía como un tablero. Debajo de 760 se queda en
+          8rem porque ahí las columnas se deslizan de a una y un alto de 20rem
+          obligaría a scrollear en vertical dentro de cada deslizamiento
+          horizontal, que son dos gestos peleando.
+
+          El breakpoint era `lg` (1024) cuando el tablero pasaba a 4 columnas en
+          ese ancho; con el rediseño v3 eso cambió a 760 y los dos números tienen
+          que ser el mismo, o entre 760 y 1024 las columnas ya están al lado con
+          el alto de mobile. */}
       <div
         ref={setNodeRef}
-        className={`flex min-h-[8rem] flex-1 flex-col gap-2 rounded-xl p-1 transition-[background-color,box-shadow] duration-150 lg:min-h-[20rem] ${
+        className={`flex min-h-[8rem] flex-1 flex-col gap-2 rounded-xl p-1 transition-[background-color,box-shadow] duration-150 panel:min-h-[20rem] ${
           isOver ? 'bg-good-500/[0.06] shadow-inset-highlight ring-1 ring-inset ring-good-500/30' : ''
         }`}
       >

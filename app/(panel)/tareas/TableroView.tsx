@@ -413,16 +413,39 @@ export function TableroView({
             2 columnas de 2 filas, que es una lista, no un kanban. A 1024px cada
             columna queda en ~235px y la fila de chips de la tarjeta ya es
             `flex-wrap`, así que aguanta. */}
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+        {/*
+          Las columnas en UNA fila con scroll horizontal y scroll-snap (handoff
+          v3), en lugar de la grilla de 1/2/4 columnas que había antes.
+
+          El motivo es mobile: con la grilla, un teléfono apilaba las cuatro
+          columnas una debajo de la otra, así que ver "qué hay en Hecho" era
+          scrollear tres columnas enteras de tarjetas. Un kanban apilado deja de
+          ser un kanban — es cuatro listas. Con el snap, cada gesto lateral cae
+          exactamente en la columna siguiente.
+
+          En desktop `flex-1` con `min-w-[240px]` reparte el ancho disponible
+          entre las cuatro, y si no entran (una laptop de 1152 lógicos con el
+          sidebar de 220px comiendo espacio) la fila scrollea en vez de aplastar
+          las columnas a 170px, que es donde los chips de la tarjeta empiezan a
+          hacer wrap de a uno por línea.
+
+          `-mx-4 px-4` en mobile: el scroll arranca en el borde de la pantalla, y
+          la última columna no queda debajo del padding pareciendo cortada.
+        */}
+        <div className="-mx-4 flex snap-x snap-mandatory items-stretch gap-4 overflow-x-auto px-4 pb-2 panel:mx-0 panel:px-0">
           {ORDEN_COLUMNAS.map((col) => (
-            <Columna
+            <div
               key={col}
-              id={col}
-              titulo={ETIQUETA_COLUMNA[col]}
-              tareas={grupos[col]}
-              usuarios={initial.usuarios}
-              onAbrir={(id) => setAbierta(id)}
-            />
+              className="flex w-[min(86vw,300px)] shrink-0 snap-start flex-col panel:w-auto panel:min-w-[240px] panel:flex-1"
+            >
+              <Columna
+                id={col}
+                titulo={ETIQUETA_COLUMNA[col]}
+                tareas={grupos[col]}
+                usuarios={initial.usuarios}
+                onAbrir={(id) => setAbierta(id)}
+              />
+            </div>
           ))}
         </div>
 
