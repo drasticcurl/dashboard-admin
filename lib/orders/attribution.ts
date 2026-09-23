@@ -146,8 +146,19 @@ export function orderAttribution(order: ShopifyOrder): OrderAttribution {
       utm_term: cleanUtmValue(raw.utm_term) || DIRECT_LABEL,
     },
     fbclid: cleanUtmValue(raw.fbclid) || null,
-    sid: asUuid(noteAttr(order, 'sid')),
-    vid: asUuid(noteAttr(order, 'vid')),
+    // sid/vid es la convención de testfunnel/reset-app/gelatina-fit. El
+    // funnel Alma Gemela (nuevo-quiz-funnel) usa sessionId/visitorId como
+    // nombre de cart attribute (decisión propia, documentada en su plan) —
+    // sin este fallback, noteAttr(order, 'sid') siempre da undefined para
+    // ese funnel y NINGUNA venta de Shopify de Alma Gemela queda con
+    // session_id, aunque el dato esté presente en note_attributes. Bug real
+    // encontrado en producción: 79/79 órdenes de Shopify de almagemela en los
+    // últimos 7 días con session_id NULL (2026-09-22).
+    // noteAttr compara en minúsculas contra el `name` recibido tal cual (no lo
+    // normaliza a él): pasar 'sessionId'/'visitorId' con mayúsculas nunca
+    // matcheaba ('sessionid' !== 'sessionId') y el fallback quedaba muerto.
+    sid: asUuid(noteAttr(order, 'sid') ?? noteAttr(order, 'sessionid')),
+    vid: asUuid(noteAttr(order, 'vid') ?? noteAttr(order, 'visitorid')),
     funnel: noteAttr(order, 'funnel') ?? null,
   };
 }

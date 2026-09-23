@@ -140,6 +140,29 @@ describe('orderAttribution', () => {
     expect(bad.sid).toBeNull();
     expect(bad.vid).toBeNull();
   });
+
+  it('sin sid/vid, cae a sessionId/visitorId (convención del funnel Alma Gemela)', () => {
+    const o = order({
+      note_attributes: [
+        { name: 'sessionId', value: '11111111-2222-4333-8444-555555555555' },
+        { name: 'visitorId', value: 'AAAABBBB-CCCC-4DDD-8EEE-FFFFFFFFFFFF' },
+      ],
+    });
+    const att = orderAttribution(o);
+    expect(att.sid).toBe('11111111-2222-4333-8444-555555555555');
+    expect(att.vid).toBe('aaaabbbb-cccc-4ddd-8eee-ffffffffffff');
+  });
+
+  it('sid/vid ganan sobre sessionId/visitorId si las dos formas están presentes', () => {
+    const o = order({
+      note_attributes: [
+        { name: 'sid', value: '11111111-1111-4111-8111-111111111111' },
+        { name: 'sessionId', value: '22222222-2222-4222-8222-222222222222' },
+      ],
+    });
+    const att = orderAttribution(o);
+    expect(att.sid).toBe('11111111-1111-4111-8111-111111111111');
+  });
 });
 
 describe('buyerEmail', () => {

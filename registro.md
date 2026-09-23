@@ -10,6 +10,71 @@ Lo más nuevo va arriba. Las reglas de cómo se escribe una entrada están en
 
 ---
 
+## 2026-09-23 (3) — El embudo de Alma Gemela mostraba 0 compras: el fallback sid/vid nunca matcheaba
+
+**Qué pasaba.** El usuario reportó "compras 0" en el embudo de Alma Gemela pese
+a tener ventas ese día, y en cambio datos (ajenos) en el embudo de Chau
+Hinchazón. `purchases` del embudo (`lib/queries/funnel.ts`) sale de
+`sessions.purchased_at`, que lo marca el propio ingest del funnel al ver el
+evento de compra — no depende de `orders` ni de ads. El síntoma es consistente
+con el bug ya diagnosticado el 2026-09-22 (ver esa entrada, "el fallback
+sid/vid de Alma Gemela"): sin `session_id` en la orden, la sesión nunca se
+marca comprada.
+
+Ese fallback estaba escrito en el working tree (sin commitear, heredado de una
+sesión anterior) pero **roto**: `lib/orders/attribution.test.ts` fallaba en
+"sin sid/vid, cae a sessionId/visitorId" (`expected null, received null` era
+en realidad `expected '<uuid>', received null`). La causa: `noteAttr(order,
+name)` compara `a.name.toLowerCase() === name` — normaliza el atributo pero
+NO el parámetro que recibe. El fallback llamaba a `noteAttr(order,
+'sessionId')` con esa casing; `'sessionid' !== 'sessionId'` así que el find
+nunca matcheaba y el fallback quedaba muerto en silencio (sin error, solo
+`undefined` → `null`). Todos los demás usos de `noteAttr` en el archivo pasan
+el nombre ya en minúsculas (`'sid'`, `'vid'`, `'funnel'`); este era el único
+que no seguía esa convención.
+
+**Por qué se resolvió así.** Cambiar `noteAttr` para normalizar también el
+parámetro (`name.toLowerCase()`) se descartó: toca una función usada en 5
+lugares de este archivo (`webhook.test.ts`, `checkout-propio.ts` también la
+importan) para arreglar un solo call-site, y cualquier llamador futuro que SÍ
+dependiera de la comparación literal (ninguno hoy, pero no se puede probar la
+ausencia) cambiaría de comportamiento sin aviso. Se prefirió corregir el
+call-site (`'sessionid'`, `'visitorid'`, minúsculas) para que quede en línea
+con la convención que ya usan `'sid'`/`'vid'`/`'funnel'` en el mismo archivo.
+
+**Qué se verificó.** `lib/orders/attribution.test.ts`: 15/15 en verde (antes
+14/15, con el mismo caso Alma Gemela fallando). `lib/orders/checkout-propio.test.ts`
+(17), `verify.test.ts` (7): sin cambios, en verde. `webhook.test.ts` se saltea
+en esta base local por falta de la migración 020 (preexistente, no relacionado).
+`tsc --noEmit`: mismo único error preexistente en `tablero.test.ts` (`id`
+duplicado), confirmado con `git stash` que ya estaba antes de este cambio.
+
+**Qué queda pendiente.** Este fix corrige la atribución de sid/vid para
+ÓRDENES NUEVAS a partir de que se commitee y deployee. No reprocesa las 79
+órdenes de Alma Gemela de los últimos 7 días que ya quedaron con
+`session_id NULL` (mencionadas en el comentario original del código): esas
+sesiones van a seguir mostrando `purchased_at` vacío en el embudo salvo que se
+corra un backfill contra `orders`/`sessions` para esa ventana. No se hizo en
+esta tanda porque no estaba pedido y toca datos de producción.
+
+**Segunda pregunta del mismo reporte (sin resolver acá, es de datos no de
+código).** El usuario preguntó si las campañas de Meta de "Alma Gemela" están
+todas atribuidas al funnel Alma Gemela. Es el mismo mecanismo del
+2026-09-22 (2): la cuenta `act_2501344510302910` corre campañas de Chau
+Hinchazón Y Alma Gemela, y una campaña sin fila en `ad_campaign_funnel`
+hereda el funnel de la CUENTA. Es mantenimiento manual (documentado en la
+migración 033 y en esa entrada) que se repite cada vez que el equipo de medios
+crea una campaña nueva de Alma Gemela sin mapearla. No se pudo verificar
+contra la base de producción desde esta sesión (el `.env` local apunta a
+`127.0.0.1:5433`, una base de test vacía, no a la VPS). La vía correcta para
+chequearlo es Config → Publicidad → Campañas (o `GET
+/api/config/ads/campanas?accountId=act_2501344510302910`): la columna
+"ventas por funnel" de esa pantalla es el detector — si una campaña de Alma
+Gemela aparece con `funnelEfectivoName = Chau Hinchazón` y sus ventas
+atribuidas son de Alma Gemela, está mal mapeada.
+
+---
+
 ## 2026-09-23 (2) — El modal "cortado por la mitad": la animación de entrada le creaba containing block
 
 **Qué pasaba.** Reportado dos veces, con estas palabras: «cuando toco cargar
@@ -251,6 +316,126 @@ conviven mal en algunos navegadores).
 COMMITEAR del fallback `sid`/`vid` de Alma Gemela que ya estaba en el árbol antes
 de empezar. Se verificó que en `main` limpio ese archivo pasa 13/13, así que no es
 de este rediseño y no se tocó. Queda para quien retome ese cambio.
+
+---
+
+## 2026-09-22 (2) — Resultado en negativo en Resumen: 13 campañas de Alma Gemela sin mapear en `ad_campaign_funnel`
+
+**Qué pasaba.** El widget "Resultado" de `/` (todos los funnels) mostraba
+-EUR 23,73 hoy con Alma Gemela ganando plata según su propia tarjeta
+(EUR 495,13 de neto) — contradictorio a simple vista. Ayer mostraba +EUR 606,76.
+No era ni un bug de cálculo de `sales.ts` ni del fix de sesiones del
+20/09 (ver entrada de esa fecha): las cifras en pesos, ROAS y ROI de Alma
+Gemela solo, calculadas a mano contra la base, ya daban positivas.
+
+**Por qué se resolvió así.** La cuenta de Meta `act_2501344510302910`
+("HIlvanapp") corre campañas de Chau Hinchazón (funnel 1) Y de Alma Gemela
+(funnel 5) — mismo patrón que la cuenta compartida con LATAM documentada el
+2026-09-14, que fue lo que originó `ad_campaign_funnel` (migración 033). El
+20/09 se habían mapeado a mano 4 campañas de esa fecha ("20/09 Alma Gemela",
+"conj2/3/4"), pero el equipo de medios siguió creando campañas nuevas después
+("22/09 Alma Gemela corazones", "21/09 Alma Gemela conj1-6", etc. — 13 en
+total) y nadie las volvió a mapear. Sin fila en `ad_campaign_funnel`, una
+campaña hereda el funnel de la CUENTA (Chau Hinchazón), así que su gasto se
+restaba del resultado de Chau Hinchazón (que no vendió nada esos días) en vez
+del de Alma Gemela (que sí vendía). El total sumado daba negativo aunque cada
+funnel, bien atribuido, fuera positivo — es exactamente el mecanismo que la
+entrada del 14/09 describe, repetido porque el mapeo es manual y nadie lo
+mantuvo al día.
+
+Se resolvió insertando las 13 filas en `ad_campaign_funnel` (mismo criterio que
+las 4 de referencia: por `campaign_id`, no por nombre), reimputando `ad_spend`
+de esas campañas (81 filas entre las dos tandas — 27 al mapear las 7 de
+20-22/09, 54 al encontrar después las 6 de "21/09 conj1-6" que seguían sin
+mapear) y corriendo `scripts/rollup.ts --from=2026-09-21 --to=2026-09-22` para
+que `daily_metrics` (agregado congelado) reflejara la reasignación. Se hizo a
+mano contra la base de producción y no vía `POST /api/config/ads/campanas`
+(que hace las tres cosas en un request) porque ese endpoint exige sesión
+autenticada y no había una a mano en la sesión de soporte; el SQL replica
+exactamente el INSERT/UPDATE/rollup que el endpoint ejecuta.
+
+Se descartó tocar código: no hay bug de cálculo, es un mapeo de datos que
+quedó desactualizado. La solución de fondo sigue siendo operativa, no de
+código: cada campaña nueva de Alma Gemela en esa cuenta compartida necesita
+mapearse a mano en Config → Publicidad → Campañas antes de que el gasto se le
+impute mal a Chau Hinchazón. El detector que ya existe ahí (campañas en ámbar
+cuando las ventas atribuidas no coinciden con el funnel que paga el gasto) es
+la forma de notarlo sin tener que bajar a SQL.
+
+**Qué se verificó.** Recalculado a mano contra `orders`/`ad_spend`/`fx_rates`
+antes y después del fix. Resultado total (`daily_metrics`, variant='*'):
+21/09 pasó de imputar -EUR 101,58 a Chau Hinchazón (falso, vendió 9 órdenes) a
++EUR 1,40; Alma Gemela pasó a +EUR 605,36. El total de 21/09 no cambió
+(+EUR 606,76): el gasto solo se reordenó entre los dos funnels, no entra ni
+sale del agregado de todos. 22/09 pasó de -EUR 23,73 (con las 13 campañas mal
+imputadas) a -EUR 4,31 (Alma Gemela: neto EUR 529,51 contra gasto EUR 533,82).
+Confirmado con un grep final que las 16 campañas con "Alma Gemela" en el
+nombre activas en el rango están todas en `funnel_id=5` — no queda ninguna sin
+mapear a esta fecha.
+
+**Lo que queda pendiente.** El -EUR 4,31 de hoy (22/09) SÍ es real después del
+fix: Alma Gemela gastó casi lo mismo que generó, no es un error de atribución.
+El día no había cerrado al momento de esta entrada. Sin código nuevo: el
+`ad_campaign_funnel` sigue siendo mantenimiento manual, así que esto se va a
+repetir con la próxima campaña nueva de Alma Gemela que el equipo de medios
+cree en esa cuenta compartida hasta que alguien la mapee.
+
+---
+
+## 2026-09-22 (3) — La TZ de `almagemela` estaba mal desde el seed: Buenos Aires en vez de Lisboa (la de su propia tienda Shopify)
+
+**Qué pasaba.** Después del fix anterior de esta misma fecha, seguía habiendo
+una diferencia entre lo que mostraba Ventas/Resumen (TZ del funnel) y Anuncios
+(TZ de la cuenta de Meta, `Europe/Lisbon`) para "hoy": Anuncios veía más
+ventas y más neto que Resumen. El usuario cambió la TZ del funnel a mano desde
+Config a `Europe/Lisbon` para probar, y en el mismo cambio el funnel quedó con
+`active = false` — el Resumen pasó a mostrar 0 en todo. Se restauró
+`active = true` en el momento sin decidir aún la TZ correcta.
+
+**Por qué se resolvió así.** La pregunta de fondo era de qué zona horaria es
+"el día" de una venta real de este funnel: la respuesta no es "donde está el
+tráfico" sino **dónde Shopify corta el día al registrar el pedido**, porque
+`orders.day` se resuelve sobre `purchased_at` (`order.processed_at` que manda
+el webhook), no sobre la ubicación del comprador. El seed
+(`_seed-funnel-almagemela.sql`, repo `nuevo-quiz-funnel`) tenía
+`America/Argentina/Buenos_Aires` con el comentario "el tráfico es argentino" —
+un supuesto razonable pero nunca verificado contra la config real de la
+tienda. El usuario confirmó con un screenshot de Shopify → Configuración →
+Valores predeterminados: **Zona horaria = (GMT+00:00) Lisboa**, con el propio
+Shopify aclarando "establece la hora en la que se registran los pedidos y los
+informes y estadísticas". O sea que `processed_at` ya viene anclado a Lisboa
+independientemente de dónde esté el comprador — exactamente la misma zona que
+ya tenía configurada la cuenta de Meta Ads. Las dos pantallas estaban
+correctas cada una con su propia fuente; lo que estaba mal era el dato de
+`funnels.timezone`, que no coincidía con ninguna de las dos.
+
+Se corrigió `UPDATE funnels SET timezone = 'Europe/Lisbon' WHERE slug =
+'almagemela'` en producción, y se corrigió el comentario y el valor del seed
+en el repo del funnel para que una migración futura (o un bootstrap de otra
+instancia) no reintroduzca el valor viejo.
+
+Se descartó la alternativa de "hacer que el dashboard tenga hora de Lisboa"
+como pedido inicial (cambiar `DASHBOARD_TZ` o alguna constante global): la TZ
+es una propiedad POR FUNNEL (`funnels.timezone`) exactamente porque distintos
+funnels pueden tener distintas tiendas con distinta config — tocar un default
+global hubiera corrido el corte de día de TODOS los demás funnels que sí son
+Buenos Aires de verdad (Chau Hinchazón, Reset+, Gelatina Fit), rompiendo algo
+que no estaba roto para arreglar una sola fila.
+
+**Qué se verificó.** Tras el `UPDATE`, `(purchased_at AT TIME ZONE
+'Europe/Lisbon')::date` sobre las órdenes de los últimos 3 días da 38/206/231
+para 20/21/22-sep, consistente con el conteo que ya se había calculado a mano
+con esa misma TZ antes del cambio. `active` confirmado en `true`. No hubo que
+corregir ningún `orders.day` histórico: se revisó la ventana en la que el
+funnel estuvo con la TZ mal puesta a mano (Lisboa mal interpretada, después
+recién puesta bien) y ninguna orden cruzó una medianoche en esa ventana corta,
+así que no hay filas con el día viejo grabado.
+
+**Lo que queda pendiente.** No se verificó si OTROS funnels de este panel
+tienen la misma clase de desalineación (TZ del `funnels.timezone` puesta por
+supuesto de "dónde está el tráfico" en vez de leída de la config real de su
+propia tienda). Vale la pena una pasada, pero no se hizo en esta tanda porque
+no había ninguna señal de que estuviera pasando en otro funnel.
 
 ---
 
