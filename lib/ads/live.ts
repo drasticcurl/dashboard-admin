@@ -138,6 +138,17 @@ async function correrSync(hoy: string): Promise<void> {
  *
  * `opts.timeoutMs` (R1 c7): presupuesto de espera antes de dibujar con lo que
  * hay. Default el de hoy (8 s); el botón pide 60 s.
+ *
+ * `opts.esperar` (false = no bloquear, default true): con el TTL vencido, el
+ * render de una page (Resumen/Ventas/Anuncios) llamaba esto y se quedaba hasta
+ * `timeoutMs` esperando a Meta ANTES de poder devolver el HTML — eso era el
+ * cuelgue de unos segundos al cambiar de pestaña. Con `esperar: false` se
+ * dispara `correrSync` igual (comparte el mismo `enVuelo` que el resto) pero
+ * NUNCA se espera: la primera pintura sale con lo último guardado en la base, y
+ * el número al día llega solo, en el primer tick del polling del cliente
+ * (usePollingGasto, cada 60 s, que sí espera contra los routes /api/data/*).
+ * O sea: la navegación siempre es rápida, y "en vivo" pasa a ser "al día en el
+ * primer minuto" en vez de "al día antes de poder ver la pantalla".
  */
 export async function ensureFreshAdSpend(
   hasta: string,
@@ -147,6 +158,8 @@ export async function ensureFreshAdSpend(
     forzar?: boolean;
     /** Presupuesto de espera. Default el de hoy (8 s); el botón usa 60 s. */
     timeoutMs?: number;
+    /** false = dispara el sync en fondo pero no lo espera. Default true. */
+    esperar?: boolean;
   },
 ): Promise<FrescuraAds> {
   const antes = await leerFrescura();
@@ -167,6 +180,14 @@ export async function ensureFreshAdSpend(
         enVuelo = null;
         if (fallo) console.error('ads live: el sync falló:', fallo);
       });
+  }
+
+  if (opts?.esperar === false) {
+    // No se espera ni el sync ni el timeout: se devuelve lo que ya había,
+    // marcado como "no refrescado en este request". El sync sigue de fondo
+    // (mismo `enVuelo`) y el próximo request — polling o F5 — ya lo encuentra
+    // escrito.
+    return { ...antes, refreshed: false };
   }
 
   let alarma: ReturnType<typeof setTimeout> | undefined;

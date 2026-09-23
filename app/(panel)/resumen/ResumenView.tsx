@@ -158,6 +158,17 @@ export function ResumenView({
     return () => enVuelo.current?.abort();
   }, [cargar, retryTick]);
 
+  // Si el server pintó sin esperar al sync (`refreshed: false` con
+  // `ageSeconds` ya vencido — ver `esperar: false` en resumen/page.tsx), no hay
+  // que esperar el intervalo completo de usePollingGasto para ponerse al día:
+  // se dispara un tick silencioso apenas monta. Es SOLO al montar (deps vacías
+  // a propósito) — un cambio de rango ya tiene su propio fetch no silencioso
+  // arriba, y repetir esto en cada re-render de `frescura` crearía un loop.
+  useEffect(() => {
+    if (!adsFreshness.refreshed) cargar({ silencioso: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // El gasto de Meta cada minuto (lib/ads/polling.ts): el route refresca contra
   // Meta antes de leer, así que repetir el pedido ES el refresco. Con un rango
   // cerrado no cuesta una llamada — `ensureFreshAdSpend` sale antes — y el

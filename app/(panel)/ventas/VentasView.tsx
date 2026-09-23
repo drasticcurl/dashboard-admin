@@ -183,6 +183,15 @@ export function VentasView({
     return () => enVuelo.current?.abort();
   }, [cargar, retryTick]);
 
+  // Igual que en ResumenView: si el server pintó sin esperar al sync
+  // (`esperar: false` en ventas/page.tsx), no hay que esperar el intervalo
+  // completo de usePollingGasto para ponerse al día — se dispara un tick
+  // silencioso apenas monta. Sólo al montar (deps vacías a propósito).
+  useEffect(() => {
+    if (!adsFreshness.refreshed) cargar({ silencioso: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // El gasto de Meta cada minuto (lib/ads/polling.ts): /api/data/sales refresca
   // contra Meta antes de leer, así que repetir el pedido ES el refresco. Con un
   // rango cerrado no cuesta una llamada — `ensureFreshAdSpend` sale antes — y el

@@ -55,8 +55,16 @@ export default async function ResumenPage({ searchParams }: { searchParams: Sear
   // antes de leer, así el Resultado y el ROAS no mezclan ventas de este minuto
   // con gasto del cron de hace una hora. `ensureFreshAdSpend` reconstruye
   // también el rollup del día, que es de donde lee esta pantalla.
+  //
+  // `esperar: false`: el render de la página NO espera a Meta. Antes, con el
+  // TTL de 60s vencido, cambiar a esta pestaña se quedaba colgado hasta 8s
+  // (ADS_LIVE_TIMEOUT_MS) esperando la respuesta de Meta antes de poder
+  // devolver el HTML. Ahora la primera pintura sale con lo último guardado en
+  // la base, el sync se dispara igual en fondo, y el número al día llega solo
+  // en el primer tick del polling del cliente (usePollingGasto, ver
+  // ResumenView) sin bloquear la navegación.
   const hoy = await today(timezone);
-  const adsFreshness = await ensureFreshAdSpend(range.to, hoy);
+  const adsFreshness = await ensureFreshAdSpend(range.to, hoy, { esperar: false });
 
   const [data, layoutRow] = await Promise.all([
     getOverviewData(range),

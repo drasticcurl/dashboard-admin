@@ -1055,6 +1055,23 @@ export function GestorAnuncios({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nivel, period, status, account, nombre, cascada, ordenEstado.clave, ordenEstado.dir, ordenEstado.pagina, ocultarSinDatos, ocultarPadreApagado, retryTick]);
 
+  // El server pintó sin esperar al sync de Meta (`esperar: false` en
+  // anuncios/page.tsx, mismo fix que Resumen y Ventas): no hay ningún polling
+  // automático acá como en esas dos pantallas, así que sin este efecto el gasto
+  // se quedaría con el valor guardado hasta que el usuario cambie un filtro o
+  // apriete Actualizar. Se dispara un pedido de más SIN tocar `loading` ni
+  // `error`: es en fondo, la tabla ya está pintada y no hay que hacerla
+  // parpadear por esto. Sólo al montar (deps vacías a propósito).
+  useEffect(() => {
+    if (adsFreshness.refreshed) return;
+    const { seq, cuerpo } = pedirFilas();
+    cuerpo.then((body) => aplicarRespuesta(seq, body)).catch(() => {
+      // Silencioso: si falla, la marca de frescura sigue contando la antigüedad
+      // real y el usuario la ve. No hay nada que romper acá.
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // ── La URL refleja nivel y cascada (R8 c7) ──
   const escribirUrl = useCallback(
     (nuevoNivel: NivelAds, nuevaCascada: { nivel: 'campaign' | 'adset'; ids: readonly string[] } | null, extra?: Record<string, string>) => {

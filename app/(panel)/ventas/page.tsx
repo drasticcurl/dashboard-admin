@@ -83,8 +83,15 @@ export default async function VentasPage({ searchParams }: { searchParams: Searc
   // este minuto, igual que las ventas. Tiene TTL, timeout y no puede tirar (ver
   // lib/ads/live.ts), así que en el peor caso la pantalla sale con lo último
   // guardado y lo dice.
+  //
+  // `esperar: false`: no se bloquea la navegación esperando a Meta. Con el TTL
+  // vencido, esto colgaba la pestaña hasta `timeoutMs` (8s por defecto) antes
+  // de poder pintar nada. Ahora sale ya con lo último guardado y el sync sigue
+  // de fondo; el primer tick del polling del cliente (usePollingGasto, ver
+  // VentasView) trae el número fresco sin que la navegación lo tenga que
+  // esperar.
   const hoy = await today(timezone);
-  const adsFreshness = await ensureFreshAdSpend(range.to, hoy);
+  const adsFreshness = await ensureFreshAdSpend(range.to, hoy, { esperar: false });
 
   // Los filtros de la API viven en el query string (D-R14): la pantalla los
   // honra aunque hoy no tenga controles para setearlos (link compartible).

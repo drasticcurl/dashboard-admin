@@ -141,7 +141,11 @@ export default async function AnunciosPage({ searchParams }: { searchParams: Sea
   }
 
   const hoy = await today(data.rango.timezone);
-  const adsFreshness = await ensureFreshAdSpend(data.rango.to, hoy);
+  // `esperar: false`: no se bloquea la navegación esperando a Meta (mismo fix
+  // que Resumen y Ventas). La primera pintura sale con el gasto guardado y el
+  // sync sigue de fondo; GestorAnuncios lo refresca solo al cambiar filtros o
+  // con el Boton_Actualizar (que sí usa `forzar` y espera).
+  const adsFreshness = await ensureFreshAdSpend(data.rango.to, hoy, { esperar: false });
 
   // ── Los settings del primer render y la antigüedad de la Jerarquía ──
   //

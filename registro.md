@@ -10,7 +10,62 @@ Lo más nuevo va arriba. Las reglas de cómo se escribe una entrada están en
 
 ---
 
-## 2026-09-23 (5) — Dos productos de Alma Gemela vendiendo como Chau Hinchazón: `product_map` no reasigna retroactivamente
+## 2026-09-23 (6) — Cambiar de pestaña se colgaba unos segundos: la navegación esperaba a Meta Ads
+
+**Qué pasaba.** El usuario reportó que cambiar entre pestañas del panel (sobre
+todo Resumen, Ventas y Anuncios) se colgaba "unos segs" de forma intermitente.
+
+**Por qué.** Las tres pages (`resumen/page.tsx`, `ventas/page.tsx`,
+`anuncios/page.tsx`) son server components y llaman `ensureFreshAdSpend` antes
+de poder renderizar nada. Esa función compara `ad_accounts.last_sync_at`
+contra un TTL de 60s (`ADS_LIVE_TTL_SECONDS`); si venció, dispara una
+sincronización real con la API de Meta Ads y — antes de este cambio — la
+ESPERABA, hasta `ADS_LIVE_TIMEOUT_MS` (8s por defecto), antes de devolver el
+HTML. O sea: cada navegación a esas tres pantallas, si pasaron ≥60s desde el
+último sync (que es la mayoría de las veces en uso normal), se quedaba
+colgada hasta 8 segundos. Además no existía ningún `loading.tsx` en `app/`,
+así que Next no tenía ningún fallback de Suspense: mientras el server hacía
+ese trabajo, el navegador mostraba la pantalla ANTERIOR congelada en vez de
+un estado de carga.
+
+**Por qué se resolvió así, y qué se descartó.**
+- Se descartó solo bajar `ADS_LIVE_TIMEOUT_MS`: reduce el peor caso pero no
+  elimina la espera, y sigue acoplando la velocidad de la navegación a la
+  latencia de una API externa.
+- Se descartó eliminar el refresco en el server: `ensureFreshAdSpend` sigue
+  disparando el sync igual (mismo `enVuelo` compartido con los routes
+  `/api/data/*` y el Boton_Actualizar), solo que ahora con un flag
+  `opts.esperar` (default `true`, no rompe a nadie más). Las tres pages lo
+  llaman con `esperar: false`: la primera pintura sale con el último gasto
+  guardado en la base y el sync sigue de fondo. El dato al día llega solo, sin
+  que la navegación lo tenga que esperar — esto YA es como funciona el resto
+  de la vida de la pestaña (`usePollingGasto` en `ResumenView`/`VentasView`
+  refresca cada 60s vía los routes `/api/data/*`, que SÍ siguen esperando el
+  sync porque son fetches en fondo, no bloquean nada visual).
+- Para no dejar el número "viejo" hasta el primer tick del polling (hasta 60s),
+  se agregó un `useEffect` de una sola vez al montar en `ResumenView`,
+  `VentasView` y `GestorAnuncios` que dispara un refresh silencioso
+  inmediatamente si `adsFreshness.refreshed === false` — mismo mecanismo que
+  ya usaban para el polling, sin togglear `loading`/`error` para no hacer
+  parpadear la pantalla recién pintada.
+- Se agregó `loading.tsx` en las nueve rutas de `(panel)` (resumen, ventas,
+  anuncios, embudo, finanzas, leads, tareas, creativos, config) reusando el
+  primitivo `Skeleton` de `components/ui.tsx`. Esto es independiente del punto
+  anterior: cubre cualquier navegación lenta por otro motivo (queries de
+  Postgres, latencia de red), no solo el caso de Meta Ads.
+
+**Qué se verificó.** `npx tsc --noEmit` sin errores nuevos (el único error
+preexistente, `tablero.test.ts`, se confirmó con `git stash` que ya estaba
+antes de este cambio). `npx vitest run` sobre las suites de `anuncios/` y
+`lib/ads/polling.test.ts`: 293 tests pasando. `app/api/data/ads/route.test.ts`
+no corrió (requiere Postgres local en `127.0.0.1:5433` vía Docker, no
+disponible en este entorno) — no se tocó la lógica de ese route ni de
+`getMetricasAds`, el cambio en `live.ts` es aditivo (parámetro opcional).
+**Sin verificar:** el efecto visual real en el browser (necesita `npm run dev`
+contra una base con datos y probar el TTL vencido a propósito) y el
+comportamiento en producción con latencia real de Meta.
+
+
 
 **Qué pasaba.** El usuario corrigió a mano en `product_map` dos productos
 ("Revelación Completa: Dónde, Cómo y Cuándo" / `10456793710888` y
