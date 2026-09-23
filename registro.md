@@ -10,6 +10,74 @@ Lo más nuevo va arriba. Las reglas de cómo se escribe una entrada están en
 
 ---
 
+## 2026-09-23 (4) — Backfill sobre producción: las 262 órdenes de Alma Gemela sin session_id y las 6 campañas del 23/09 sin mapear
+
+**Qué pasaba.** Continuación directa de la entrada (3) de hoy: con el fix de
+`noteAttr` ya commiteado, quedaban dos cosas que el código nuevo no toca
+retroactivamente. (1) Las órdenes de Alma Gemela ya guardadas con
+`session_id NULL` por el bug del fallback roto. (2) El mismo patrón del
+2026-09-22 (2) repetido: campañas nuevas de Alma Gemela en la cuenta
+compartida (`act_2501344510302910`) sin fila en `ad_campaign_funnel`,
+heredando el funnel de la cuenta (Chau Hinchazón).
+
+**Diagnóstico contra la base real (antes de tocar nada).** Por SSH a
+`funnel-vps`, `psql` directo contra `DATABASE_URL` de
+`/srv/panel/shared/.env.production` (hilvanapp, EUR, siguiendo
+`docs/runbook.md`):
+
+- `orders` de `funnel_id=5` (`almagemela`): 268 de 644 (14 días) sin
+  `session_id`. De esas, 262 tenían `sessionId`/`visitorId` recuperable en
+  `raw.note_attributes`; las 6 restantes no tienen ese cart attribute en
+  absoluto (quedan sin recuperar, no es un bug — probablemente tráfico
+  directo/organic sin el parámetro). Las 262 sesiones correspondientes
+  existían en `sessions` (no purgadas por retención) y ninguna tenía
+  `purchased_at` ya marcado.
+- `ad_campaigns` con "Alma Gemela" en el nombre: 23 campañas, todas en la
+  cuenta compartida. 17 ya estaban mapeadas a `funnel_id=5` (el fix manual
+  del 22/09). Las 6 campañas creadas el 23/09 ("23/09 Alma Gemela baño fondo
+  edificios", "...baño rosa", "...conoce tu futuro esposo", "...corazones
+  v2", "...descubre el rostro de tu destino", "...baño fondo edificios -
+  Copia") no tenían fila y heredaban `funnel_id=1`. 18 filas de `ad_spend`
+  (~€125,56) imputadas a Chau Hinchazón en vez de a Alma Gemela.
+
+**Qué se ejecutó.** Dos transacciones separadas contra la base de producción:
+
+1. `UPDATE orders SET session_id, visitor_id` para las 262 recuperables
+   (extrayendo de `raw.note_attributes`, acotado a `funnel_id=5`), seguido de
+   `UPDATE sessions SET purchased_at = LEAST(...)` replicando exactamente la
+   lógica de `lib/orders/upsert.ts` (mismo `LEAST`, mismo `AND funnel_id`).
+2. `INSERT ... ON CONFLICT` en `ad_campaign_funnel` para las 6 campañas
+   nuevas → `funnel_id=5` (mismo criterio que el mapeo manual del 22/09: por
+   `campaign_id`, con nota), `UPDATE ad_spend SET funnel_id=5` para esas
+   campañas, y `npx tsx scripts/rollup.ts --from=2026-09-23 --to=2026-09-23`
+   para que `daily_metrics` deje de mostrar la imputación vieja.
+
+Se corrió `rollup.ts` sobre `node_modules` del release activo
+(`/srv/panel/releases/<timestamp>/`), no del checkout de `/srv/panel/repo`:
+este último no tiene `node_modules` propio (solo el build standalone lo
+tiene), así que `npx tsx` sin `NODE_PATH` explícito fallaba con `Cannot find
+module 'pg'`.
+
+**Qué se verificó.** Post-backfill, contra la base real:
+`sessions` de `funnel_id=5` con `purchased_at` no nulo hoy: **108** (antes:
+0, que es el síntoma original reportado). `orders` de Alma Gemela sin
+`session_id`: quedaron las 6 sin dato recuperable, ninguna más. Campañas con
+"Alma Gemela" en el nombre sin fila en `ad_campaign_funnel`: **0**.
+`daily_metrics` de hoy: funnel 1 (Chau Hinchazón) `ad_spend_eur = 0.00`
+(no tenía campañas propias corriendo hoy), funnel 5 (Alma Gemela)
+`ad_spend_eur = 383.52`, incluyendo el gasto de las 6 campañas recién
+reasignadas.
+
+**Qué queda pendiente.** Es mantenimiento de datos, no de código: la próxima
+campaña de Alma Gemela que el equipo de medios cree en esa cuenta compartida
+va a volver a heredar `funnel_id=1` hasta que alguien la mapee a mano (mismo
+punto que dejó abierto la entrada del 22/09). El detector sigue siendo
+Config → Publicidad → Campañas. Las 6 órdenes de Alma Gemela sin
+`sessionId` recuperable quedan permanentemente sin `session_id`: no hay más
+dato de origen para recuperarlas.
+
+---
+
 ## 2026-09-23 (3) — El embudo de Alma Gemela mostraba 0 compras: el fallback sid/vid nunca matcheaba
 
 **Qué pasaba.** El usuario reportó "compras 0" en el embudo de Alma Gemela pese
