@@ -10,6 +10,110 @@ Lo más nuevo va arriba. Las reglas de cómo se escribe una entrada están en
 
 ---
 
+## 2026-09-23 (2) — El modal "cortado por la mitad": la animación de entrada le creaba containing block
+
+**Qué pasaba.** Reportado dos veces, con estas palabras: «cuando toco cargar
+cuentas se ve la mitad del cuadrado y no se puede bajar ni subir para ingresar los
+saldos, también pasa cuando le doy a editar a un anuncio». Y además: «no se hizo
+apto mobile, o sea no tiene una interfaz real, es la misma que la web solo que en
+el teléfono».
+
+La primera tanda del rediseño (entrada anterior) compactó el modal y arregló las
+proporciones del cuerpo, pero **no era eso**. El modal estaba MAL POSICIONADO.
+Medido en un panel local con datos sembrados, a 390×844, con el modal abierto:
+
+```
+overlay (fixed inset-0):  top: 195   height: 1965   ← el viewport mide 844
+tarjeta del modal:        top: 195   bottom: 991    entra: false
+```
+
+Un `fixed inset-0` tiene que dar `top: 0; height: 844`. Daba el alto del
+DOCUMENTO porque se estaba posicionando contra un ancestro. Subiendo el árbol y
+mirando los estilos computados apareció el culpable:
+
+```
+<div class="space-y-4">   ← el hijo directo del <main class="reveal">
+   → transform: matrix(1, 0, 0, 1, 0, 0)
+   → animation-name: rise-in (fill: both)
+```
+
+**Por qué se resolvió así.** `.reveal > *` (globals.css) anima la entrada de los
+bloques con `animation: rise-in 420ms ... both`. El `fill-mode: both` deja el
+último keyframe aplicado para siempre, y ese keyframe declara `transform: none`.
+
+Y acá está lo que engañó: el comentario de `tailwind.config.ts` afirmaba
+explícitamente que terminar en `transform: none` en lugar de `translate3d(0,0,0)`
+evitaba el containing block —«con `none` no queda transform y no hay bloque
+contenedor»—. **Es falso.** El valor computado de un `transform: none` aplicado
+por una animación con fill no es `none`: es `matrix(1, 0, 0, 1, 0, 0)`. Una matriz
+identidad crea containing block igual, porque el navegador no distingue
+"identidad" de "cualquier transform". La mitigación estaba escrita, parecía
+razonable, y no hacía nada.
+
+Se arregló por DOS lados a propósito:
+
+1. `.reveal > *` pasa de `both` a `backwards`. El fill ahora sólo aplica ANTES de
+   arrancar, que es lo único que necesita el `animation-delay` de la cascada, y al
+   terminar el elemento vuelve a sus valores base sin transform.
+2. Los overlays van por `components/Portal.tsx` (nuevo), que los cuelga del
+   `<body>`: el Modal de Finanzas, la hoja de mobile del popover y el
+   `DialogoConfirmacion` de Anuncios —que es el que abre "editar presupuesto" y
+   "renombrar", o sea el segundo caso del reporte—.
+
+Con (1) solo el síntoma ya desaparece. **(2) es lo que hace que no vuelva:** sin
+el portal, cualquiera que en el futuro le ponga un `filter`, un `backdrop-blur` o
+un `will-change` a una tarjeta rompe todos los modales de esa pantalla, y la
+relación entre causa y efecto es invisible. Si alguien quiere "simplificar" sacando
+el Portal, esto es lo que se rompe.
+
+El popover de DESKTOP **no** se portea, a propósito: es `absolute` dentro del marco
+de la tabla justamente para moverse con la fila al scrollear. Ese nunca estuvo roto.
+
+**El otro bug del mismo reporte.** `AvisoSaldo` era `fixed bottom-4 left-4 right-4
+z-40` y el popover anclado era `z-30`: el aviso quedaba ARRIBA del popover y, en
+mobile, a todo el ancho. Playwright lo confirmó de la forma más directa,
+negándose a hacer un click: `<div role=status …> subtree intercepts pointer
+events`. O sea que además se comía los toques. Se resolvió con una escala de capas
+CON NOMBRE en `tailwind.config.ts` (barra 20, aviso 30, grano 40, popover 45,
+modal 50, salto 60): los empates quedan prohibidos, porque dos capas con el mismo
+z-index las ordena el DOM y ese empate se rompe solo cuando alguien mueve un
+componente de lugar.
+
+**Lo de "es la misma que la web".** Era literal y medible: a 390px, `/anuncios`
+daba un documento de 1269px de ancho (879 de desborde) y `/finanzas` 117. La
+página entera se arrastraba de costado. Se resolvió con `overflow-x-clip` en el
+`<main>` — `clip` y no `hidden`, porque `hidden` en un eje convierte el otro en
+scroll container y rompería el `position: sticky` del encabezado. Además la
+primera fila de la tabla de Anuncios arrancaba en y≈1500 por seis bloques
+apilados de filtros y KPIs; ahora arranca en y=592 y las filas miden 65px en vez
+de 140.
+
+**Qué se verificó.** Mismo método que encontró los bugs, contra un panel local con
+34 migraciones y datos sembrados:
+
+```
+overlay:  top: 0   height: 844      ← ahora sí es el viewport
+modal:    top: 24  bottom: 820  entra: true  cuerpo 78 % y scrollea
+popover:  entra: true en 390 y en 1440
+ancestros que crean containing block: ninguno
+desborde horizontal: 0 en las 14 combinaciones pantalla × ancho
+```
+
+Más `npm run build` OK, `tsc` sin errores nuevos y 372 tests en verde (incluidos
+los 287 de `app/(panel)/anuncios`).
+
+**Qué quedó sin verificar.** Nada se probó en un teléfono real, sólo con el
+emulador de ancho: quedan el arrastre de la hoja de mobile, el
+`env(safe-area-inset-bottom)` y el drag & drop del kanban dentro del contenedor
+con `scroll-snap`.
+
+**Consecuencia pendiente.** El comentario de `tailwind.config.ts` sobre `rise-in`
+quedó desactualizado: sigue explicando la mitigación que no funcionaba. Se corrigió
+el texto en `globals.css`, donde vive la regla; el del config conviene releerlo si
+alguien vuelve a tocar esa animación.
+
+---
+
 ## 2026-09-23 — Rediseño v3 del panel: popover anclado, modal que no se corta, y el panel deja de ser inusable en un teléfono
 
 Seis commits en la rama `rediseno-panel-v3` (`0569cad`, `dcfebf5`, `b481846`,

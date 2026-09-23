@@ -170,3 +170,105 @@ del kanban y serie de patrimonio. No: los tres ya existen.
 
 **Ninguna tabla nueva, ninguna migración nueva.** El rediseño es 100% de
 presentación.
+
+---
+
+## 2026-09-23 10:00 – 11:30 · Rediseño v3, segunda pasada (bug del modal + igualar las capturas)
+
+Rama: `rediseno-panel-v3`. Tres commits: `0f80cbe`, `fd986c5`, `ad5f708`.
+
+Disparador: el usuario reportó que el modal de saldos «se ve la mitad del cuadrado
+y no se puede bajar ni subir», que lo mismo pasa al editar un anuncio, y que en
+mobile «no tiene una interfaz real, es la misma que la web». Además pasó cuatro
+capturas del prototipo y pidió no parar hasta que el panel se parezca.
+
+### Lo que hizo la diferencia: medir en vez de deducir del CSS
+
+La primera pasada se verificó con `npm run build` y grep del CSS emitido. Eso
+alcanza para saber que una clase existe, y NO alcanza para saber qué se ve. Esta
+vez se levantó un panel local de verdad:
+
+- Base `panel_rediseno_local` en el Postgres de Homebrew (127.0.0.1:5432), 34
+  migraciones. **La 021 aborta en una base vacía** («no existe ninguna
+  Cuenta_Activa»): hay que insertar una `ad_accounts` placeholder, migrar el
+  resto, y recién después seguir. Está documentado en
+  `.kiro/steering/instancias.md` y se confirmó tal cual.
+- Usuario `lucho` / `123456`, con `debe_cambiar_clave=false` a mano (si no,
+  redirige a /cambiar-clave y no se puede ver el panel).
+- Datos sembrados: cuentas y 340 saldos con un hueco de 3 días, 4 campañas con
+  nombres largos de Meta, jerarquía completa, 45 filas de `ad_spend`, 6 tareas y
+  14.000 sesiones con un histograma de `max_step_index` que le da forma al embudo.
+- Playwright (`playwright-core` instalado en `/tmp`, NO en el proyecto, más el
+  chromium ya cacheado en `~/Library/Caches/ms-playwright`).
+
+**Decisión que conviene repetir:** las lecturas de captura se cortan por tamaño,
+así que lo que sirvió fue MEDIR con `page.evaluate` y comparar números. Tres
+scripts, en `/tmp/capsenv/`:
+- `caps.js` — capturas + desborde horizontal por pantalla y ancho.
+- `medir.js` — densidad (a qué altura arranca la primera fila), ancho de la
+  columna del nombre, proporciones del modal, si el popover entra.
+- `culpable.js` — sube el árbol buscando ancestros con transform/filter/
+  backdrop-filter/will-change/contain. **Éste es el que encontró el bug.**
+
+### La causa raíz del modal (lo importante de esta entrada)
+
+`.reveal > *` animaba con `animation: rise-in ... both`. El `fill-mode: both` deja
+el último keyframe aplicado para siempre; ese keyframe dice `transform: none`, y
+el valor **computado** de eso es `matrix(1, 0, 0, 1, 0, 0)`. Una matriz identidad
+crea containing block igual que cualquier otro transform.
+
+El comentario de `tailwind.config.ts` afirmaba lo contrario, con todas las letras.
+O sea: había una mitigación documentada, con su razonamiento escrito, que no
+hacía nada. Es el tipo de error que no se encuentra leyendo el código —el
+comentario te convence— y sí se encuentra midiendo.
+
+Medido: overlay `top: 195, height: 1965` con viewport 844. Después del fix:
+`top: 0, height: 844`.
+
+Arreglado por dos lados: `both` → `backwards`, y `components/Portal.tsx` para los
+overlays. Los dos, porque el primero arregla el síntoma y el segundo es lo que
+evita que vuelva con cualquier `filter` futuro en una tarjeta.
+
+### Decisiones propias de esta pasada
+
+1. **El Shell monta el encabezado de página** (título + subtítulo + filtros) para
+   las nueve pantallas, derivando el título de `TABS` y el subtítulo de un mapa
+   `PANTALLAS`. La alternativa era pasar `funnels` a nueve server components.
+   Costo: si una pantalla nueva no está en el mapa, no muestra subtítulo ni
+   filtros (falla en silencio hacia el lado seguro).
+2. **Las columnas por defecto de Anuncios se deciden en la pantalla**
+   (`COLUMNAS_V3` en `GestorAnuncios`), no en `lib/ads/catalogo.ts`. El `base` del
+   catálogo tiene tests y vistas guardadas de usuarios detrás; el set de arranque
+   es una decisión de presentación.
+3. **La casilla de selección se queda en desktop y se va en mobile.** La
+   referencia no la muestra, pero habilita las acciones en lote, que tienen su
+   propia cadena de tests. Sacarla del todo sería borrar una función para que
+   coincida una captura.
+4. **«Total de por vida» sigue deshabilitado** (D-A10) y la marca de frescura pasó
+   a un punto de 6px: el badge con texto medía ~110px dentro de la celda del
+   nombre y lo recortaba a «CH-ES-ABO-VI…» en todas las filas a la vez.
+5. **Se quitó el segundo segmentado del embudo** («% sobre el total / % sobre la
+   anterior») que la pasada anterior había agregado: la vista ya trae el suyo y la
+   referencia tiene uno solo. Dos segmentados apilados hablando de "la base del
+   porcentaje" se leen como el mismo control duplicado.
+6. **`clamp()` para el patrimonio** en vez de `overflow-wrap`. Un número cortado
+   al medio («EUR 132.472,5» / «7») es peor que uno más chico.
+
+### Verificado
+
+- `npm run build` OK y `tsc` sin errores nuevos después de cada commit.
+- 372 tests en verde (287 de anuncios, 38 de finanzas/serie, 37 de widgets/layout,
+  embudo, paleta, ui.tokens).
+- Desborde horizontal 0 en las 14 combinaciones pantalla × ancho (antes:
+  /anuncios 879px a 390 y 268 a 1440; /finanzas 117).
+- Modal `entra: true` en 390 y 1440, cuerpo 78 % del alto y scrollea.
+- Popover `entra: true` en los dos anchos, z-index 45 en desktop y 50 en la hoja.
+- Densidad de Anuncios: primera fila en y=592 y 65px de alto (antes ~1500 y 140).
+- Cero ancestros creando containing block.
+
+### Sin verificar
+
+- Nada en un dispositivo táctil real. Quedan el arrastre de la hoja de mobile, el
+  `env(safe-area-inset-bottom)` y el drag & drop del kanban con `scroll-snap`.
+- El embudo se verificó con datos sembrados, no con el histograma real de
+  producción.
