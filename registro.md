@@ -10,6 +10,60 @@ Lo más nuevo va arriba. Las reglas de cómo se escribe una entrada están en
 
 ---
 
+## 2026-09-23 (5) — Dos productos de Alma Gemela vendiendo como Chau Hinchazón: `product_map` no reasigna retroactivamente
+
+**Qué pasaba.** El usuario corrigió a mano en `product_map` dos productos
+("Revelación Completa: Dónde, Cómo y Cuándo" / `10456793710888` y
+"Revelación: Dónde y Cómo la vas a Conocer" / `10456790729000`) que estaban
+mapeados a `chauhinchazon` (funnel 1) y correspondían a `almagemela` (funnel
+5), y pidió correr `commissions:backfill` para "arreglar las comisiones".
+
+**Por qué no alcanzaba con el backfill de comisiones.** `product_map` solo
+resuelve el funnel de una orden EN EL MOMENTO del insert
+(`lib/orders/resolve.ts`); `orders.funnel_id` queda congelado ahí. Corregir
+el mapeo no reescribe las órdenes ya insertadas con el funnel viejo — son
+independientes por diseño (igual que `amount_eur`/comisión/costo, que
+también se congelan). Se verificó contra la base real: 11 órdenes de HOY
+(2026-09-23) con esos dos `product_id` habían quedado con `funnel_id=1`
+(chauhinchazon) antes de la corrección del mapeo; 3 más ya estaban bien
+(vendidas después de corregir `product_map`, o insertadas con el mapeo ya
+al día). Correr solo `commissions:backfill` sin tocar `orders.funnel_id`
+hubiera recalculado la comisión de esas órdenes seguirían atribuidas al
+funnel equivocado — arregla el monto, no la atribución, que es lo que
+importa para Ventas por funnel, el Resumen y el embudo.
+
+**Qué se ejecutó, en este orden:**
+1. `UPDATE orders SET funnel_id=5` para las 11 órdenes con esos
+   `shopify_product_id` que tenían `funnel_id=1`. Se verificó antes que
+   `chauhinchazon` y `almagemela` comparten timezone (`Europe/Lisbon`): el
+   `day` ya congelado seguía siendo válido y no hacía falta recalcularlo.
+2. `npm run commissions:backfill -- --recalcular-todas --funnel=almagemela`
+   (dry-run primero). El monto de comisión no cambió (806641.50 →
+   806641.50 ARS): la regla vigente es GLOBAL (`commissions.funnel_id IS
+   NULL`, 15%), no hay una regla específica de `almagemela` que difiera de
+   la de `chauhinchazon`. Se corrió igual (no en dry-run) para que
+   `updated_at` y el journaling queden consistentes con el funnel correcto,
+   no porque el número fuera a moverse.
+3. `scripts/rollup.ts --from=2026-09-23 --to=2026-09-23` (acotado al día, no
+   los `--days=400` que sugiere el script al terminar: el único cambio real
+   fue el funnel_id de 11 órdenes de hoy, reprocesar 400 días no aportaba
+   nada y es mucho más lento).
+
+**Qué se verificó.** 0 órdenes con esos dos `product_id` siguen en
+`funnel_id=1`. `daily_metrics` de hoy: `chauhinchazon` con
+`revenue_gross_eur=0.00`, `almagemela` con `revenue_gross_eur=619.69` (subió
+desde los €514,27 de la entrada (4) de hoy, la diferencia son las 11
+órdenes movidas).
+
+**Qué queda pendiente / decisión que se descartó.** No se corrió el backfill
+con `--days=400` como sugiere el script: si en el futuro se detecta que la
+comisión de `almagemela` sí necesita recalcularse en un rango más amplio
+(por ejemplo si se crea una regla específica de ese funnel), hay que
+correrlo aparte — este backfill fue deliberadamente acotado al alcance del
+error reportado (2 productos, 11 órdenes de hoy), no un recálculo general.
+
+---
+
 ## 2026-09-23 (4) — Backfill sobre producción: las 262 órdenes de Alma Gemela sin session_id y las 6 campañas del 23/09 sin mapear
 
 **Qué pasaba.** Continuación directa de la entrada (3) de hoy: con el fix de
