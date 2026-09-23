@@ -235,7 +235,7 @@ export function GraficoSaldo({
               type="button"
               onClick={() => setVista(v)}
               aria-pressed={vista === v}
-              className={`press rounded-lg px-3 py-1.5 text-sm transition-[background-color,color,box-shadow] duration-250 ${
+              className={`tap press rounded-lg px-3 py-1.5 text-sm transition-[background-color,color,box-shadow] duration-250 ${
                 vista === v
                   ? 'bg-surface-raised font-semibold text-neutral-50 shadow-lozenge'
                   : 'font-medium text-neutral-400 hover:bg-overlay/7 hover:text-neutral-100'
@@ -289,14 +289,14 @@ export function GraficoSaldo({
             <CartesianGrid stroke={panelColors.grid} vertical={false} />
             <XAxis
               dataKey="etiqueta"
-              tick={{ fontSize: 11, fill: panelColors.axis }}
+              tick={{ fontSize: 12, fill: panelColors.axis }}
               tickLine={false}
               axisLine={{ stroke: panelColors.axisLine }}
               minTickGap={16}
             />
             <YAxis
               tickFormatter={fmtAxis}
-              tick={{ fontSize: 11, fill: panelColors.axis }}
+              tick={{ fontSize: 12, fill: panelColors.axis }}
               tickLine={false}
               axisLine={false}
               width={56}

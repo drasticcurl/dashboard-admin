@@ -54,7 +54,7 @@ export function Columna({
         <h2 className="text-xs font-semibold uppercase tracking-wide text-neutral-400">
           {titulo}
         </h2>
-        <span className="rounded-full bg-overlay/7 px-2 py-0.5 text-[11px] font-medium text-neutral-400">
+        <span className="rounded-full bg-overlay/7 px-2 py-0.5 text-[11px] max-panel:text-xs font-medium text-neutral-400">
           {tareas.length}
         </span>
       </header>

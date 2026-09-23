@@ -25,7 +25,7 @@
  */
 
 import type { ReactNode } from 'react';
-import { Children, cloneElement, isValidElement } from 'react';
+import { Children, cloneElement, isValidElement, useEffect, useState } from 'react';
 import type { ReactElement } from 'react';
 import { ResponsiveContainer, Tooltip } from 'recharts';
 import {
@@ -191,7 +191,7 @@ export function StatCard({
             rojo-verde, "+12 %" y "-12 %" tienen que distinguirse igual.
           */
           <span
-            className={`flex items-center gap-0.5 rounded-md px-1.5 py-0.5 font-mono text-[11px] font-semibold tabular-nums ring-1 ${
+            className={`flex items-center gap-0.5 rounded-md px-1.5 py-0.5 font-mono text-[11px] max-panel:text-xs font-semibold tabular-nums ring-1 ${
               trendUp
                 ? 'bg-good-500/12 text-good-300 ring-good-500/20'
                 : 'bg-bad-500/12 text-bad-300 ring-bad-500/20'
@@ -228,7 +228,7 @@ export function Badge({
       la tarjeta que lo contiene.
     */
     <span
-      className={`inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-md px-2 py-0.5 text-[11px] font-medium tracking-[0.01em] ring-1 ${TONE_PILL[tone]}`}
+      className={`inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-md px-2 py-0.5 text-[11px] max-panel:text-xs font-medium tracking-[0.01em] ring-1 ${TONE_PILL[tone]}`}
     >
       {children}
     </span>
@@ -263,6 +263,71 @@ export function Banner({
   );
 }
 
+/**
+ * ¿El viewport es de mobile? (< 760px, el corte del panel.)
+ *
+ * Arranca en `false` y no en el resultado de `matchMedia`: en el render del
+ * servidor no hay `window`, y devolver distinto en servidor y cliente es un
+ * error de hidratación. El `useEffect` corrige en el mismo tick.
+ */
+export function useEsMobile(): boolean {
+  const [esMobile, setEsMobile] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 759px)');
+    setEsMobile(mq.matches);
+    const alCambiar = (e: MediaQueryListEvent) => setEsMobile(e.matches);
+    mq.addEventListener('change', alCambiar);
+    return () => mq.removeEventListener('change', alCambiar);
+  }, []);
+  return esMobile;
+}
+
+/**
+ * Una sección secundaria: abierta en desktop, PLEGADA en mobile.
+ *
+ * Existe por el alto de /embudo: medido a 390px daba 4721px, o sea 5,6 pantallas
+ * de scroll, porque apila nueve tarjetas —el embudo, el paso a paso, el A/B del
+ * pitch, los filtros, y los desgloses por campaña, variante, país y
+ * dispositivo—. Las cuatro últimas son desgloses que se consultan cuando hace
+ * falta, no lo que se mira al entrar, y en un teléfono ese orden importa mucho
+ * más que en una pantalla grande donde se ven de un vistazo.
+ *
+ * Es un `<details>` nativo: el navegador ya sabe abrirlo, lo hace navegable por
+ * teclado y anuncia el estado. `open` se controla con `useEsMobile` en lugar de
+ * duplicar el contenido con `hidden panel:block`, que es la otra forma: acá
+ * adentro va una tabla entera con sus filas, y renderizarla dos veces para
+ * esconder una es pagar el doble por nada.
+ *
+ * El primer render del cliente da `open` (porque `useEsMobile` arranca en
+ * `false`) y se cierra al montar. No se ve: estas secciones están debajo del
+ * pliegue en el ancho donde se plegan.
+ */
+export function Desglose({
+  titulo,
+  children,
+}: {
+  titulo: string;
+  children: ReactNode;
+}): JSX.Element {
+  const esMobile = useEsMobile();
+  return (
+    <details open={!esMobile} className="group">
+      {/* En desktop el summary no se muestra: la tarjeta de adentro ya trae su
+          propio título, y dos encabezados seguidos se leen como un error. */}
+      <summary className="tap mb-2 flex cursor-pointer list-none items-center justify-between gap-3 rounded-lg border border-border-subtle bg-surface px-4 text-sm text-neutral-300 transition-colors duration-250 hover:text-neutral-100 panel:hidden">
+        {titulo}
+        <span
+          aria-hidden
+          className="shrink-0 text-neutral-500 transition-transform duration-250 group-open:rotate-180"
+        >
+          ▾
+        </span>
+      </summary>
+      {children}
+    </details>
+  );
+}
+
 // ─── Tabla ──────────────────────────────────────────────────────────────────
 
 export type Column<T> = {
@@ -271,6 +336,16 @@ export type Column<T> = {
   render: (row: T) => ReactNode;
   align?: 'left' | 'right';
   className?: string;
+  /**
+   * En mobile, ¿esta columna es el TÍTULO de la tarjeta?
+   *
+   * Sin esto se usa la primera, que es lo correcto en casi todas las tablas del
+   * panel (la primera columna es la que identifica la fila). Se declara cuando
+   * no: por ejemplo si la primera es un icono de estado.
+   */
+  titulo?: boolean;
+  /** En mobile, no mostrar esta columna. Para las que sólo tienen sentido en una grilla. */
+  ocultarEnMobile?: boolean;
 };
 
 export function Table<T>({
@@ -285,89 +360,157 @@ export function Table<T>({
   /**
    * ¿La primera columna queda pegada al scrollear en horizontal? (rediseño v3.)
    *
-   * Por defecto SÍ, porque es lo que hace usable una tabla en 360px de ancho:
-   * sin la primera columna fija, scrollear hasta la columna «costo por
-   * resultado» deja las cifras en pantalla sin el nombre de la campaña al que
-   * pertenecen, o sea una grilla de números sin sujeto.
+   * Por defecto SÍ, porque es lo que hace usable una tabla en un ancho
+   * intermedio: sin la primera columna fija, scrollear hasta la columna «costo
+   * por resultado» deja las cifras en pantalla sin el nombre de la campaña al
+   * que pertenecen, o sea una grilla de números sin sujeto.
    *
    * Se puede apagar para las tablas cuya primera columna no identifica la fila
    * (un checkbox, un icono de estado): ahí el sticky sólo ocupa ancho.
    */
   sticky?: boolean;
 }): JSX.Element {
+  /*
+    ── Dos renders, uno por vista (rediseño v3, segunda pasada) ──────────────
+
+    Debajo de 760px la tabla NO es una tabla: es una lista de tarjetas, una por
+    fila, con el dato que identifica la fila como título y el resto como pares
+    etiqueta/valor.
+
+    Por qué no alcanzaba con el scroll horizontal que tenía antes: medido a
+    390px, las tablas del panel miden 676px (mejores campañas de Resumen), 905
+    (Config) y 964 (Anuncios) metidas en un contenedor de 324. O sea que se veía
+    un tercio de la tabla y había que arrastrar de costado para leer cada celda,
+    perdiendo de vista el encabezado que dice qué es cada número. Una tabla de
+    ocho columnas en un teléfono no se arregla puliéndola: hay que cambiarla de
+    forma. Es literalmente el «no tiene una interfaz real, es la misma que la
+    web» que se reportó.
+
+    Se renderizan las dos y se esconde una con CSS (`hidden panel:block` /
+    `panel:hidden`) en lugar de elegir con JS. Con `useEsMobile` el primer render
+    del cliente siempre da desktop —en el servidor no hay `window`— así que en un
+    teléfono se vería la tabla un frame y después las tarjetas. El costo es que
+    `render(row)` corre dos veces, y es una función de presentación pura.
+  */
+  const columnasMobile = columns.filter((c) => !c.ocultarEnMobile);
+  const iTitulo = Math.max(
+    0,
+    columnasMobile.findIndex((c) => c.titulo),
+  );
+  const colTitulo = columnasMobile[iTitulo];
+  const colDatos = columnasMobile.filter((_, i) => i !== iTitulo);
+
   return (
-    // `overflow-x-auto` + `-mx-4 px-4` en mobile: el scroll horizontal arranca en
-    // el borde de la pantalla en lugar de dentro del padding de la tarjeta. Sin
-    // eso, la última columna queda debajo del padding y parece cortada por un bug
-    // en lugar de por el scroll.
-    <div className="-mx-4 overflow-x-auto px-4 panel:mx-0 panel:px-0">
-      <table className="w-full text-left text-sm">
-        <thead>
-          <tr className="border-b border-border-subtle">
-            {columns.map((c, i) => (
-              /*
-                Encabezado en caja normal, no en VERSALITAS. Los headers ya
-                vienen en sentence case desde las vistas ("Campaña",
-                "Sesiones") y forzarlos a mayúsculas sólo los hacía gritar y
-                más difíciles de leer de reojo. El peso y el tono alcanzan para
-                separarlos de los datos.
-              */
-              <th
-                key={c.key}
-                scope="col"
-                className={`px-3 pb-2.5 pt-1 text-xs font-medium text-neutral-400 ${
-                  c.align === 'right' ? 'text-right' : ''
-                } ${
-                  /* La celda fija necesita fondo SÓLIDO: con un fondo
-                     transparente se ve pasar el contenido de las otras columnas
-                     por debajo mientras se scrollea. El z-index la deja por
-                     encima de esas celdas. */
-                  sticky && i === 0
-                    ? 'sticky left-0 z-10 bg-surface after:absolute after:inset-y-0 after:right-0 after:w-px after:bg-border-subtle after:content-[""]'
-                    : ''
-                } ${c.className ?? ''}`}
-              >
-                {c.header}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.length === 0 ? (
-            <tr>
-              <td colSpan={columns.length} className="px-3 py-10 text-center text-sm text-neutral-500">
-                {empty}
-              </td>
+    <>
+      {/* ── Mobile: una tarjeta por fila ──────────────────────────────────── */}
+      <div className="flex flex-col gap-2 panel:hidden">
+        {rows.length === 0 ? (
+          <p className="py-8 text-center text-sm text-neutral-500">{empty}</p>
+        ) : (
+          rows.map((row, i) => (
+            <div
+              key={i}
+              className="rounded-lg border border-border-subtle bg-overlay/2 p-3"
+            >
+              {colTitulo && (
+                /* El título va a todo el ancho y SIN truncar: es lo que
+                   identifica la fila, y recortado a «CH-ES-ABO-VI…» la tarjeta
+                   deja de decir de qué habla. `break-words` porque los nombres
+                   de Meta no tienen espacios donde cortar. */
+                <div className="mb-2 break-words text-sm font-medium text-neutral-100">
+                  {colTitulo.render(row)}
+                </div>
+              )}
+              {colDatos.length > 0 && (
+                /* Dos columnas de pares: a 390px entran dos «ROAS 1,85×» por
+                   línea, y con una sola quedaba una tira de 8 renglones por
+                   tarjeta. `items-baseline` alinea la etiqueta con el número. */
+                <dl className="grid grid-cols-2 gap-x-3 gap-y-1.5">
+                  {colDatos.map((c) => (
+                    <div key={c.key} className="flex min-w-0 flex-col">
+                      <dt className="truncate text-xs text-neutral-500">{c.header}</dt>
+                      <dd className="min-w-0 break-words text-sm text-neutral-200">
+                        {c.render(row)}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              )}
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* ── Desktop: la tabla ─────────────────────────────────────────────── */}
+      <div className="hidden overflow-x-auto panel:block">
+        <table className="w-full text-left text-sm">
+          <thead>
+            <tr className="border-b border-border-subtle">
+              {columns.map((c, i) => (
+                /*
+                  Encabezado en caja normal, no en VERSALITAS. Los headers ya
+                  vienen en sentence case desde las vistas ("Campaña",
+                  "Sesiones") y forzarlos a mayúsculas sólo los hacía gritar y
+                  más difíciles de leer de reojo. El peso y el tono alcanzan para
+                  separarlos de los datos.
+                */
+                <th
+                  key={c.key}
+                  scope="col"
+                  className={`px-3 pb-2.5 pt-1 text-xs font-medium text-neutral-400 ${
+                    c.align === 'right' ? 'text-right' : ''
+                  } ${
+                    /* La celda fija necesita fondo SÓLIDO: con un fondo
+                       transparente se ve pasar el contenido de las otras columnas
+                       por debajo mientras se scrollea. El z-index la deja por
+                       encima de esas celdas. */
+                    sticky && i === 0
+                      ? 'sticky left-0 z-10 bg-surface after:absolute after:inset-y-0 after:right-0 after:w-px after:bg-border-subtle after:content-[""]'
+                      : ''
+                  } ${c.className ?? ''}`}
+                >
+                  {c.header}
+                </th>
+              ))}
             </tr>
-          ) : (
-            rows.map((row, i) => (
-              <tr
-                key={i}
-                className="group border-b border-overlay/4 transition-colors duration-150 last:border-0 hover:bg-overlay/4"
-              >
-                {columns.map((c, j) => (
-                  <td
-                    key={c.key}
-                    className={`px-3 py-3 text-neutral-200 ${
-                      c.align === 'right' ? 'font-mono text-right tabular-nums' : ''
-                    } ${
-                      /* `group-hover:bg-surface-raised` replica el hover de la
-                         fila en la celda fija: sin eso, la primera columna es la
-                         única que no se ilumina y la fila se ve partida en dos. */
-                      sticky && j === 0
-                        ? 'sticky left-0 z-10 bg-surface transition-colors duration-150 after:absolute after:inset-y-0 after:right-0 after:w-px after:bg-border-subtle after:content-[""] group-hover:bg-surface-raised'
-                        : ''
-                    } ${c.className ?? ''}`}
-                  >
-                    {c.render(row)}
-                  </td>
-                ))}
+          </thead>
+          <tbody>
+            {rows.length === 0 ? (
+              <tr>
+                <td colSpan={columns.length} className="px-3 py-10 text-center text-sm text-neutral-500">
+                  {empty}
+                </td>
               </tr>
-            ))
-          )}
-        </tbody>
-      </table>
-    </div>
+            ) : (
+              rows.map((row, i) => (
+                <tr
+                  key={i}
+                  className="group border-b border-overlay/4 transition-colors duration-150 last:border-0 hover:bg-overlay/4"
+                >
+                  {columns.map((c, j) => (
+                    <td
+                      key={c.key}
+                      className={`px-3 py-3 text-neutral-200 ${
+                        c.align === 'right' ? 'font-mono text-right tabular-nums' : ''
+                      } ${
+                        /* `group-hover:bg-surface-raised` replica el hover de la
+                           fila en la celda fija: sin eso, la primera columna es la
+                           única que no se ilumina y la fila se ve partida en dos. */
+                        sticky && j === 0
+                          ? 'sticky left-0 z-10 bg-surface transition-colors duration-150 after:absolute after:inset-y-0 after:right-0 after:w-px after:bg-border-subtle after:content-[""] group-hover:bg-surface-raised'
+                          : ''
+                      } ${c.className ?? ''}`}
+                    >
+                      {c.render(row)}
+                    </td>
+                  ))}
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 }
 
@@ -391,8 +534,18 @@ export function BarRow({
   const clamped = Math.min(100, Math.max(0, pct));
   const barTone = highlight ? 'bad' : tone;
   return (
-    <div className="flex h-9 items-center gap-3">
-      <span className="w-44 shrink-0 truncate text-xs font-medium text-neutral-300" title={label}>
+    /*
+      `flex-wrap` + el rótulo a `w-full` en mobile: el nombre del paso ocupa la
+      primera línea y la barra con sus números la segunda. En una sola línea los
+      anchos fijos (176 + 64 + 80 + 40 + gaps = 408px) no entran en los 324 de
+      un teléfono y el último número terminaba fuera de la pantalla.
+      Desde 760px vuelve a ser una fila (`panel:h-9 panel:flex-nowrap`).
+    */
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 py-1 panel:h-9 panel:flex-nowrap panel:py-0">
+      <span
+        className="w-full shrink-0 truncate text-xs font-medium text-neutral-300 panel:w-44"
+        title={label}
+      >
         {label}
       </span>
       {/*
@@ -415,17 +568,17 @@ export function BarRow({
         />
       </div>
       <span
-        className={`w-16 shrink-0 text-right font-mono text-xs font-semibold tabular-nums ${
+        className={`w-12 shrink-0 text-right font-mono text-xs font-semibold tabular-nums panel:w-16 ${
           highlight ? 'text-bad-400' : 'text-neutral-200'
         }`}
       >
         {fmtPct(pct)}
       </span>
-      <span className="w-20 shrink-0 text-right font-mono text-xs tabular-nums text-neutral-400">
+      <span className="w-14 shrink-0 text-right font-mono text-xs tabular-nums text-neutral-400 panel:w-20">
         {fmtInt(count)}
       </span>
       {highlight && (
-        <span className="w-10 shrink-0 text-right text-[11px] font-semibold text-bad-400">
+        <span className="shrink-0 text-right text-[11px] font-semibold text-bad-400 max-panel:text-xs panel:w-10">
           peor
         </span>
       )}

@@ -404,7 +404,7 @@ export function DetalleTarea({
             <li key={c.id} className="rounded-lg bg-overlay/4 p-2">
               <div className="mb-0.5 flex items-baseline justify-between gap-2">
                 <span className="text-xs font-semibold text-neutral-200">{c.usuarioNombre}</span>
-                <span className="text-[11px] text-neutral-500">
+                <span className="text-[11px] max-panel:text-xs text-neutral-500">
                   {new Date(c.createdAt).toLocaleString('es-AR', {
                     day: 'numeric',
                     month: 'short',

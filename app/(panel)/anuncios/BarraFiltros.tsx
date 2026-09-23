@@ -30,7 +30,7 @@ const PERIODO_ROTULO: Record<PeriodoAds, string> = {
 };
 
 const inputCls =
-  'rounded-lg border border-border-strong bg-overlay/4 px-2 py-1.5 text-sm text-neutral-200 focus:border-good-500/50 focus:outline-none focus:ring-1 focus:ring-good-500/50';
+  'min-h-[44px] rounded-lg border border-border-strong bg-overlay/4 px-2 py-1.5 text-sm text-neutral-200 focus:border-good-500/50 focus:outline-none focus:ring-1 focus:ring-good-500/50 panel:min-h-0';
 
 export function BarraFiltros({
   nivel,
@@ -129,28 +129,28 @@ export function BarraFiltros({
       {/* Los dos interruptores de ruido. Se guardan en la URL, así que recargar
           o compartir el link conserva la vista. */}
       <label
-        className="flex cursor-pointer items-center gap-1.5 text-xs text-neutral-400 hover:text-neutral-200"
+        className="flex min-h-[44px] cursor-pointer items-center gap-1.5 text-xs text-neutral-400 hover:text-neutral-200 panel:min-h-0"
         title="Oculta las filas que en este período no tienen ni gasto ni ventas. Una fila con gasto y sin ventas NO se oculta: es la que hay que ver."
       >
         <input
           type="checkbox"
           checked={ocultarSinDatos}
           onChange={(e) => onOcultarSinDatos(e.target.checked)}
-          className="h-3.5 w-3.5 accent-good-500"
+          className="h-5 w-5 accent-good-500 panel:h-3.5 panel:w-3.5"
         />
         Ocultar sin datos
       </label>
 
       {nivel !== 'campaign' && (
         <label
-          className="flex cursor-pointer items-center gap-1.5 text-xs text-neutral-400 hover:text-neutral-200"
+          className="flex min-h-[44px] cursor-pointer items-center gap-1.5 text-xs text-neutral-400 hover:text-neutral-200 panel:min-h-0"
           title="Oculta los que están apagados porque su padre está apagado (CAMPAIGN_PAUSED o ADSET_PAUSED en Meta), no por su propio estado."
         >
           <input
             type="checkbox"
             checked={ocultarPadreApagado}
             onChange={(e) => onOcultarPadreApagado(e.target.checked)}
-            className="h-3.5 w-3.5 accent-good-500"
+            className="h-5 w-5 accent-good-500 panel:h-3.5 panel:w-3.5"
           />
           Ocultar con padre apagado
         </label>

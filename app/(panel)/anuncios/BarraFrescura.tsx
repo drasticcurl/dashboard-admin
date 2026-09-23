@@ -124,7 +124,7 @@ export function BarraFrescura({
         type="button"
         onClick={onActualizar}
         disabled={refrescando || segundosRestantes !== null}
-        className="inline-flex items-center gap-1.5 rounded-md border border-border-strong px-2.5 py-1.5 text-xs font-semibold text-neutral-200 transition-colors hover:bg-overlay/6 focus:outline-none focus-visible:ring-2 focus-visible:ring-good-500/60 disabled:cursor-not-allowed disabled:opacity-50"
+        className="tap inline-flex items-center gap-1.5 rounded-md border border-border-strong px-2.5 py-1.5 text-xs font-semibold text-neutral-200 transition-colors hover:bg-overlay/6 focus:outline-none focus-visible:ring-2 focus-visible:ring-good-500/60 disabled:cursor-not-allowed disabled:opacity-50"
         title={
           segundosRestantes !== null
             ? `Esperá ${segundosRestantes} segundo${segundosRestantes === 1 ? '' : 's'} para volver a actualizar`

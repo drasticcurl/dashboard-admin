@@ -207,7 +207,7 @@ export function FunnelsSection({
                 onChange={(e) => setFunnelForm({ ...funnelForm, alias: e.target.value })}
                 placeholder={funnelForm.name}
               />
-              <span className="text-[11px] leading-tight text-neutral-600">
+              <span className="text-[11px] max-panel:text-xs leading-tight text-neutral-600">
                 Nombre para mostrar en el selector de arriba. Sirve para no exponer la oferta
                 cuando compartís pantalla. Vacío = se muestra el nombre real. No cambia el slug
                 ni ninguna URL.
@@ -216,7 +216,7 @@ export function FunnelsSection({
             <label className="flex flex-col gap-1 text-xs text-neutral-500">
               Zona horaria de la tienda
               <input className={inputCls} value={funnelForm.timezone} onChange={(e) => setFunnelForm({ ...funnelForm, timezone: e.target.value })} />
-              <span className="text-[11px] leading-tight text-neutral-600">
+              <span className="text-[11px] max-panel:text-xs leading-tight text-neutral-600">
                 Corta el día de las ventas y del embudo. Al guardar se recalculan los días ya
                 registrados. Si querés que cierre con Meta, poné acá la zona de la cuenta
                 publicitaria (la ves en Publicidad, en la sección Fuentes).

@@ -73,7 +73,7 @@ export function ChipCascada({
     <span className="inline-flex items-center gap-1.5 rounded-full border border-good-500/30 bg-good-500/10 px-3 py-1 text-xs font-semibold text-good-200">
       <span title={cascada.ids.join(', ')}>{texto}</span>
       {cascada.descartados > 0 && (
-        <span className="text-[10px] font-normal text-neutral-400" title={`Se descartaron ${cascada.descartados} identificadores (motivo: ${cascada.motivo ?? 'tope'})`}>
+        <span className="text-[10px] max-panel:text-xs font-normal text-neutral-400" title={`Se descartaron ${cascada.descartados} identificadores (motivo: ${cascada.motivo ?? 'tope'})`}>
           −{cascada.descartados}
         </span>
       )}

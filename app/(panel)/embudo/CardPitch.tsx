@@ -264,7 +264,7 @@ export function CardPitch({ funnel }: { funnel: Funnel }) {
                     >
                       {r.vistasUpsell > 0 ? fmtPct(r.pctVentas) : '—'}
                     </span>
-                    <span className="text-[11px] tabular-nums text-neutral-500">
+                    <span className="text-[11px] max-panel:text-xs tabular-nums text-neutral-500">
                       {fmtInt(r.ventas)}/{fmtInt(r.vistasUpsell)}
                     </span>
                   </span>

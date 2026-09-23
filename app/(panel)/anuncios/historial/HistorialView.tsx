@@ -258,7 +258,7 @@ export function HistorialView(): JSX.Element {
                 className: 'min-w-[380px] whitespace-normal leading-snug',
                 render: (f) => (
                   <span className="text-neutral-200">
-                    <span className="mr-2 rounded bg-overlay/6 px-1.5 py-0.5 text-[11px] font-semibold text-neutral-400">
+                    <span className="mr-2 rounded bg-overlay/6 px-1.5 py-0.5 text-[11px] max-panel:text-xs font-semibold text-neutral-400">
                       {ROTULO_ACCION[f.action as keyof typeof ROTULO_ACCION] ?? f.action}
                     </span>
                     {f.explicacion}

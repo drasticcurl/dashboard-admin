@@ -62,7 +62,7 @@ export function ControlVistas({
         <button
           type="button"
           onClick={() => setAbierto(true)}
-          className="inline-flex items-center gap-1.5 rounded-md border border-border-strong px-2.5 py-1.5 text-xs font-semibold text-neutral-200 hover:bg-overlay/6 focus:outline-none focus-visible:ring-2 focus-visible:ring-good-500/60"
+          className="tap inline-flex items-center gap-1.5 rounded-md border border-border-strong px-2.5 py-1.5 text-xs font-semibold text-neutral-200 hover:bg-overlay/6 focus:outline-none focus-visible:ring-2 focus-visible:ring-good-500/60"
         >
           <Star size={13} weight={vistaAplicada ? 'fill' : 'regular'} />
           Vistas y columnas {vistaAplicada ? `· ${vistaAplicada.nombre}` : ''}
@@ -202,7 +202,7 @@ export function ControlVistas({
                 <button
                   type="button"
                   onClick={() => sobrescribir(v)}
-                  className="rounded px-1.5 py-0.5 text-[11px] font-semibold text-neutral-300 hover:bg-overlay/6"
+                  className="rounded px-1.5 py-0.5 text-[11px] max-panel:text-xs font-semibold text-neutral-300 hover:bg-overlay/6"
                   title="Sobrescribir esta Vista con la configuración en pantalla"
                 >
                   <FloppyDisk size={12} />

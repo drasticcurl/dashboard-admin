@@ -644,7 +644,7 @@ export function ToggleEstado({
         }`}
         aria-describedby={porQue === null ? undefined : idDescripcion}
         onClick={() => onToggle(fila)}
-        className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-good-500/50 ${
+        className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors before:absolute before:left-1/2 before:top-1/2 before:h-11 before:w-11 before:-translate-x-1/2 before:-translate-y-1/2 before:content-[""] focus:outline-none focus:ring-2 focus:ring-good-500/50 panel:before:hidden ${
           activo ? (porQue === null ? 'bg-good-500' : 'bg-warn-500') : 'bg-overlay/12'
         }${enCurso ? ' opacity-50' : ''}`}
         // El `title` del pedido en vuelo PISA a los otros dos, y es a propósito:
@@ -672,7 +672,7 @@ export function ToggleEstado({
         // antepasado. Lo visible se queda corto porque la celda es angosta, y el
         // resto va en `sr-only` para que la descripción esté completa sin
         // desarmar la columna.
-        <span id={idDescripcion} className="inline-flex items-center text-[10px] font-semibold text-warn-300">
+        <span id={idDescripcion} className="inline-flex items-center text-[10px] max-panel:text-xs font-semibold text-warn-300">
           {irACampania ? (
             <button
               type="button"

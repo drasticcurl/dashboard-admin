@@ -50,6 +50,7 @@ import {
   EmptyState,
   Spinner,
   StatCard,
+  Desglose,
   Table,
   fmtInt,
   fmtMoney,
@@ -65,7 +66,7 @@ import { CaretDown, CaretUp } from '@phosphor-icons/react';
   navegador los pinte de blanco.
 */
 const SELECT_CLS =
-  'press appearance-none rounded-lg border border-border-strong bg-surface-raised py-1.5 pl-3 pr-8 text-sm font-medium text-neutral-200 shadow-inset-highlight transition-[background-color,border-color] duration-250 hover:border-overlay/18 hover:bg-surface-overlay';
+  'press min-h-[44px] appearance-none rounded-lg border border-border-strong bg-surface-raised py-1.5 pl-3 pr-8 panel:min-h-0 text-sm font-medium text-neutral-200 shadow-inset-highlight transition-[background-color,border-color] duration-250 hover:border-overlay/18 hover:bg-surface-overlay';
 
 type CampaignRow = { campaign: string; sessions: number; purchases: number };
 type CampaignSortKey = 'campaign' | 'sessions' | 'purchases' | 'conversion';
@@ -345,6 +346,10 @@ export function EmbudoView({
               // El delta contra el paso anterior no entra en BarRow (el kit
               // es de T05 y no se toca): va en una columna propia al final.
               <div key={`${s.kind}:${s.slug}`} className="flex items-center gap-3">
+                {/* `min-w-0 flex-1`: sin esto la barra se niega a encogerse por
+                    debajo de su contenido y empuja el delta de al lado FUERA de la
+                    pantalla — medido a 390px, terminaba en x=457. */}
+                <div className="min-w-0 flex-1">
                 <BarRow
                   label={s.label}
                   pct={s.pctOfBase}
@@ -352,8 +357,9 @@ export function EmbudoView({
                   tone={s.kind === 'content' ? 'info' : 'neutral'}
                   highlight={i === worstIndex}
                 />
+                </div>
                 <span
-                  className="w-14 shrink-0 text-right text-xs tabular-nums text-neutral-500"
+                  className="w-12 shrink-0 text-right text-xs tabular-nums text-neutral-500 panel:w-14"
                   title="Caída contra el paso anterior"
                 >
                   {i === 0 || s.dropFromPrevious === 0 ? '—' : `-${fmtPct(s.dropFromPrevious, 0)}`}
@@ -380,6 +386,11 @@ export function EmbudoView({
       */}
       {debeMostrarCardPitch(funnel.experiments) && <CardPitch funnel={funnel} />}
 
+      {/* Los cuatro bloques de abajo van plegados en mobile (ver `Desglose` en
+          components/ui.tsx): son desgloses que se consultan cuando hacen falta, y
+          apilados abiertos dejaban esta pantalla en 5,6 pantallas de scroll a
+          390px. En desktop se ven abiertos como siempre. */}
+      <Desglose titulo="Filtros">
       <Card title="Filtros" hint="Cada filtro recorta el embudo completo">
         <div className="flex flex-wrap items-center gap-2">
           {/*
@@ -441,12 +452,16 @@ export function EmbudoView({
           </select>
         </div>
       </Card>
+      </Desglose>
 
+      <Desglose titulo="Campañas">
       <Card title="Campañas" hint="Las 20 principales del rango; el resto se suma en «(otras)»">
         <CampaignTable rows={data.campaigns} />
       </Card>
+      </Desglose>
 
-      <div className="grid gap-4 md:grid-cols-3">
+      <Desglose titulo="Variantes, países y dispositivos">
+      <div className="grid gap-4 panel:grid-cols-3">
         {debeMostrarCardVariantes(funnel.variants) && (
           <Card title="Variantes">
             <Table
@@ -520,6 +535,7 @@ export function EmbudoView({
           />
         </Card>
       </div>
+      </Desglose>
 
       {data.ingestWarnings.length > 0 && (
         <Banner tone="warn" title="Avisos de ingesta en las últimas 24 h">
@@ -572,7 +588,7 @@ function CampaignTable({ rows }: { rows: CampaignRow[] }) {
             setSortDesc(true);
           }
         }}
-        className={`text-xs font-semibold uppercase tracking-wide transition-colors focus:outline-none focus:ring-2 focus:ring-good-500/50 ${
+        className={`tap text-xs font-semibold uppercase tracking-wide transition-colors focus:outline-none focus:ring-2 focus:ring-good-500/50 ${
           align === 'right' ? 'w-full text-right' : ''
         } ${active ? 'text-neutral-200' : 'text-neutral-500 hover:text-neutral-300'}`}
         aria-label={`Ordenar por ${label}${active ? (sortDesc ? ' descendente' : ' ascendente') : ''}`}

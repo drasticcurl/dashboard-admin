@@ -87,7 +87,7 @@ function spanClases(placement: WidgetPlacement): string {
 }
 
 const BOTON_SECUNDARIO =
-  'inline-flex items-center gap-1.5 rounded-lg border border-border-subtle bg-canvas px-3 py-1.5 text-xs font-medium text-neutral-200 transition-colors hover:bg-overlay/4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-good-500/60 disabled:cursor-not-allowed disabled:opacity-40';
+  'tap inline-flex items-center gap-1.5 rounded-lg border border-border-subtle bg-canvas px-3 py-1.5 text-xs font-medium text-neutral-200 transition-colors hover:bg-overlay/4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-good-500/60 disabled:cursor-not-allowed disabled:opacity-40';
 
 const BOTON_CONTROL =
   'flex h-7 w-7 items-center justify-center rounded-lg border border-border-subtle bg-surface text-neutral-400 transition-colors hover:bg-overlay/4 hover:text-neutral-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-good-500/60';
@@ -326,7 +326,7 @@ function ListaWidgets<T>({
                   >
                     <span className="flex items-center justify-between gap-2">
                       <span className="text-sm font-medium text-neutral-100">{def.label}</span>
-                      <span className={`text-[11px] font-semibold ${yaEsta ? 'text-neutral-500' : 'text-good-400'}`}>
+                      <span className={`text-[11px] max-panel:text-xs font-semibold ${yaEsta ? 'text-neutral-500' : 'text-good-400'}`}>
                         {yaEsta ? 'En pantalla' : '+ Agregar'}
                       </span>
                     </span>

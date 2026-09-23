@@ -260,7 +260,7 @@ export function CargaDiaria({
     <div className="flex flex-col gap-2">
       <div className="flex items-end justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-[11px] font-medium text-neutral-400">
+          <p className="text-[11px] max-panel:text-xs font-medium text-neutral-400">
             {total.completo ? `Patrimonio del ${day}` : 'Suma parcial'}
           </p>
           <p
@@ -289,7 +289,7 @@ export function CargaDiaria({
       {/* El estado, en una línea. `truncate` en mobile para que no empuje la
           altura del pie; el texto completo queda en el `title`. */}
       <p
-        className="truncate text-[11px] text-neutral-500 panel:whitespace-normal"
+        className="truncate text-[11px] max-panel:text-xs text-neutral-500 panel:whitespace-normal"
         aria-live="polite"
         title={
           busy
@@ -398,7 +398,7 @@ export function CargaDiaria({
                     de una fila de 44px de alto rompe la alineación de todas las
                     demás. */}
                 {esHoy && c.amountEur === null && (
-                  <span className="whitespace-nowrap rounded-md border border-good-700 px-1.5 py-0.5 text-[11px] font-medium text-good-300">
+                  <span className="whitespace-nowrap rounded-md border border-good-700 px-1.5 py-0.5 text-[11px] max-panel:text-xs font-medium text-good-300">
                     Falta hoy
                   </span>
                 )}
@@ -406,7 +406,7 @@ export function CargaDiaria({
 
               <div className="flex items-center justify-between gap-3 panel:justify-end">
                 <div className="flex flex-col gap-0.5 text-right">
-                  <span className="whitespace-nowrap text-[11px] text-neutral-600">Registrado</span>
+                  <span className="whitespace-nowrap text-[11px] max-panel:text-xs text-neutral-600">Registrado</span>
                   <span className="whitespace-nowrap font-mono text-xs tabular-nums text-neutral-500">
                     {c.amountEur === null || !esHoy
                       ? '—'

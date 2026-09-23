@@ -26,7 +26,7 @@ export type ConfigShell = {
   acá", y esa tiene que aparecer también cuando entrás con el mouse.
 */
 export const inputCls =
-  'rounded-lg border border-border-strong bg-canvas/50 px-2.5 py-1.5 text-sm text-neutral-200 shadow-[inset_0_1px_2px_0_rgba(4,6,14,0.45)] transition-colors duration-250 placeholder:text-neutral-600 hover:border-overlay/16 focus:border-good-500/60';
+  'min-h-[44px] rounded-lg border border-border-strong bg-canvas/50 px-2.5 py-1.5 text-sm text-neutral-200 panel:min-h-0 shadow-[inset_0_1px_2px_0_rgba(4,6,14,0.45)] transition-colors duration-250 placeholder:text-neutral-600 hover:border-overlay/16 focus:border-good-500/60';
 /*
   `tap` (globals.css) le pone 44×44 de mínimo SÓLO debajo de 760px: es el
   mínimo táctil del handoff v3. Va en la clase base compartida y no botón por

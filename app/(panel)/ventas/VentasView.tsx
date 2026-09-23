@@ -261,7 +261,7 @@ export function VentasView({
             type="button"
             onClick={() => toggleCur(true)}
             aria-pressed={showEur}
-            className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-good-500/50 ${
+            className={`tap rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-good-500/50 ${
               showEur ? 'bg-overlay/8 text-neutral-50' : 'text-neutral-400 hover:bg-overlay/5 hover:text-neutral-200'
             }`}
           >
@@ -271,7 +271,7 @@ export function VentasView({
             type="button"
             onClick={() => toggleCur(false)}
             aria-pressed={!showEur}
-            className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-good-500/50 ${
+            className={`tap rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-good-500/50 ${
               !showEur ? 'bg-overlay/8 text-neutral-50' : 'text-neutral-400 hover:bg-overlay/5 hover:text-neutral-200'
             }`}
           >

@@ -409,7 +409,7 @@ function MenuAcciones({
                   opción no puede ser hijo de un menú (un lector de pantalla lo
                   anunciaría como si se pudiera elegir). */}
               {encabezado && (
-                <p className="border-b border-border-subtle px-3 py-2 text-[11px] leading-snug text-neutral-400">
+                <p className="border-b border-border-subtle px-3 py-2 text-[11px] max-panel:text-xs leading-snug text-neutral-400">
                   {encabezado}
                 </p>
               )}
@@ -439,7 +439,7 @@ function MenuAcciones({
                   >
                     {it.label}
                     {it.detalle && (
-                      <span className="mt-0.5 block text-[10px] font-normal leading-snug text-neutral-500">
+                      <span className="mt-0.5 block text-[10px] max-panel:text-xs font-normal leading-snug text-neutral-500">
                         {it.detalle}
                       </span>
                     )}
@@ -1794,11 +1794,11 @@ function DialogoImportar({
               className="text-xs text-neutral-300 file:mr-2 file:rounded-lg file:border file:border-border-strong file:bg-overlay/6 file:px-2 file:py-1 file:text-xs file:text-neutral-200"
             />
           </label>
-          <p className="text-[11px] text-neutral-600">
+          <p className="text-[11px] max-panel:text-xs text-neutral-600">
             O pegá el contenido acá abajo. {nombreArchivo && <>Cargado: {nombreArchivo}.</>}
           </p>
           <textarea
-            className={`${inputCls} h-24 w-full font-mono text-[11px]`}
+            className={`${inputCls} h-24 w-full font-mono text-[11px] max-panel:text-xs`}
             value={csv}
             onChange={(e) => {
               setCsv(e.target.value);
@@ -1812,7 +1812,7 @@ function DialogoImportar({
         {/* ── A qué cuentas ── */}
         <div>
           <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-neutral-500">Cuentas de destino</p>
-          <p className="mb-2 text-[11px] leading-tight text-neutral-600">
+          <p className="mb-2 text-[11px] max-panel:text-xs leading-tight text-neutral-600">
             El CSV de UTMify no dice a qué cuenta publicitaria va cada regla. Con más de una cuenta marcada se crea una
             copia de cada regla en cada cuenta, y la ventana horaria de cada copia se evalúa en la zona de SU cuenta.
           </p>
@@ -1844,7 +1844,7 @@ function DialogoImportar({
             {reemplazar && aBorrar > 0 && (
               <strong className="text-bad-300"> — se van a borrar {aBorrar} regla(s)</strong>
             )}
-            <span className="block text-[11px] text-neutral-600">
+            <span className="block text-[11px] max-panel:text-xs text-neutral-600">
               Sin esto, una regla cuyo nombre ya existe en la cuenta se omite (el nombre es único por cuenta).
             </span>
           </span>
@@ -1862,7 +1862,7 @@ function DialogoImportar({
             </p>
 
             {previa.reglas.length > 0 && (
-              <ul className="max-h-32 space-y-0.5 overflow-y-auto text-[11px] text-neutral-400">
+              <ul className="max-h-32 space-y-0.5 overflow-y-auto text-[11px] max-panel:text-xs text-neutral-400">
                 {previa.reglas.map((r) => (
                   <li key={r.name}>
                     {r.name} — {ACCION_LABEL[r.action].toLowerCase()}
@@ -1876,7 +1876,7 @@ function DialogoImportar({
             )}
 
             {previa.errores.length > 0 && (
-              <ul className="max-h-32 list-inside list-disc space-y-0.5 overflow-y-auto text-[11px] text-bad-200">
+              <ul className="max-h-32 list-inside list-disc space-y-0.5 overflow-y-auto text-[11px] max-panel:text-xs text-bad-200">
                 {previa.errores.map((e, i) => (
                   <li key={i}>
                     línea {e.linea} «{e.name}»: {e.error}
@@ -1886,7 +1886,7 @@ function DialogoImportar({
             )}
 
             {previa.avisos.length > 0 && (
-              <ul className="max-h-32 list-inside list-disc space-y-0.5 overflow-y-auto text-[11px] text-neutral-500">
+              <ul className="max-h-32 list-inside list-disc space-y-0.5 overflow-y-auto text-[11px] max-panel:text-xs text-neutral-500">
                 {previa.avisos.map((a, i) => (
                   <li key={i}>{a}</li>
                 ))}
@@ -2135,7 +2135,7 @@ function FormularioRegla({
           {/* El pie dice siempre una de dos cosas: qué falta y dónde, o la regla
               entera leída en una frase. Con las pestañas, un formulario válido
               no se puede revisar de un vistazo, y esta línea lo devuelve. */}
-          <div className="min-w-0 flex-1 basis-64 text-[11px] leading-snug">
+          <div className="min-w-0 flex-1 basis-64 text-[11px] max-panel:text-xs leading-snug">
             {prob ? (
               <button
                 type="button"
@@ -2255,7 +2255,7 @@ function FormularioRegla({
                 </option>
               ))}
             </select>
-            <span className="text-[11px] text-neutral-600">
+            <span className="text-[11px] max-panel:text-xs text-neutral-600">
               La ventana horaria y el período de cálculo se evalúan en la zona de esta cuenta.
             </span>
           </label>
@@ -2280,7 +2280,7 @@ function FormularioRegla({
           <label className="flex flex-col gap-1 text-xs text-neutral-500">
             Filtrar por nombre
             <input className={inputCls} value={f.nameFilter} onChange={(e) => set({ nameFilter: e.target.value })} placeholder="PXN" />
-            <span className="text-[11px] text-neutral-600">Vacío = sin filtrar por nombre.</span>
+            <span className="text-[11px] max-panel:text-xs text-neutral-600">Vacío = sin filtrar por nombre.</span>
           </label>
           <label className="flex flex-col gap-1 text-xs text-neutral-500">
             Modo del filtro
@@ -2313,14 +2313,14 @@ function FormularioRegla({
               {f.level !== 'ad' && <option value="budget_decrease">Bajar presupuesto</option>}
             </select>
             {f.level === 'ad' && (
-              <span className="text-[11px] text-neutral-600">
+              <span className="text-[11px] max-panel:text-xs text-neutral-600">
                 En Meta los anuncios no tienen presupuesto: a nivel anuncio sólo se puede pausar o activar.
               </span>
             )}
           </label>
 
           {!ep && (
-            <p className="text-[11px] leading-snug text-neutral-600 sm:col-span-2">
+            <p className="text-[11px] max-panel:text-xs leading-snug text-neutral-600 sm:col-span-2">
               {f.action === 'pause'
                 ? 'Pausar no necesita más configuración. Es idempotente: un objeto ya pausado se descarta solo.'
                 : 'Activar no necesita más configuración.'}
@@ -2347,7 +2347,7 @@ function FormularioRegla({
                 </select>
               </label>
               {f.actionUnit === 'percent' && (
-                <span className="text-[11px] text-neutral-400 sm:col-span-2">
+                <span className="text-[11px] max-panel:text-xs text-neutral-400 sm:col-span-2">
                   El % es un factor, no un incremento: 250% = ×2,5. {preview || ''} Con 100% marcado como «sin cambio».
                 </span>
               )}
@@ -2362,7 +2362,7 @@ function FormularioRegla({
                   onChange={(e) => set({ budgetMax: e.target.value })}
                   placeholder="25"
                 />
-                <span className="text-[11px] text-neutral-600">El máximo absoluto por objeto es {eur(maxDailyBudgetEur)}.</span>
+                <span className="text-[11px] max-panel:text-xs text-neutral-600">El máximo absoluto por objeto es {eur(maxDailyBudgetEur)}.</span>
               </label>
               <label className="flex flex-col gap-1 text-xs text-neutral-500">
                 Límite mínimo de presupuesto{f.action === 'budget_decrease' ? ' (obligatorio al bajar)' : ''}
@@ -2391,7 +2391,7 @@ function FormularioRegla({
                 <option value="7d">7 días</option>
                 <option value="7d_excl_today">7 días sin hoy</option>
               </select>
-              <span className="text-[11px] text-neutral-600">Sobre qué ventana de datos se miden las métricas.</span>
+              <span className="text-[11px] max-panel:text-xs text-neutral-600">Sobre qué ventana de datos se miden las métricas.</span>
             </label>
 
             <label className="flex flex-col gap-1 text-xs text-neutral-500">
@@ -2399,7 +2399,7 @@ function FormularioRegla({
               <select className={inputCls} value="object" disabled title="Las métricas del padre llegan en una versión próxima">
                 <option value="object">del objeto</option>
               </select>
-              <span className="text-[11px] text-neutral-600" title="'del padre' no está implementado: no se ofrece ni deshabilitado con la opción visible">
+              <span className="text-[11px] max-panel:text-xs text-neutral-600" title="'del padre' no está implementado: no se ofrece ni deshabilitado con la opción visible">
                 Fijo en «del objeto»: las métricas del padre llegan en una versión próxima.
               </span>
             </label>
@@ -2418,7 +2418,7 @@ function FormularioRegla({
               >
                 + agregar condición
               </button>
-              <span className="text-[11px] text-neutral-600">Se combinan con Y (no hay OR).</span>
+              <span className="text-[11px] max-panel:text-xs text-neutral-600">Se combinan con Y (no hay OR).</span>
             </div>
 
             {f.conditions.length === 0 ? (
@@ -2500,7 +2500,7 @@ function FormularioRegla({
             )}
           </div>
 
-          <p className="text-[11px] leading-tight text-neutral-500">
+          <p className="text-[11px] max-panel:text-xs leading-tight text-neutral-500">
             <strong className="text-neutral-400">ROI</strong> = neto ÷ gasto de ads. El neto ya tiene restadas las comisiones y el
             costo de producto. ROI 1,30 significa que el neto es 1,3 veces lo gastado en ads. <strong className="text-neutral-400">ROAS</strong> =
             ingresos brutos ÷ gasto, sin restar nada. El ROI de la sección Ventas se calcula distinto: no los compares.
@@ -2520,7 +2520,7 @@ function FormularioRegla({
                 </option>
               ))}
             </select>
-            <span className="text-[11px] text-neutral-600">Cada cuánto se evalúa la regla.</span>
+            <span className="text-[11px] max-panel:text-xs text-neutral-600">Cada cuánto se evalúa la regla.</span>
           </label>
 
           <label className="flex flex-col gap-1 text-xs text-neutral-500">
@@ -2532,7 +2532,7 @@ function FormularioRegla({
               onChange={(e) => set({ maxRunsPerDay: e.target.value })}
               placeholder="vacío = sin límite"
             />
-            <span className="text-[11px] text-neutral-600">Cuántas veces por día puede correr, como máximo.</span>
+            <span className="text-[11px] max-panel:text-xs text-neutral-600">Cuántas veces por día puede correr, como máximo.</span>
           </label>
 
           {/*
@@ -2560,7 +2560,7 @@ function FormularioRegla({
               <option value="personalizado">Personalizado — sólo en una franja</option>
             </select>
             {!ventanaPersonalizada && (
-              <span className="text-[11px] text-neutral-600">
+              <span className="text-[11px] max-panel:text-xs text-neutral-600">
                 La regla puede correr a cualquier hora del día.
               </span>
             )}
@@ -2596,7 +2596,7 @@ function FormularioRegla({
                   ))}
                 </select>
               </label>
-              <span className="text-[11px] leading-snug text-neutral-600 sm:col-span-2">
+              <span className="text-[11px] max-panel:text-xs leading-snug text-neutral-600 sm:col-span-2">
                 En la zona de la cuenta ({zonaCuenta ?? 'sin cuenta elegida'}).
                 {f.windowStart > f.windowEnd && f.windowEnd !== ''
                   ? ' El inicio es posterior al fin, así que la ventana cruza la medianoche.'
@@ -2618,7 +2618,7 @@ function FormularioRegla({
                 set({ cooldownMinutes: Number.isFinite(n) && n > 0 ? Math.floor(n) : 0 });
               }}
             />
-            <span className="text-[11px] text-neutral-600">
+            <span className="text-[11px] max-panel:text-xs text-neutral-600">
               Cuánto esperar antes de volver a tocar el MISMO objeto. 0 = sin espera.
             </span>
           </label>
@@ -2636,7 +2636,7 @@ function FormularioRegla({
                 set({ maxActionsPerObjectPerDay: Number.isFinite(n) && n > 0 ? Math.floor(n) : 0 });
               }}
             />
-            <span className="text-[11px] text-neutral-600">
+            <span className="text-[11px] max-panel:text-xs text-neutral-600">
               {f.maxActionsPerObjectPerDay === 0
                 ? 'Sin tope: la regla puede actuar todas las veces que haga falta. Es lo que corresponde para una regla de pausar.'
                 : 'El cupo se cuenta por objeto, no por regla: las acciones de otras reglas sobre el mismo objeto también lo gastan. 0 = sin tope.'}

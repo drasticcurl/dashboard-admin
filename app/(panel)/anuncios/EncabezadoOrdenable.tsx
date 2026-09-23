@@ -49,7 +49,7 @@ export function EncabezadoOrdenable({
         Indicador visible de la dirección vigente, sólo en la columna del
         Orden_Tabla (R4 c4).
       */}
-      <span aria-hidden="true" className="text-[10px] leading-none text-neutral-400">
+      <span aria-hidden="true" className="text-[10px] max-panel:text-xs leading-none text-neutral-400">
         {activa ? (orden.dir === 'desc' ? '↓' : '↑') : ''}
       </span>
     </button>

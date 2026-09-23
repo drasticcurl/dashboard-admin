@@ -113,7 +113,7 @@ export function PanelInsight({
           onClick={analizar}
           disabled={generando}
           aria-busy={generando}
-          className="inline-flex items-center gap-1.5 rounded-md border border-border-strong px-2.5 py-1 text-xs font-semibold text-neutral-200 transition-colors hover:bg-overlay/6 disabled:cursor-not-allowed disabled:opacity-50"
+          className="tap inline-flex items-center gap-1.5 rounded-md border border-border-strong px-2.5 py-1 text-xs font-semibold text-neutral-200 transition-colors hover:bg-overlay/6 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {generando ? <Spinner /> : <Sparkle size={13} weight="bold" aria-hidden />}
           {generando ? 'Analizando…' : actual ? 'Volver a analizar' : 'Analizar'}
@@ -155,7 +155,7 @@ export function PanelInsight({
                 {ins.evidencia.map((ev, j) => (
                   <span
                     key={`${j}-${ev.metrica}`}
-                    className="rounded border border-border-subtle bg-overlay/4 px-1.5 py-0.5 font-mono text-[11px] tabular-nums text-neutral-400"
+                    className="rounded border border-border-subtle bg-overlay/4 px-1.5 py-0.5 font-mono text-[11px] max-panel:text-xs tabular-nums text-neutral-400"
                     title={ev.metrica}
                   >
                     {ev.metrica}: {ev.valor}
@@ -168,7 +168,7 @@ export function PanelInsight({
       </div>
 
       {actual && (
-        <p className="text-[11px] text-neutral-600">
+        <p className="text-[11px] max-panel:text-xs text-neutral-600">
           {actual.rango.desde === actual.rango.hasta
             ? actual.rango.desde
             : `${actual.rango.desde} → ${actual.rango.hasta}`}{' '}

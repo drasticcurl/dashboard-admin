@@ -97,7 +97,7 @@ export function EmbudoChart({ etapas }: { etapas: EmbudoEtapa[] }): JSX.Element 
         mismo control duplicado. El % contra la etapa anterior no se perdió: es el
         −33 % / −61 % que está debajo de cada etapa.
       */}
-      <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] text-neutral-500">
+      <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] max-panel:text-xs text-neutral-500">
         {LEYENDA.map((l) => (
           <span key={l.sev} className="inline-flex items-center gap-1.5">
             <span
@@ -178,14 +178,14 @@ export function EmbudoChart({ etapas }: { etapas: EmbudoEtapa[] }): JSX.Element 
               className="min-w-0 border-t border-border-subtle pt-2 text-center"
               title={e.inconsistente ? TITULO_INCONSISTENTE : undefined}
             >
-              <p className="truncate text-[11px] font-medium text-neutral-300" title={e.label}>
+              <p className="truncate text-[11px] max-panel:text-xs font-medium text-neutral-300" title={e.label}>
                 {e.inconsistente && <span className="text-warn-400">⚠ </span>}
                 {e.label}
               </p>
               <p className="font-mono text-xs tabular-nums text-neutral-100">{fmtInt(e.sessions)}</p>
               {i > 0 && (
                 <p
-                  className={`font-mono text-[10px] tabular-nums ${
+                  className={`font-mono text-[10px] max-panel:text-xs tabular-nums ${
                     severidad(e, false) === 'malo'
                       ? 'text-bad-300'
                       : severidad(e, false) === 'medio'
@@ -197,7 +197,7 @@ export function EmbudoChart({ etapas }: { etapas: EmbudoEtapa[] }): JSX.Element 
                 </p>
               )}
               {e.fuente === 'hito' && (
-                <p className="text-[10px] text-neutral-600">hito</p>
+                <p className="text-[10px] max-panel:text-xs text-neutral-600">hito</p>
               )}
             </div>
           ))}
@@ -248,10 +248,10 @@ export function EmbudoChart({ etapas }: { etapas: EmbudoEtapa[] }): JSX.Element 
                     {e.inconsistente && <span className="text-warn-400">⚠ </span>}
                     {e.label}
                     {e.fuente === 'hito' && (
-                      <span className="ml-1.5 text-[10px] text-neutral-600">hito</span>
+                      <span className="ml-1.5 text-[10px] max-panel:text-xs text-neutral-600">hito</span>
                     )}
                   </p>
-                  <p className="font-mono text-[11px] tabular-nums text-neutral-500">
+                  <p className="font-mono text-[11px] max-panel:text-xs tabular-nums text-neutral-500">
                     {fmtInt(e.sessions)} sesiones
                     {i > 0 && e.dropFromPrevious > 0 && (
                       <span
@@ -279,7 +279,7 @@ export function EmbudoChart({ etapas }: { etapas: EmbudoEtapa[] }): JSX.Element 
       </ul>
 
       {hayInconsistente && (
-        <p className="mt-2 text-[11px] font-medium text-warn-400" title={TITULO_INCONSISTENTE}>
+        <p className="mt-2 text-[11px] max-panel:text-xs font-medium text-warn-400" title={TITULO_INCONSISTENTE}>
           ⚠ Hay una etapa con más sesiones que la anterior. El alto del tramo se recorta para que la
           figura siga siendo un embudo, pero el número que se muestra es el real.
         </p>

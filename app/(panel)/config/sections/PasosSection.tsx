@@ -137,7 +137,7 @@ export function PasosSection({
                   value={stepDraft(s).stepIndex}
                   onChange={(e) => setStepDrafts({ ...stepDrafts, [s.stepIndex]: { ...stepDraft(s), stepIndex: Number(e.target.value) } })}
                 />
-                <span className="text-[10px] leading-tight text-warn-400/90">
+                <span className="text-[10px] max-panel:text-xs leading-tight text-warn-400/90">
                   cambia el histórico
                 </span>
               </span>

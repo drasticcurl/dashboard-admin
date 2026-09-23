@@ -104,7 +104,7 @@ export function TarjetaTarea({
           {asa}
         </div>
 
-        <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] max-panel:text-xs">
           <span className={`rounded-full px-2 py-0.5 font-medium ${PILL[tono]}`}>
             {etiquetaDePrioridad(tarea.prioridad)}
           </span>
@@ -131,7 +131,7 @@ export function TarjetaTarea({
           )}
 
           <span
-            className="ml-auto flex h-6 w-6 items-center justify-center rounded-full bg-overlay/10 text-[11px] font-semibold text-neutral-300"
+            className="ml-auto flex h-6 w-6 items-center justify-center rounded-full bg-overlay/10 text-[11px] max-panel:text-xs font-semibold text-neutral-300"
             title={nombre}
             aria-label={`Asignada a ${nombre}`}
           >
@@ -173,7 +173,7 @@ export function TarjetaOrdenable({
             {...listeners}
             aria-label={`Arrastrar la tarea ${tarea.titulo}`}
             title="Arrastrar para mover (o Tab + Espacio + flechas)"
-            className="flex h-7 w-7 shrink-0 touch-none cursor-grab items-center justify-center rounded-lg border border-border-subtle text-neutral-500 transition-colors hover:bg-overlay/4 hover:text-neutral-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-good-500/60 active:cursor-grabbing"
+            className="flex h-11 w-11 shrink-0 touch-none cursor-grab items-center justify-center rounded-lg border border-border-subtle text-neutral-500 panel:h-7 panel:w-7 transition-colors hover:bg-overlay/4 hover:text-neutral-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-good-500/60 active:cursor-grabbing"
           >
             <DotsSixVertical size={14} weight="bold" />
           </button>

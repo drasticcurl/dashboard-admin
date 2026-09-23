@@ -805,7 +805,7 @@ export const catalogoVentas: WidgetCatalogo<VentasWidgetData> = {
               </PieChart>
             </ResponsiveContainer>
             <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-              <p className="text-[11px] text-neutral-500">Neto</p>
+              <p className="text-[11px] max-panel:text-xs text-neutral-500">Neto</p>
               <p className="font-mono text-sm font-semibold tabular-nums text-neutral-50">
                 {fmtMoney(totalNet, cur)}
               </p>

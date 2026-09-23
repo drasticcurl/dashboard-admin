@@ -79,9 +79,9 @@ export function ConfiguradorColumnas({
               const entrada = CATALOGO_METRICAS.find((e) => e.clave === clave)!;
               return (
                 <li key={clave} className="flex items-center gap-2 rounded-md px-2 py-1 text-xs text-neutral-500">
-                  <input type="checkbox" checked disabled aria-label={`${entrada.rotulo} (columna fija)`} className="h-3.5 w-3.5 accent-good-500" />
+                  <input type="checkbox" checked disabled aria-label={`${entrada.rotulo} (columna fija)`} className="h-5 w-5 accent-good-500 panel:h-3.5 panel:w-3.5" />
                   <span className="flex-1">{entrada.rotulo}</span>
-                  <span className="text-[10px] text-neutral-600">fija</span>
+                  <span className="text-[10px] max-panel:text-xs text-neutral-600">fija</span>
                 </li>
               );
             })}
@@ -103,7 +103,7 @@ export function ConfiguradorColumnas({
               checked={false}
               onChange={() => alternar(e.clave)}
               aria-label={`Mostrar la columna ${e.rotulo}`}
-              className="h-3.5 w-3.5 accent-good-500"
+              className="h-5 w-5 accent-good-500 panel:h-3.5 panel:w-3.5"
             />
             <span className="flex-1 text-neutral-500">{e.rotulo}</span>
           </li>
@@ -144,10 +144,10 @@ function FilaOrdenable({
         checked
         onChange={() => onAlternar(columna.clave)}
         aria-label={`Ocultar la columna ${entrada.rotulo}`}
-        className="h-3.5 w-3.5 accent-good-500"
+        className="h-5 w-5 accent-good-500 panel:h-3.5 panel:w-3.5"
       />
       <span className="flex-1">{entrada.rotulo}</span>
-      <span className="text-[10px] text-neutral-500">{columna.ancho}px</span>
+      <span className="text-[10px] max-panel:text-xs text-neutral-500">{columna.ancho}px</span>
     </li>
   );
 }

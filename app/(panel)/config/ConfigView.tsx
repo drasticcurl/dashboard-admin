@@ -202,7 +202,7 @@ export function ConfigView({
       >
         {GRUPOS.map((g) => (
           <div key={g.id} className="flex flex-wrap items-center gap-1">
-            <span className="flex w-24 shrink-0 items-center gap-1.5 px-2 text-[11px] font-medium uppercase tracking-wide text-neutral-400">
+            <span className="flex w-24 shrink-0 items-center gap-1.5 px-2 text-[11px] max-panel:text-xs font-medium uppercase tracking-wide text-neutral-400">
               {g.icon} {g.label}
             </span>
             <span className="flex flex-wrap items-center gap-1">

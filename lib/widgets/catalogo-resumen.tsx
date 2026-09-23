@@ -158,7 +158,7 @@ const byDayTicket = (d: OverviewData): SparkPoint[] =>
   d.byDay.filter((x) => x.orders > 0).map((x) => ({ day: x.day, v: x.netEur / x.orders }));
 
 const LINK_CLS =
-  'rounded-lg border border-border-subtle px-2.5 py-1 text-xs font-semibold text-neutral-300 transition-colors hover:bg-overlay/4 hover:text-neutral-50 focus:outline-none focus:ring-2 focus:ring-good-500/50';
+  'tap rounded-lg border border-border-subtle px-2.5 py-1 text-xs font-semibold text-neutral-300 transition-colors hover:bg-overlay/4 hover:text-neutral-50 focus:outline-none focus:ring-2 focus:ring-good-500/50';
 
 /** La tarjeta de un funnel: neto EUR + neto en su moneda + los links. */
 function FunnelCard({ f }: { f: FunnelSummary }): JSX.Element {
@@ -199,7 +199,7 @@ function StageCell({ n, base }: { n: number; base: number }): JSX.Element {
   return (
     <span className="whitespace-nowrap">
       <span className="tabular-nums text-neutral-200">{fmtInt(n)}</span>
-      <span className="ml-1.5 text-[11px] tabular-nums text-neutral-500">
+      <span className="ml-1.5 text-[11px] max-panel:text-xs tabular-nums text-neutral-500">
         {base > 0 ? fmtPct((n / base) * 100, 1) : '—'}
       </span>
     </span>

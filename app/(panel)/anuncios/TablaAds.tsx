@@ -491,6 +491,20 @@ export function TablaAds(props: PropsTablaAds): JSX.Element {
     );
   };
 
+  /**
+   * Las celdas de UNA fila como pares etiqueta/valor, para las tarjetas de
+   * mobile. Reusa exactamente el mismo `celda()` que la tabla, así que un
+   * cambio de formato no puede divergir entre las dos vistas.
+   */
+  const paresDeFila = (fila: MetricasObjeto, i: number) =>
+    columnas
+      .filter((c) => !CLAVES_FIJAS.includes(c.clave as (typeof CLAVES_FIJAS)[number]))
+      .map((c) => ({
+        clave: c.clave,
+        rotulo: entrada(c.clave)?.rotulo ?? c.clave,
+        valor: celda(c, fila, i),
+      }));
+
   return (
     /*
       El MARCO. No tiene overflow: es sólo el contexto de posicionamiento del
@@ -498,25 +512,114 @@ export function TablaAds(props: PropsTablaAds): JSX.Element {
       del ref `marco` para por qué no pueden ser el mismo elemento.
     */
     <div ref={marco} className="relative">
-      <div ref={contenedor} className="overflow-x-auto">
-        {props.enProceso && props.enProceso.length > 0 && (
-          <div className="mb-2 space-y-1">
-            {props.enProceso.map((f) => (
+      {/* Las filas fantasma de las copias en creación (R18 c4, c9). Van ARRIBA de
+          las dos vistas y no adentro de la tabla: existen sólo mientras el lote
+          está en vuelo y no son MetricasObjeto, así que no tienen columnas ni
+          tarjeta — y en mobile tienen que verse igual que en desktop. */}
+      {props.enProceso && props.enProceso.length > 0 && (
+        <div className="mb-2 space-y-1">
+          {props.enProceso.map((f) => (
+            <div
+              key={f.clave}
+              className="flex flex-wrap items-center gap-2 rounded-md border border-info-500/30 bg-info-500/[0.07] px-3 py-1.5 text-xs"
+            >
+              <Badge tone="info">creación en proceso</Badge>
+              <span className="min-w-0 break-words text-neutral-200" title={f.nombrePlanificado}>
+                {f.nombrePlanificado}
+              </span>
+              <span className="text-neutral-500">
+                {NIVEL_LABEL[f.nivel].toLowerCase()} copiando de {f.origenId}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/*
+        ── Mobile: una tarjeta por fila ────────────────────────────────────
+
+        Debajo de 760px esto NO es una tabla. Medido a 390px, la tabla medía
+        964px dentro de un contenedor de 324: se veía un tercio, había que
+        arrastrar de costado para leer cada número, y el nombre de la campaña
+        —lo único que identifica la fila— quedaba recortado a 48px de caja.
+
+        La tarjeta pone el nombre completo arriba, sin truncar, y los datos como
+        pares abajo. El interruptor de estado y el botón «⋯» quedan a la vista,
+        que son las dos cosas que se tocan.
+      */}
+      <div className="flex flex-col gap-2 panel:hidden">
+        {filas.length === 0 ? (
+          <p className="py-8 text-center text-sm text-neutral-500">
+            Sin filas para estos filtros
+          </p>
+        ) : (
+          filas.map((fila, i) => {
+            const abierta = popover?.filaId === fila.objectId;
+            return (
               <div
-                key={f.clave}
-                className="flex items-center gap-2 rounded-md border border-info-500/30 bg-info-500/[0.07] px-3 py-1.5 text-xs"
+                key={fila.objectId}
+                className={`rounded-lg border p-3 transition-colors duration-250 ${
+                  abierta
+                    ? 'border-good-700 bg-good-900'
+                    : 'border-border-subtle bg-overlay/2'
+                }`}
               >
-                <Badge tone="info">creación en proceso</Badge>
-                <span className="truncate text-neutral-200" title={f.nombrePlanificado}>
-                  {f.nombrePlanificado}
-                </span>
-                <span className="text-neutral-500">
-                  {NIVEL_LABEL[f.nivel].toLowerCase()} copiando de {f.origenId}
-                </span>
+                <div className="flex items-start justify-between gap-2">
+                  {/* El nombre COMPLETO, sin truncar: es lo que dice de qué
+                      campaña habla la tarjeta. `break-words` porque los nombres
+                      de Meta no traen espacios donde cortar. */}
+                  <button
+                    type="button"
+                    onClick={() => props.onBajarNivel(fila)}
+                    disabled={fila.level === 'ad'}
+                    className="min-w-0 flex-1 break-words text-left text-sm font-medium text-neutral-100 disabled:cursor-default"
+                  >
+                    {fila.objectName ?? '(sin nombre)'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => abrirPopover(fila, e.currentTarget, 'menu')}
+                    aria-haspopup="dialog"
+                    aria-expanded={abierta}
+                    aria-label={`Acciones de ${fila.objectName ?? fila.objectId}`}
+                    className="tap press -mr-1 -mt-1 shrink-0 rounded-md text-neutral-400 transition-colors duration-250 hover:bg-overlay/8 hover:text-neutral-100"
+                  >
+                    <DotsThree size={20} weight="bold" aria-hidden />
+                  </button>
+                </div>
+
+                <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2">
+                  <ToggleEstado
+                    fila={fila}
+                    onToggle={props.onToggleEstado}
+                    onIrACampania={props.onIrACampania}
+                    enCurso={props.togglesEnCurso?.has(fila.objectId) ?? false}
+                  />
+                  {fila.effectiveStatus && fila.effectiveStatus !== fila.status && (
+                    <Badge tone="warn">{etiquetaEffective(fila.effectiveStatus)}</Badge>
+                  )}
+                  <MarcaFrescura
+                    fila={fila}
+                    umbralSegundos={props.umbralFrescura}
+                    ahora={props.ahora}
+                  />
+                </div>
+
+                <dl className="mt-2.5 grid grid-cols-2 gap-x-3 gap-y-2 border-t border-divider pt-2.5">
+                  {paresDeFila(fila, i).map((par) => (
+                    <div key={par.clave} className="flex min-w-0 flex-col">
+                      <dt className="truncate text-xs text-neutral-500">{par.rotulo}</dt>
+                      <dd className="min-w-0 text-sm text-neutral-200">{par.valor}</dd>
+                    </div>
+                  ))}
+                </dl>
               </div>
-            ))}
-          </div>
+            );
+          })
         )}
+      </div>
+
+      <div ref={contenedor} className="hidden overflow-x-auto panel:block">
         <table className="w-full text-left text-sm" style={{ tableLayout: 'fixed' }}>
           <colgroup>
             {columnasVisibles.map((c) => (
