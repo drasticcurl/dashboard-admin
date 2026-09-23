@@ -270,9 +270,30 @@
     se sienta armada y no volcada.
 
     Se apaga sola con prefers-reduced-motion (regla de @layer base).
+
+    ── `backwards` y NO `both` ───────────────────────────────────────────────
+
+    Esto no es un detalle: `both` deja el último keyframe aplicado PARA SIEMPRE,
+    y ese keyframe declara `transform: none`. El valor computado de eso no es
+    `none`, es `matrix(1, 0, 0, 1, 0, 0)` — y una matriz identidad crea
+    containing block igual, porque el navegador no distingue "identidad" de
+    "cualquier transform".
+
+    Consecuencia real, medida en el panel local a 390×844: el overlay del modal
+    de saldos, que es `fixed inset-0`, daba `top: 195` y `height: 1965` en lugar
+    de `top: 0, height: 844`. Se estaba posicionando contra el div animado de la
+    pantalla y no contra el viewport, así que aparecía a 195px del tope del
+    DOCUMENTO con el alto del documento: el modal "cortado por la mitad" que se
+    reportó, y lo mismo con la hoja del popover de Anuncios.
+
+    Con `backwards` el fill sólo aplica ANTES de que arranque (que es lo que
+    necesita el `animation-delay` de la cascada) y al terminar el elemento vuelve
+    a sus valores base, sin transform. Los overlays además van por `Portal`
+    (components/Portal.tsx), que es el cinturón: así tampoco importa si alguien
+    le pone un `filter` a una tarjeta en el futuro.
   */
   .reveal > * {
-    animation: rise-in 420ms cubic-bezier(0.32, 0.72, 0, 1) both;
+    animation: rise-in 420ms cubic-bezier(0.32, 0.72, 0, 1) backwards;
   }
 
   .reveal > *:nth-child(1) { animation-delay: 0ms; }

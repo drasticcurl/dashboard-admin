@@ -24,6 +24,7 @@
 import { useId, useState } from 'react';
 import { Previsualizacion } from './Previsualizacion';
 import type { Previsualizacion as Previa } from '@/lib/ads/previsualizacion';
+import { Portal } from '@/components/Portal';
 
 export function DialogoConfirmacion({
   previa,
@@ -52,7 +53,13 @@ export function DialogoConfirmacion({
   const puedeEjecutar = previa.completa && hayEjecutable && confirmado && !ejecutando && !bloqueo;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-canvas/80 backdrop-blur-sm p-4" role="dialog" aria-modal="true">
+    /* Portal: este diálogo es `fixed inset-0` y se monta DENTRO de la pantalla de
+       Anuncios, cuyo bloque tiene una animación de entrada con fill. Eso le
+       creaba containing block y lo posicionaba contra el documento en vez del
+       viewport: es el «también pasa cuando le doy a editar a un anuncio» del
+       reporte. Ver components/Portal.tsx. */
+    <Portal>
+    <div className="fixed inset-0 z-modal flex items-center justify-center bg-canvas/80 p-4 backdrop-blur-sm" role="dialog" aria-modal="true">
       <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-border-strong bg-surface p-5 shadow-float">
         <h3 className="text-sm font-semibold text-neutral-100">Confirmar acción</h3>
 
@@ -110,5 +117,6 @@ export function DialogoConfirmacion({
         </div>
       </div>
     </div>
+    </Portal>
   );
 }

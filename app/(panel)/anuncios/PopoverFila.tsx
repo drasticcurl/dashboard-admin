@@ -50,6 +50,7 @@ import {
 import type { MetricasObjeto } from '@/lib/ads/tipos';
 import { fmtMoney } from '@/components/ui';
 import { MONEDA_REPORTE, SIMBOLO_REPORTE } from '@/lib/moneda-reporte';
+import { Portal } from '@/components/Portal';
 import { motivoPresupuestoNoEditable } from './celdas';
 
 /** El ancho del popover en desktop (handoff: 288px). */
@@ -432,8 +433,12 @@ export function PopoverFila({
   );
 
   if (esMobile) {
+    /* La hoja es `fixed`, así que va por Portal por el mismo motivo que el modal:
+       un ancestro animado la posicionaba contra el documento. El popover de
+       desktop NO se portea: es `absolute` dentro del marco de la tabla justamente
+       para moverse con la fila. */
     return (
-      <>
+      <Portal>
         {/* El backdrop al 70% del handoff. En desktop no hay: el popover está
             pegado a la fila y tapar la tabla escondería justo el contexto que
             el popover existe para dar. En mobile sí, porque la hoja ocupa media
@@ -457,7 +462,7 @@ export function PopoverFila({
           </div>
           {cuerpo}
         </div>
-      </>
+      </Portal>
     );
   }
 

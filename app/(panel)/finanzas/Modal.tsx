@@ -45,6 +45,7 @@
  */
 
 import { useCallback, useEffect, useId, useRef, type ReactNode } from 'react';
+import { Portal } from '@/components/Portal';
 
 /** Lo que se puede enfocar adentro del modal, en orden de tabulación. */
 const FOCUSABLE =
@@ -134,6 +135,11 @@ export function Modal({
   );
 
   return (
+    /* `Portal`: el overlay se cuelga del <body>. Es `fixed inset-0`, y dentro del
+       árbol de la pantalla un ancestro animado le creaba containing block, así
+       que medía contra el documento y no contra el viewport — el modal "cortado
+       por la mitad" que se reportó. Ver components/Portal.tsx. */
+    <Portal>
     <div
       /*
         `overflow-hidden` y no `overflow-y-auto`: el scroll del overlay era el
@@ -237,5 +243,6 @@ export function Modal({
         )}
       </div>
     </div>
+    </Portal>
   );
 }
