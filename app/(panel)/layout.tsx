@@ -81,7 +81,7 @@ export default async function PanelLayout({ children }: { children: ReactNode })
       */}
       <a
         href="#contenido"
-        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[60] focus:rounded-lg focus:bg-surface-raised focus:px-3 focus:py-2 focus:text-sm focus:font-semibold focus:text-neutral-50 focus:shadow-float"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-salto focus:rounded-lg focus:bg-surface-raised focus:px-3 focus:py-2 focus:text-sm focus:font-semibold focus:text-neutral-50 focus:shadow-float"
       >
         Saltar al contenido
       </a>
@@ -100,9 +100,13 @@ export default async function PanelLayout({ children }: { children: ReactNode })
         nombre={sesion.nombre}
         salir={
           <form action={logoutAction}>
+            {/* Link de texto en verde y no un botón con fondo: en el pie del
+                sidebar, un botón con el mismo tratamiento que los ítems de
+                navegación se lee como una décima sección en vez de como la
+                salida. Así se ve que es una acción. */}
             <button
               type="submit"
-              className="tap press w-full rounded-lg border border-border-strong bg-surface-raised px-2.5 py-1.5 text-sm font-medium text-neutral-300 shadow-inset-highlight transition-colors duration-250 hover:border-overlay/16 hover:bg-surface-overlay hover:text-neutral-100"
+              className="tap press rounded-lg px-1.5 py-1 text-sm font-medium text-good-400 transition-colors duration-250 hover:bg-good-900 hover:text-good-200"
             >
               Salir
             </button>

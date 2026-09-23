@@ -440,7 +440,7 @@ export function PopoverFila({
             pantalla y sin backdrop no se entiende que el resto está inactivo. */}
         <div
           aria-hidden
-          className="fixed inset-0 z-40 bg-neutral-900/70"
+          className="fixed inset-0 z-modal bg-neutral-900/70"
           onPointerDown={onCerrar}
         />
         <div
@@ -448,7 +448,7 @@ export function PopoverFila({
           role="dialog"
           aria-modal="true"
           aria-label={`Editar ${fila.objectName ?? fila.objectId}`}
-          className="hoja-sube fixed inset-x-0 bottom-0 z-50 max-h-[80dvh] overflow-y-auto rounded-t-2xl border-t border-border-strong bg-surface-overlay pb-[env(safe-area-inset-bottom)] shadow-popover"
+          className="hoja-sube fixed inset-x-0 bottom-0 z-modal max-h-[80dvh] overflow-y-auto rounded-t-2xl border-t border-border-strong bg-surface-overlay pb-[env(safe-area-inset-bottom)] shadow-popover"
         >
           {/* El handle de 36×4: es lo que hace que se lea como una hoja que se
               puede arrastrar y no como un cartel que apareció. */}
@@ -471,7 +471,7 @@ export function PopoverFila({
          se mueva con la fila al scrollear la página. Con `fixed` se quedaría
          quieto en la pantalla mientras la fila de la que habla se va para
          arriba, que es exactamente lo que se venía a arreglar. */
-      className="absolute z-30 rounded-lg border border-border-strong bg-surface-overlay shadow-popover"
+      className="absolute z-popover rounded-lg border border-border-strong bg-surface-overlay shadow-popover"
     >
       {cuerpo}
     </div>

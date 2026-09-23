@@ -138,10 +138,6 @@ export function LeadsView({
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <h1 className="flex items-center gap-2 text-[22px] font-medium -tracking-[0.01em] text-neutral-50 panel:text-[26px]">
-            <UsersThree size={20} weight="bold" className="text-neutral-400" /> Leads
-          </h1>
-          <span className="text-sm text-neutral-500">· {funnel.name}</span>
           {loading && <span className="text-xs text-neutral-500">Actualizando…</span>}
         </div>
       </div>

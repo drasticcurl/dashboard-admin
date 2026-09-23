@@ -241,12 +241,7 @@ export function VentasView({
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <h1 className="text-[22px] font-medium -tracking-[0.01em] text-neutral-50 panel:text-[26px]">Ventas</h1>
-          {unattributed ? (
-            <Badge tone="warn">Sin atribuir</Badge>
-          ) : (
-            <Badge tone="info">{funnel!.name}</Badge>
-          )}
+          {unattributed && <Badge tone="warn">Sin atribuir</Badge>}
           {/* El tick del gasto no toca la grilla, así que sin este aviso los
               números cambiarían solos y sin explicación. La antigüedad la sigue
               contando la tarjeta de gasto en ads. */}

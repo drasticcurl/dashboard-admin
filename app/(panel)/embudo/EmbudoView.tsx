@@ -196,8 +196,6 @@ export function EmbudoView({
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2">
-        <h1 className="text-[22px] font-medium -tracking-[0.01em] text-neutral-50 panel:text-[26px]">Embudo</h1>
-        <Badge tone="info">{funnel.name}</Badge>
         {loading && (
           <span className="flex items-center gap-2 text-xs text-neutral-500">
             <Spinner /> Actualizando…

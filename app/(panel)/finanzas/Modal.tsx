@@ -147,7 +147,7 @@ export function Modal({
         tarjeta es una hoja que va de 24px del tope hasta abajo (handoff), y para
         eso tiene que poder estirarse.
       */
-      className="fixed inset-0 z-50 flex items-stretch justify-center overflow-hidden bg-canvas/80 pt-6 backdrop-blur-sm panel:items-center panel:p-4"
+      className="fixed inset-0 z-modal flex items-stretch justify-center overflow-hidden bg-canvas/80 pt-6 backdrop-blur-sm panel:items-center panel:p-4"
       // `onMouseDown` en el overlay y el chequeo de target: cierra sólo cuando
       // el gesto EMPEZÓ en el fondo. Con onClick, seleccionar texto de adentro
       // y soltar afuera cerraba el modal y perdía lo tipeado.
@@ -185,14 +185,20 @@ export function Modal({
       >
         {/* Encabezado FIJO. `shrink-0` para que no lo aplaste el cuerpo, y el
             divisor abajo para que se lea como una franja y no como el borde de
-            la primera fila del contenido. */}
-        <div className="flex shrink-0 items-start justify-between gap-4 border-b border-divider p-4 panel:px-5">
-          <div className="min-w-0">
-            <h2 id={idTitulo} className="text-base font-semibold -tracking-[0.01em] text-neutral-50">
+            la primera fila del contenido.
+
+            La descripción se ESCONDE debajo de 760px: medido a 390px, el
+            encabezado con la descripción de tres líneas medía 125px, y entre eso
+            y el pie al cuerpo le quedaban 474 de 844 — el modal se leía como
+            "la mitad de un cuadro". El texto no se pierde: queda en el `title`
+            del encabezado. */}
+        <div className="flex shrink-0 items-start justify-between gap-4 border-b border-divider px-4 py-3 panel:px-5 panel:py-4">
+          <div className="min-w-0" title={descripcion}>
+            <h2 id={idTitulo} className="text-base font-medium -tracking-[0.01em] text-neutral-50">
               {titulo}
             </h2>
             {descripcion && (
-              <p id={idDesc} className="mt-1 text-xs text-neutral-500">
+              <p id={idDesc} className="mt-1 hidden text-xs text-neutral-500 panel:block">
                 {descripcion}
               </p>
             )}

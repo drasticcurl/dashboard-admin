@@ -87,18 +87,58 @@ export function AvisoSaldo({ faltan, hoy }: { faltan: string[]; hoy: string }): 
       emergencia. `aria-live="polite"` (implícito en status) lo anuncia cuando
       la persona termina la frase en curso.
 
-      `fixed bottom-4 right-4`: abajo a la derecha, fuera del camino del
-      contenido y del header. En mobile ocupa el ancho menos los márgenes.
+      ── Por qué es UNA LÍNEA en mobile (rediseño v3, segunda pasada) ─────────
+
+      Antes era la misma tarjeta en las dos vistas: título + dos líneas de
+      explicación + botón, o sea ~140px de alto, y en mobile con `left-4 right-4`
+      ocupaba TODO el ancho abajo. Medido a 390px, tapaba el contenido de Embudo,
+      Ventas, Config y Tareas — en Config llegaba a cubrir la primera fila de la
+      tabla.
+
+      Ahora en mobile es una barra de una línea que entra en el `pb-24` (96px)
+      que el `<main>` ya reserva abajo, así que no se come contenido real. El
+      detalle de qué cuentas faltan se lee en Finanzas, que es donde se resuelve;
+      acá alcanza con el número. En desktop sigue siendo la tarjeta con el
+      detalle, porque ahí hay lugar y no tapa nada.
+
+      `z-aviso` (30) y NO 40: con 40 quedaba ARRIBA del popover anclado de
+      Anuncios, así que al tocar «⋯» en las últimas filas el popover salía por
+      debajo de este aviso —se veía la mitad— y encima el aviso se comía los
+      clicks. Ver la escala de capas en tailwind.config.ts.
     */
     <div
       role="status"
-      className="animate-rise-in fixed bottom-4 left-4 right-4 z-40 sm:left-auto sm:right-4 sm:max-w-sm"
+      className="animate-rise-in fixed bottom-3 left-3 right-3 z-aviso panel:bottom-4 panel:left-auto panel:right-4 panel:max-w-sm"
     >
-      <div className="rounded-2xl border border-warn-500/30 bg-surface-raised/95 p-4 shadow-float backdrop-blur-sm">
+      {/* ── Mobile: una línea ── */}
+      <div className="flex items-center gap-2 rounded-xl border border-warn-500/30 bg-surface-raised/95 p-2 pl-3 shadow-float backdrop-blur-sm panel:hidden">
+        <p className="min-w-0 flex-1 truncate text-xs font-medium text-warn-200">
+          Falta el saldo de hoy
+          <span className="ml-1 font-normal text-neutral-400">
+            ({n === 1 ? '1 cuenta' : `${n} cuentas`})
+          </span>
+        </p>
+        <Link
+          href="/finanzas"
+          onClick={cerrar}
+          className="tap press shrink-0 rounded-lg border border-warn-500/30 bg-warn-500/10 px-2.5 text-xs font-semibold text-warn-200 transition-colors duration-250 hover:bg-warn-500/20"
+        >
+          Cargar
+        </Link>
+        <button
+          type="button"
+          onClick={cerrar}
+          aria-label="Descartar el aviso por hoy"
+          className="tap press shrink-0 rounded-lg px-1.5 text-xs text-neutral-400 transition-colors duration-250 hover:bg-overlay/8 hover:text-neutral-100"
+        >
+          ✕
+        </button>
+      </div>
+
+      {/* ── Desktop: la tarjeta con el detalle ── */}
+      <div className="hidden rounded-xl border border-warn-500/30 bg-surface-raised/95 p-4 shadow-float backdrop-blur-sm panel:block">
         <div className="flex items-start justify-between gap-3">
-          <p className="text-sm font-semibold text-warn-200">
-            Falta el saldo de hoy
-          </p>
+          <p className="text-sm font-medium text-warn-200">Falta el saldo de hoy</p>
           <button
             type="button"
             onClick={cerrar}
@@ -117,7 +157,7 @@ export function AvisoSaldo({ faltan, hoy }: { faltan: string[]; hoy: string }): 
         <Link
           href="/finanzas"
           onClick={cerrar}
-          className="press mt-3 inline-flex items-center rounded-lg border border-warn-500/30 bg-warn-500/10 px-3 py-1.5 text-sm font-semibold text-warn-200 transition-colors duration-250 hover:bg-warn-500/20"
+          className="press mt-3 inline-flex items-center rounded-lg border border-warn-500/30 bg-warn-500/10 px-3 py-1.5 text-sm font-medium text-warn-200 transition-colors duration-250 hover:bg-warn-500/20"
         >
           Cargar ahora
         </Link>

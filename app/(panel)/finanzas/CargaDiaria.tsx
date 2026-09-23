@@ -246,62 +246,72 @@ export function CargaDiaria({
     : cuentas.filter((c) => (valores[c.id] ?? '').trim() !== '').length;
 
   const pie = (
-    <div className="flex flex-col gap-3">
-      {/* El total en vivo. Dice si es el patrimonio o un PARCIAL: por D5 un total
-          al que le falta una cuenta no es un número que falta, es un número
-          equivocado que se ve igual de bien que uno correcto. */}
-      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+    /*
+      Compacto a propósito. Medido a 390px, la versión anterior de este pie medía
+      195px de alto: con un encabezado de 125 y un viewport de 844, al cuerpo le
+      quedaban 474px, o sea que el modal se leía como "la mitad de un cuadro" —
+      que es exactamente cómo lo reportó el usuario.
+
+      Ahora en mobile el total y los botones van en UNA fila (el total a la
+      izquierda, los botones a la derecha) y el detalle de qué falta queda en una
+      sola línea recortable. En desktop, donde hay lugar, se despliega en dos
+      filas con la explicación completa.
+    */
+    <div className="flex flex-col gap-2">
+      <div className="flex items-end justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-xs font-medium text-neutral-400">
-            {total.completo ? `Patrimonio del ${day}` : 'Suma parcial de lo que escribiste'}
+          <p className="text-[11px] font-medium text-neutral-400">
+            {total.completo ? `Patrimonio del ${day}` : 'Suma parcial'}
           </p>
-          <p className="mt-0.5 text-xs text-neutral-500">
-            {total.completo
-              ? `Están las ${total.esperadas} cuentas: este día va a contar en el gráfico.`
-              : `Faltan ${total.esperadas - total.cargadas} de ${total.esperadas} — así como está, este día NO tiene patrimonio y no se dibuja.`}
+          <p
+            className={`num font-mono text-lg font-medium leading-tight ${
+              total.completo
+                ? total.totalEur < 0
+                  ? 'text-bad-400'
+                  : 'text-neutral-50'
+                : 'text-neutral-400'
+            }`}
+          >
+            {fmtMoney(total.totalEur, MONEDA_REPORTE)}
           </p>
         </div>
-        <p
-          className={`num font-mono text-xl font-semibold tracking-tight ${
-            total.completo
-              ? total.totalEur < 0
-                ? 'text-bad-400'
-                : 'text-neutral-50'
-              : 'text-neutral-400'
-          }`}
-        >
-          {fmtMoney(total.totalEur, MONEDA_REPORTE)}
-        </p>
+
+        <div className="flex shrink-0 items-center gap-2">
+          <button type="button" className={btnGhost} onClick={onCerrar} disabled={busy}>
+            Cancelar
+          </button>
+          <button type="button" className={btnPrimary} disabled={busy} onClick={guardar}>
+            {ajustes === 0 ? 'Guardar' : `Guardar ${ajustes}`}
+          </button>
+        </div>
       </div>
 
-      <div className="flex flex-wrap items-center justify-end gap-2">
-        {/* El motivo al lado del botón, y el botón NUNCA gris sin explicación:
-            es la regla del proyecto desde el 2026-08-24. Sólo se deshabilita
-            mientras hay un pedido en vuelo. */}
-        {!busy && falta !== null && (
-          <span className="mr-auto text-xs text-warn-300" aria-live="polite">
-            {falta}
-          </span>
-        )}
-        {!busy && falta === null && !total.completo && (
-          <span className="mr-auto text-xs text-neutral-500" aria-live="polite">
-            se puede guardar así, pero el día queda incompleto
-          </span>
-        )}
-        {busy && (
-          <span className="mr-auto flex items-center gap-2 text-xs text-neutral-500">
+      {/* El estado, en una línea. `truncate` en mobile para que no empuje la
+          altura del pie; el texto completo queda en el `title`. */}
+      <p
+        className="truncate text-[11px] text-neutral-500 panel:whitespace-normal"
+        aria-live="polite"
+        title={
+          busy
+            ? 'Guardando…'
+            : (falta ??
+              (total.completo
+                ? `Están las ${total.esperadas} cuentas: este día va a contar en el gráfico.`
+                : `Faltan ${total.esperadas - total.cargadas} de ${total.esperadas} — así como está, este día NO tiene patrimonio y no se dibuja.`))
+        }
+      >
+        {busy ? (
+          <span className="flex items-center gap-2">
             <Spinner /> Guardando…
           </span>
+        ) : falta !== null ? (
+          <span className="text-warn-300">{falta}</span>
+        ) : total.completo ? (
+          `Están las ${total.esperadas} cuentas: este día va a contar en el gráfico.`
+        ) : (
+          `Faltan ${total.esperadas - total.cargadas} de ${total.esperadas}: se puede guardar, pero el día queda incompleto.`
         )}
-        <button type="button" className={`${btnGhost} tap`} onClick={onCerrar} disabled={busy}>
-          Cancelar
-        </button>
-        <button type="button" className={`${btnPrimary} tap`} disabled={busy} onClick={guardar}>
-          {ajustes === 0
-            ? 'Guardar ajustes'
-            : `Guardar ${ajustes} ajuste${ajustes === 1 ? '' : 's'}`}
-        </button>
-      </div>
+      </p>
     </div>
   );
 

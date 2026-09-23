@@ -171,8 +171,6 @@ export function ResumenView({
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <h1 className="text-[22px] font-medium -tracking-[0.01em] text-neutral-50 panel:text-[26px]">Resumen</h1>
-          <BadgeTodas />
           {loading && (
             <span className="flex items-center gap-2 text-xs text-neutral-500">
               <Spinner /> Actualizando…

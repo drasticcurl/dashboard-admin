@@ -37,12 +37,42 @@ import { List, X } from '@phosphor-icons/react';
 import type { Funnel } from '@/lib/funnels';
 import type { Seccion } from '@/lib/permisos';
 import { PANEL_TITLE } from '@/lib/brand';
+import { nombreVisible } from '@/lib/funnel-nombre';
 import { PanelLogo } from '@/components/PanelLogo';
-import { RangePicker } from '@/components/RangePicker';
+import { EncabezadoPagina } from '@/components/EncabezadoPagina';
 import { SelectorFunnel, tabActiva, tabsVisibles, type Tab } from '@/components/Nav';
 
 /** El ancho del sidebar (handoff: 220px). */
 const ANCHO_SIDEBAR = 'w-[220px]';
+
+/**
+ * Qué dice cada pantalla debajo de su título, y qué filtros le sirven.
+ *
+ * El subtítulo no es decorativo: dice QUÉ contesta la pantalla, que es justo lo
+ * que un título de una palabra no dice. Los de Resumen, Embudo, Ventas y
+ * Anuncios son los de las capturas de referencia.
+ *
+ * `funnel` y `periodo` se declaran por pantalla porque no todas dependen de los
+ * dos: Tareas no tiene período (una tarea no pertenece a un rango) y Config no
+ * tiene ninguno salvo las secciones por funnel, que traen su propio selector.
+ */
+const PANTALLAS: Record<string, { subtitulo: string; funnel: boolean; periodo: boolean }> = {
+  '/resumen':   { subtitulo: 'Cómo viene el período, en una mirada.',        funnel: true,  periodo: true },
+  '/embudo':    { subtitulo: 'Dónde se cae la gente, paso por paso.',        funnel: true,  periodo: true },
+  '/ventas':    { subtitulo: 'Lo que entró, lo que costó y lo que quedó.',   funnel: true,  periodo: true },
+  '/anuncios':  { subtitulo: 'Tocá un presupuesto para editarlo ahí mismo.', funnel: false, periodo: true },
+  '/finanzas':  { subtitulo: 'El patrimonio medido, día por día.',           funnel: false, periodo: false },
+  '/leads':     { subtitulo: 'Quiénes dejaron sus datos y en qué estado.',   funnel: true,  periodo: true },
+  '/tareas':    { subtitulo: 'Qué hay que hacer y en qué anda cada cosa.',   funnel: false, periodo: false },
+  '/creativos': { subtitulo: 'Qué creativo rinde y cuál no.',                funnel: true,  periodo: true },
+  '/config':    { subtitulo: 'Funnels, dinero, fuentes y sistema.',          funnel: false, periodo: false },
+};
+
+/** La pantalla a la que pertenece la ruta actual, contando las subrutas. */
+function pantallaDe(pathname: string): { href: string; label: string } | null {
+  const tab = tabsVisibles().find((t) => tabActiva(t.href, pathname));
+  return tab ? { href: tab.href, label: tab.label } : null;
+}
 
 export function Shell({
   funnels,
@@ -83,8 +113,26 @@ export function Shell({
   children: ReactNode;
 }): JSX.Element {
   const pathname = usePathname() ?? '/';
+  const searchParams = useSearchParams();
   const [drawerAbierto, setDrawerAbierto] = useState(false);
   const tabs = tabsVisibles(seccionesPermitidas);
+
+  const pantalla = pantallaDe(pathname);
+  const conf = pantalla ? PANTALLAS[pantalla.href] : undefined;
+
+  /**
+   * El nombre del funnel elegido, para la pastilla al lado del título.
+   *
+   * Replica el default de `SelectorFunnel` (el primero de la lista cuando `?f=`
+   * no dice nada o dice un slug que no existe): si acá se mostrara otra cosa, la
+   * pastilla diría un funnel y el <select> de al lado otro.
+   */
+  const funnelActivo = (() => {
+    if (funnels.length === 0) return null;
+    const slug = searchParams.get('f');
+    const elegido = slug ? funnels.find((f) => f.slug === slug) : undefined;
+    return nombreVisible(elegido ?? funnels[0]!);
+  })();
 
   // Cierra al navegar (decisión 3). Sin esto la pantalla nueva carga detrás del
   // menú abierto.
@@ -110,7 +158,7 @@ export function Shell({
     <>
       {/* ── Sidebar de desktop ─────────────────────────────────────────────── */}
       <aside
-        className={`fixed inset-y-0 left-0 z-30 hidden ${ANCHO_SIDEBAR} flex-col border-r border-divider bg-surface panel:flex`}
+        className={`fixed inset-y-0 left-0 z-barra hidden ${ANCHO_SIDEBAR} flex-col border-r border-divider bg-surface panel:flex`}
       >
         <Link
           href="/resumen"
@@ -138,12 +186,7 @@ export function Shell({
         </nav>
 
         <div className="shrink-0 border-t border-divider px-3 py-3">
-          {nombre && (
-            <p className="truncate px-1 pb-1.5 text-xs text-neutral-400" title={nombre}>
-              {nombre}
-            </p>
-          )}
-          {salir}
+          <PieUsuario nombre={nombre} salir={salir} />
         </div>
       </aside>
 
@@ -152,14 +195,14 @@ export function Shell({
         <>
           <div
             aria-hidden
-            className="fixed inset-0 z-40 bg-neutral-900/70 panel:hidden"
+            className="fixed inset-0 z-modal bg-neutral-900/70 panel:hidden"
             onClick={() => setDrawerAbierto(false)}
           />
           <div
             role="dialog"
             aria-modal="true"
             aria-label="Secciones del panel"
-            className="fixed inset-y-0 left-0 z-50 flex w-[min(84%,300px)] flex-col border-r border-divider bg-surface shadow-popover panel:hidden"
+            className="fixed inset-y-0 left-0 z-modal flex w-[min(84%,300px)] flex-col border-r border-divider bg-surface shadow-popover panel:hidden"
           >
             <div className="flex shrink-0 items-center justify-between gap-2 border-b border-divider px-3 py-3">
               <span className="flex min-w-0 items-center gap-2.5 text-sm font-medium text-neutral-100">
@@ -192,12 +235,7 @@ export function Shell({
             </nav>
 
             <div className="shrink-0 border-t border-divider px-3 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-              {nombre && (
-                <p className="truncate px-1 pb-1.5 text-xs text-neutral-400" title={nombre}>
-                  {nombre}
-                </p>
-              )}
-              {salir}
+              <PieUsuario nombre={nombre} salir={salir} />
             </div>
           </div>
         </>
@@ -211,47 +249,38 @@ export function Shell({
       */}
       <div className="panel:pl-[220px]">
         {/*
-          La barra sticky. En mobile trae la hamburguesa; en las dos vistas trae
-          los filtros (funnel y período), que el handoff pone a la derecha del
-          encabezado de página. `flex-wrap` porque con dos <select> de 44px y un
-          nombre de funnel largo no entran en 360px de ancho.
+          La barra sticky de mobile: SÓLO la hamburguesa y el nombre de la
+          sección. Los filtros se fueron al encabezado de página (ver
+          EncabezadoPagina.tsx): acá flotaban solos en una franja propia y en
+          mobile hacían wrap, comiéndose ~115px de alto antes del contenido.
+
+          En desktop esta barra no existe: el sidebar ya dice dónde estás.
         */}
-        <header className="glass-bar sticky top-0 z-20">
-          <div className="mx-auto flex max-w-[1320px] flex-wrap items-center gap-2 px-4 py-2.5 panel:justify-end panel:px-10 panel:py-3">
-            <button
-              type="button"
-              onClick={() => setDrawerAbierto(true)}
-              aria-label="Abrir el menú de secciones"
-              aria-expanded={drawerAbierto}
-              className="tap press relative -ml-1 shrink-0 rounded-lg text-neutral-300 transition-colors duration-250 hover:bg-overlay/8 hover:text-neutral-100 panel:hidden"
-            >
-              <List size={22} weight="bold" aria-hidden />
-              {/* El punto de saldo pendiente también acá: con el menú cerrado, el
-                  de Finanzas no se ve, así que el recordatorio no existiría en
-                  mobile. */}
-              {saldoPendiente && (
-                <>
-                  <span
-                    aria-hidden
-                    className="absolute right-2 top-2 h-[7px] w-[7px] rounded-full bg-good-500"
-                  />
-                  <span className="sr-only"> (falta cargar el saldo de hoy)</span>
-                </>
-              )}
-            </button>
-
-            {/* Empuja los filtros a la derecha en mobile, donde la hamburguesa
-                ocupa la izquierda. En desktop el `justify-end` del contenedor ya
-                lo hace y este div no estorba. */}
-            <span className="flex-1 panel:hidden" />
-
-            <SelectorFunnel funnels={funnels} />
-            <RangePicker />
-          </div>
-          <div
-            aria-hidden
-            className="h-px bg-gradient-to-r from-transparent via-overlay/12 to-transparent"
-          />
+        <header className="glass-bar sticky top-0 z-barra flex items-center gap-2 px-4 py-2 panel:hidden">
+          <button
+            type="button"
+            onClick={() => setDrawerAbierto(true)}
+            aria-label="Abrir el menú de secciones"
+            aria-expanded={drawerAbierto}
+            className="tap press relative -ml-1 shrink-0 rounded-lg text-neutral-300 transition-colors duration-250 hover:bg-overlay/8 hover:text-neutral-100"
+          >
+            <List size={22} weight="bold" aria-hidden />
+            {/* El punto de saldo pendiente también acá: con el menú cerrado, el
+                de Finanzas no se ve, así que el recordatorio no existiría en
+                mobile. */}
+            {saldoPendiente && (
+              <>
+                <span
+                  aria-hidden
+                  className="absolute right-2 top-2 h-[7px] w-[7px] rounded-full bg-good-500"
+                />
+                <span className="sr-only"> (falta cargar el saldo de hoy)</span>
+              </>
+            )}
+          </button>
+          <span className="truncate text-sm font-medium text-neutral-300">
+            {pantalla?.label ?? PANEL_TITLE}
+          </span>
         </header>
 
         {/*
@@ -264,16 +293,72 @@ export function Shell({
           Padding del handoff: 36px 40px 96px en desktop, 20px 16px 96px en
           mobile. El inferior es mucho más grande que el superior porque
           ópticamente un bloque con el mismo aire arriba y abajo se ve caído
-          hacia el final de la página.
+          hacia el final de la página — y además es donde se apoya el aviso
+          flotante de saldo, que así no tapa contenido.
+
+          `overflow-x-clip`: el cinturón de seguridad contra el desborde
+          horizontal. Medido antes de esto, /anuncios a 390px daba un documento
+          de 1269px —o sea que la PÁGINA ENTERA se arrastraba de costado, que es
+          el síntoma de "es la misma que la web"—. El scroll lateral tiene que
+          vivir dentro del contenedor de la tabla y no acá. `clip` y no `hidden`
+          porque `hidden` en un eje convierte el otro en scroll container y
+          rompería el `position: sticky` del encabezado.
         */}
         <main
           id="contenido"
-          className="reveal mx-auto max-w-[1320px] px-4 pb-24 pt-5 panel:px-10 panel:pt-9"
+          className="reveal mx-auto max-w-[1320px] overflow-x-clip px-4 pb-24 pt-5 panel:px-10 panel:pt-9"
         >
+          {pantalla && (
+            <EncabezadoPagina
+              titulo={pantalla.label}
+              subtitulo={conf?.subtitulo}
+              funnels={funnels}
+              conFunnel={conf?.funnel ?? false}
+              conPeriodo={conf?.periodo ?? false}
+              chip={
+                conf?.funnel && funnelActivo ? (
+                  <span className="rounded-md bg-good-900 px-2 py-0.5 text-xs font-medium text-good-200">
+                    {funnelActivo}
+                  </span>
+                ) : null
+              }
+            />
+          )}
           {children}
         </main>
       </div>
     </>
+  );
+}
+
+/**
+ * El pie del sidebar: avatar con la inicial, nombre, y «Salir» a la derecha.
+ *
+ * Una sola fila, como en la captura de referencia. Antes era el nombre en una
+ * línea y abajo un botón con borde y fondo propio: medía el doble de alto y,
+ * al tener el mismo tratamiento visual que los ítems de navegación, «Salir»
+ * competía con ellos —parecía una décima sección en vez de la salida—.
+ *
+ * Ahora «Salir» es un link de texto en verde: se ve que es una acción y no un
+ * lugar al que se va.
+ */
+function PieUsuario({ nombre, salir }: { nombre?: string; salir: ReactNode }): JSX.Element {
+  const inicial = nombre?.trim()?.[0]?.toUpperCase() ?? '?';
+  return (
+    <div className="flex items-center gap-2">
+      <span
+        aria-hidden
+        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-good-800 text-xs font-medium text-good-100"
+      >
+        {inicial}
+      </span>
+      {nombre && (
+        <span className="min-w-0 flex-1 truncate text-sm text-neutral-300" title={nombre}>
+          {nombre}
+        </span>
+      )}
+      <span className="shrink-0">{salir}</span>
+    </div>
   );
 }
 

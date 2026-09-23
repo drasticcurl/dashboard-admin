@@ -217,6 +217,35 @@ export default {
         18: '0.18',
         22: '0.22',
       },
+      /**
+       * La escala de capas del panel, con NOMBRE. Antes eran números sueltos en
+       * el markup y el resultado fue un bug real: el aviso flotante de saldo
+       * (z-40) quedaba ARRIBA del popover anclado a la fila (z-30), así que al
+       * tocar «⋯» en las últimas filas de Anuncios el popover salía por debajo
+       * del aviso —se veía la mitad— y encima el aviso se comía los clicks.
+       *
+       * El orden es el de "qué puede tapar a qué", y los empates están
+       * prohibidos a propósito: dos capas con el mismo z-index las ordena el
+       * DOM, que es el tipo de empate que se rompe solo cuando alguien mueve un
+       * componente de lugar.
+       *
+       *   contenido   (auto) — las tarjetas y tablas
+       *   barra       20     — el header sticky
+       *   aviso       30     — el recordatorio flotante de saldo
+       *   grano       40     — la textura decorativa (pointer-events:none)
+       *   popover     45     — el popover anclado a una fila: ARRIBA del grano
+       *                        y del aviso, DEBAJO de los modales
+       *   modal       50     — modales, drawer y sus backdrops
+       *   salto       60     — el link "Saltar al contenido"
+       */
+      zIndex: {
+        barra: '20',
+        aviso: '30',
+        grano: '40',
+        popover: '45',
+        modal: '50',
+        salto: '60',
+      },
       fontFamily: {
         sans: ['var(--font-geist-sans)', 'system-ui', 'sans-serif'],
         mono: ['var(--font-geist-mono)', 'ui-monospace', 'SFMono-Regular', 'monospace'],

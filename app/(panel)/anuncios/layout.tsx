@@ -31,12 +31,12 @@ export default async function AnunciosLayout({
   await requerirSeccion('anuncios');
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-[22px] font-medium -tracking-[0.01em] text-neutral-50 panel:text-[26px]">Anuncios</h1>
-        <Suspense fallback={<div className="h-[34px]" aria-hidden />}>
-          <SubNav />
-        </Suspense>
-      </div>
+      {/* El título y el subtítulo los pone el Shell (EncabezadoPagina): acá
+          queda sólo la SubNav, que es propia de esta sección. Va a la izquierda
+          y no a la derecha del título, como en la captura de referencia. */}
+      <Suspense fallback={<div className="h-[38px]" aria-hidden />}>
+        <SubNav />
+      </Suspense>
       {children}
     </div>
   );

@@ -257,7 +257,7 @@
       exactamente el tipo de empate que se rompe solo cuando alguien mueve un
       componente de lugar.
     */
-    z-index: 40;
+    z-index: 40; /* `grano` de la escala de tailwind.config.ts */
     pointer-events: none;
     opacity: 0.035;
     mix-blend-mode: overlay;
@@ -326,8 +326,14 @@
     en desktop rompería la altura de la fila. Debajo de 760px, donde el dedo es
     el puntero, sí se estiran todos los que llevan la clase.
 
-    `inline-flex` + centrado: sin eso el `min-height` agranda la caja pero deja
-    el texto pegado arriba.
+    `align-items: center` sí, `justify-content` NO. Ponerlo centrado acá salió
+    mal: los ítems del menú del popover de Anuncios («Editar presupuesto»,
+    «Renombrar», «Duplicar», «Pausar») son `flex w-full text-left`, y el
+    `justify-content: center` de esta clase les quedaba sin nada que lo pise —las
+    utilidades de Tailwind sólo ganan si están declaradas, y ninguna declaraba
+    justify—, así que en mobile el menú entero aparecía centrado en vez de
+    alineado a la izquierda. Los botones que sí quieren centrar declaran su
+    `justify-center`, que gana porque las utilidades van en una capa posterior.
   */
   @media (max-width: 759px) {
     .tap {
@@ -335,7 +341,6 @@
       min-width: 44px;
       display: inline-flex;
       align-items: center;
-      justify-content: center;
     }
   }
 
