@@ -171,6 +171,75 @@ export function resolverVista(
 }
 
 /**
+ * A qué ancho se resuelve el centinela de cada columna al guardar una Vista.
+ *
+ * Sólo `nombre` y `seleccion` tienen valor propio: son las Columna_Fija, y
+ * `nombre` es la única que el Gestor arranca sin declarar ancho. El resto cae en
+ * `ANCHO_MIN`, que es lo más angosto que el panel sabe dibujar y por lo tanto la
+ * elección más conservadora para una columna de la que no sabemos nada.
+ */
+const ANCHO_SIN_DECLARAR: Record<string, number> = {
+  nombre: 280,
+  seleccion: 48,
+};
+
+/**
+ * Los anchos de las columnas en pantalla, listos para GUARDARSE en una Vista.
+ *
+ * ── El bug que esto arregla ─────────────────────────────────────────────────
+ *
+ * Reportado en producción, textual:
+ *
+ *     No se pudo guardar la Vista: Number must be greater than or equal to 48
+ *     (repo.vistas.0.columnas.1.ancho)
+ *
+ * `columnas[1]` es `nombre`, y su ancho era **0**. Ese 0 no es un ancho: es el
+ * CENTINELA de «la configuración no declara ancho para esta columna», que
+ * `TablaAds` traduce a un porcentaje del ancho visible medido con un
+ * ResizeObserver (R5 c8). O sea que sólo tiene sentido en memoria y nunca fue un
+ * valor válido para persistir.
+ *
+ * `ControlVistas` armaba la Vista con `columnas.map((c) => ({ ...c }))`, o sea
+ * copiando el estado tal cual, así que el centinela viajaba al POST y
+ * `vistaSchema` lo rechazaba con su `min(48)`. Lo que llegaba a la pantalla era
+ * el mensaje de zod con la ruta del campo: ilegible para quien sólo quería
+ * guardar sus columnas.
+ *
+ * Es PREEXISTENTE al rediseño v3 —el centinela 0 ya estaba en el estado inicial
+ * del Gestor— y se dispara al guardar una Vista sin haber arrastrado antes el
+ * borde de la columna del nombre, que es el caso normal.
+ *
+ * ── Por qué acá y no relajando el schema ────────────────────────────────────
+ *
+ * Bajar el `min(48)` a 0 dejaría guardar el centinela, y entonces una Vista
+ * podría decir «esta columna mide cero», un ancho que ninguna parte del panel
+ * sabe dibujar: el mínimo de 48 existe porque abajo de eso el encabezado no
+ * tiene lugar ni para el asa de redimensionado. El centinela tiene que
+ * resolverse a un número real ANTES de salir del cliente, y ese borde es la
+ * función que arma la Vista.
+ *
+ * `nombre` cae en 280 (el mismo arranque de `columnasParaRender` cuando la
+ * configuración no lo trae) y NO en el 34 % medido en pantalla, a propósito: ese
+ * porcentaje depende del viewport de quien guarda, así que la misma Vista
+ * abierta en una laptop y en un monitor daría anchos distintos. 280 es estable,
+ * y el usuario puede arrastrar el borde para fijar el que quiera.
+ */
+export function anchosParaGuardar(columnas: readonly ColumnaVisible[]): ColumnaVisible[] {
+  return columnas.map((c) => {
+    // `<= 0` y no `=== 0`: cualquier valor no positivo es igual de inválido para
+    // persistir, y un negativo sólo puede venir de un cálculo roto.
+    const base = c.ancho <= 0 ? (ANCHO_SIN_DECLARAR[c.clave] ?? ANCHO_MIN) : c.ancho;
+    return {
+      clave: c.clave,
+      // El clamp cubre el otro lado: un ancho fuera de rango reventaría el
+      // schema con el mismo mensaje ilegible, pero por `max`. Y `round` porque
+      // el schema pide un entero y el 34 % medido da decimales.
+      ancho: Math.round(Math.min(ANCHO_MAX, Math.max(ANCHO_MIN, base))),
+    };
+  });
+}
+
+/**
  * Alimenta la marca de cambios sin guardar (R3 c13). El Orden_Tabla es parte
  * del estado. Con `guardada === null` (no hay Vista aplicada) compara contra el
  * conjunto base de las doce columnas de R2 c2 en el orden del catálogo.

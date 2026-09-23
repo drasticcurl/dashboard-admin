@@ -15,7 +15,7 @@
 
 import { useMemo, useState } from 'react';
 import { Check, FloppyDisk, PencilSimple, Plus, Star, Trash, X } from '@phosphor-icons/react';
-import { hayCambios, type Orden, type RepoVistas, type Vista } from '@/lib/ads/vistas';
+import { anchosParaGuardar, hayCambios, type Orden, type RepoVistas, type Vista } from '@/lib/ads/vistas';
 import { MAX_VISTAS } from '@/lib/ads/vistas';
 import type { ColumnaVisible } from '@/lib/ads/catalogo';
 import { ConfiguradorColumnas } from './ConfiguradorColumnas';
@@ -96,7 +96,12 @@ export function ControlVistas({
     const nueva: Vista = {
       id: crypto.randomUUID(),
       nombre,
-      columnas: columnas.map((c) => ({ ...c })),
+      // `anchosParaGuardar` resuelve el centinela de ancho 0 («no declarado»,
+      // que TablaAds traduce a un % del ancho visible) a un número real y acota
+      // al rango 48..640 del schema. Sin esto, guardar una Vista sin haber
+      // arrastrado el borde del nombre devolvía «Number must be greater than or
+      // equal to 48 (repo.vistas.0.columnas.1.ancho)».
+      columnas: anchosParaGuardar(columnas),
       orden: { ...orden },
     };
     onCambiarRepo({ v: 1, vistas: [...vistas, nueva], porDefecto: repo?.porDefecto ?? null });
@@ -108,7 +113,7 @@ export function ControlVistas({
     onCambiarRepo({
       v: 1,
       vistas: vistas.map((v) =>
-        v.id === vista.id ? { ...v, columnas: columnas.map((c) => ({ ...c })), orden: { ...orden } } : v,
+        v.id === vista.id ? { ...v, columnas: anchosParaGuardar(columnas), orden: { ...orden } } : v,
       ),
       porDefecto: repo?.porDefecto ?? null,
     });
