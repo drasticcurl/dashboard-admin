@@ -77,11 +77,23 @@ export function Card({
   hint,
   children,
   className,
+  accion,
 }: {
   title?: string;
   hint?: string;
   children: ReactNode;
   className?: string;
+  /**
+   * Un control propio de la tarjeta, arriba a la derecha del título: el
+   * segmentado de base del embudo, el «Diario / Mensual» del gráfico de saldo.
+   *
+   * Existe porque hasta el rediseño v3 esos controles vivían en una TARJETA
+   * APARTE, arriba de la que controlaban. En las capturas de referencia van
+   * adentro, al lado del título, y la diferencia no es de gusto: una tarjeta
+   * suelta con dos botones no dice a qué se aplican, y sumaba un bloque de 90px
+   * entre el encabezado de la pantalla y el contenido.
+   */
+  accion?: ReactNode;
 }): JSX.Element {
   return (
     /*
@@ -93,25 +105,28 @@ export function Card({
       en la última línea, que es lo que pasaba con los hints largos de Embudo.
     */
     <div
-      className={`sheen rounded-2xl border border-border-subtle bg-surface shadow-card ${
+      className={`sheen rounded-xl border border-border-subtle bg-surface shadow-card ${
         className ?? ''
       }`}
     >
-      {(title || hint) && (
-        <div className="flex flex-col gap-1 border-b border-border-subtle px-5 py-4">
-          {title && (
-            <h2 className="text-sm font-semibold -tracking-[0.01em] text-neutral-100">
-              {title}
-            </h2>
-          )}
-          {hint && (
-            <p className="max-w-[68ch] text-pretty text-xs leading-relaxed text-neutral-500">
-              {hint}
-            </p>
-          )}
+      {(title || hint || accion) && (
+        <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2 border-b border-border-subtle px-4 py-3 panel:px-5 panel:py-4">
+          <div className="min-w-0 flex-1">
+            {title && (
+              <h2 className="text-sm font-medium -tracking-[0.01em] text-neutral-100">
+                {title}
+              </h2>
+            )}
+            {hint && (
+              <p className="mt-1 max-w-[68ch] text-pretty text-xs leading-relaxed text-neutral-500">
+                {hint}
+              </p>
+            )}
+          </div>
+          {accion && <div className="shrink-0">{accion}</div>}
         </div>
       )}
-      <div className="p-5">{children}</div>
+      <div className="p-4 panel:p-5">{children}</div>
     </div>
   );
 }
@@ -213,7 +228,7 @@ export function Badge({
       la tarjeta que lo contiene.
     */
     <span
-      className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-semibold tracking-[0.01em] ring-1 ${TONE_PILL[tone]}`}
+      className={`inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-md px-2 py-0.5 text-[11px] font-medium tracking-[0.01em] ring-1 ${TONE_PILL[tone]}`}
     >
       {children}
     </span>

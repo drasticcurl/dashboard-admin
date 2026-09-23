@@ -243,66 +243,51 @@ export function EmbudoView({
         reemplazaba por un toggle de portada que recortaba el embudo entero. El
         test se cerró, el embudo es uno solo y el ternario se fue con él.
       */}
-      <div className="sheen flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border-subtle bg-surface p-4 shadow-card">
-        <div>
-          <p className="max-w-[70ch] text-pretty text-sm leading-relaxed text-neutral-300">
-            % de personas que llegan a cada paso, medido desde{' '}
-            <span className="font-semibold text-neutral-100">
-              {base === 'landing' ? 'la landing (entrada)' : 'el inicio del quiz (1ª pregunta)'}
-            </span>
-            .
-          </p>
-          <p className="mt-1 text-xs text-neutral-500">
-            Landing → inicio del quiz:{' '}
-            <span className="font-semibold tabular-nums text-neutral-300">
-              {fmtPct(startedRate)}
-            </span>{' '}
-            — es la caída más grande de todo el embudo.
-          </p>
-        </div>
-
-        {/*
-          Mismo control segmentado que las tabs del Nav: canal hundido, opción
-          activa como pastilla elevada. Antes era el mismo widget con otra piel
-          —bordes y fill como alfas de blanco a mano, foco con el verde de
-          Tailwind—, así que dos controles idénticos del panel se veían
-          distintos.
-        */}
-        <div
-          role="group"
-          aria-label="Base de medición del porcentaje"
-          className="flex shrink-0 items-center gap-0.5 rounded-xl bg-canvas/70 p-1 shadow-[inset_0_1px_2px_0_rgba(4,6,14,0.6),inset_0_0_0_1px_rgba(255,255,255,0.05)]"
-        >
-          <button
-            type="button"
-            onClick={() => setBase('landing')}
-            aria-pressed={base === 'landing'}
-            className={`press rounded-lg px-3 py-1.5 text-sm transition-[background-color,color,box-shadow] duration-250 ${
-              base === 'landing'
-                ? 'bg-surface-raised font-semibold text-neutral-50 shadow-lozenge'
-                : 'font-medium text-neutral-400 hover:bg-overlay/7 hover:text-neutral-100'
-            }`}
-          >
-            Desde la landing
-          </button>
-          <button
-            type="button"
-            onClick={() => setBase('start')}
-            aria-pressed={base === 'start'}
-            className={`press rounded-lg px-3 py-1.5 text-sm transition-[background-color,color,box-shadow] duration-250 ${
-              base === 'start'
-                ? 'bg-surface-raised font-semibold text-neutral-50 shadow-lozenge'
-                : 'font-medium text-neutral-400 hover:bg-overlay/7 hover:text-neutral-100'
-            }`}
-          >
-            Desde la 1ª pregunta
-          </button>
-        </div>
-      </div>
-
+      {/*
+        El segmentado de base ya NO vive en una tarjeta propia arriba de la del
+        embudo: va adentro, al lado del título (prop `accion` del Card), como en
+        las capturas de referencia. La tarjeta suelta no decía a qué se aplicaba y
+        metía un bloque de ~90px entre el encabezado de la pantalla y el embudo.
+      */}
       <Card
-        title={`Embudo por etapas · ${funnel.name}`}
-        hint="Las etapas salen de la configuración del funnel. El número de cada etapa es el real; si un hito supera a la etapa anterior, el ancho del trapecio se recorta para mantener la forma y la etapa queda marcada."
+        title="Embudo por etapas"
+        hint={`% de personas que llegan a cada paso, medido desde ${
+          base === 'landing' ? 'la landing (entrada)' : 'el inicio del quiz (1ª pregunta)'
+        }. Landing → inicio del quiz: ${fmtPct(startedRate)} — es la caída más grande de todo el embudo.`}
+        accion={
+          /* Mismo control segmentado que el resto del panel: canal hundido,
+             opción activa con el acento oscuro. */
+          <div
+            role="group"
+            aria-label="Base de medición del porcentaje"
+            className="flex shrink-0 items-center gap-0.5 rounded-lg bg-canvas/70 p-0.5"
+          >
+            <button
+              type="button"
+              onClick={() => setBase('landing')}
+              aria-pressed={base === 'landing'}
+              className={`tap press rounded-md px-2.5 py-1.5 text-xs transition-colors duration-250 panel:text-sm ${
+                base === 'landing'
+                  ? 'bg-good-900 font-medium text-good-100'
+                  : 'text-neutral-400 hover:text-neutral-100'
+              }`}
+            >
+              Desde la landing
+            </button>
+            <button
+              type="button"
+              onClick={() => setBase('start')}
+              aria-pressed={base === 'start'}
+              className={`tap press rounded-md px-2.5 py-1.5 text-xs transition-colors duration-250 panel:text-sm ${
+                base === 'start'
+                  ? 'bg-good-900 font-medium text-good-100'
+                  : 'text-neutral-400 hover:text-neutral-100'
+              }`}
+            >
+              Desde la 1ª pregunta
+            </button>
+          </div>
+        }
       >
         {data.porEtapas.huerfanas.length > 0 && (
           <Banner tone="warn" title="Hay etapas que apuntan a un paso que ya no existe">

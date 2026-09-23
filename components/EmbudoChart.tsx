@@ -22,38 +22,12 @@
  *     misma grilla de columnas.
  */
 
-import { useState } from 'react';
 import type { EmbudoEtapa } from '@/lib/widgets/tipos';
 import { fmtInt, fmtPct } from '@/components/ui';
 import { panelColors } from '@/tailwind.config';
 
 const TITULO_INCONSISTENTE =
   'El número real supera al de la etapa anterior. Los pasos salen del histograma de max_step_index y los hitos de columnas propias (sales_view_at, checkout_click_at, purchased_at): son fuentes distintas y una sesión puede saltar. El alto se recorta para mantener la forma del embudo; el número es el real.';
-
-/**
- * Sobre qué se calcula el % que se muestra adentro de cada tramo.
- *
- * Los dos números ya venían en `EmbudoEtapa` (`pctOfBase` y `pctOfPrevious`):
- * lo único que faltaba era poder elegir cuál se lee. No son intercambiables y
- * cada uno contesta una pregunta distinta —"de los que entraron, ¿cuántos
- * llegaron acá?" vs. "de los que llegaron al paso anterior, ¿cuántos pasaron?"—
- * y con sólo el primero, un paso que pierde el 60% de los suyos al final del
- * embudo se ve como un 3% indistinguible del 4% que tiene al lado.
- */
-type Base = 'total' | 'anterior';
-
-const BASES: ReadonlyArray<{ clave: Base; rotulo: string; ayuda: string }> = [
-  {
-    clave: 'total',
-    rotulo: '% sobre el total',
-    ayuda: 'Cada etapa sobre la primera: cuántos de los que entraron llegaron hasta acá.',
-  },
-  {
-    clave: 'anterior',
-    rotulo: '% sobre la anterior',
-    ayuda: 'Cada etapa sobre la de al lado: qué proporción pasó de un escalón al siguiente.',
-  },
-];
 
 /**
  * La severidad de la caída. Los cortes son de lectura, no estadísticos: en un
@@ -93,24 +67,19 @@ const VB_H = 200;
 const MIN_ALTO_TEXTO = 34; // debajo de esto el % no entra adentro del tramo
 
 export function EmbudoChart({ etapas }: { etapas: EmbudoEtapa[] }): JSX.Element | null {
-  const [base, setBase] = useState<Base>('total');
   const n = etapas.length;
   if (n === 0) return null;
 
   const segW = VB_W / n;
   const hayInconsistente = etapas.some((e) => e.inconsistente);
 
-  /** El % que se lee, según la base elegida. */
-  const pct = (e: EmbudoEtapa): number => (base === 'total' ? e.pctOfBase : e.pctOfPrevious);
-
   // El alto de cada frontera. La izquierda de cada tramo es su propio ancho y
   // la derecha es el de la etapa siguiente; el último tramo queda recto porque
   // no hay una etapa después que defina su borde.
   //
-  // SIEMPRE sale de `anchoDibujo` y nunca de la base elegida: con
-  // `pctOfPrevious` la figura dejaría de ser un embudo (cada etapa arrancaría
-  // cerca del 100% de la anterior y el dibujo quedaría casi recto). El selector
-  // cambia el NÚMERO que se lee, no la forma.
+  // SIEMPRE sale de `anchoDibujo`: con `pctOfPrevious` cada etapa arrancaría
+  // cerca del 100% de la anterior y el dibujo quedaría casi recto, o sea dejaría
+  // de ser un embudo.
   const altoDe = (i: number): number => (etapas[i]!.anchoDibujo / 100) * VB_H;
 
   const resumen = etapas
@@ -119,36 +88,15 @@ export function EmbudoChart({ etapas }: { etapas: EmbudoEtapa[] }): JSX.Element 
 
   return (
     <div>
-      {/* El selector de base. Segmentado y no un <select>: son dos opciones y un
-          select obliga a abrirlo para saber cuál es la otra. */}
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-        <div
-          role="group"
-          aria-label="Base del porcentaje"
-          className="flex gap-0.5 rounded-lg bg-canvas/60 p-0.5"
-        >
-          {BASES.map((b) => (
-            <button
-              key={b.clave}
-              type="button"
-              onClick={() => setBase(b.clave)}
-              aria-pressed={base === b.clave}
-              title={b.ayuda}
-              className={`tap press rounded-md px-2.5 py-1.5 text-xs transition-colors duration-250 ${
-                base === b.clave
-                  ? 'bg-good-900 font-medium text-good-100'
-                  : 'text-neutral-400 hover:text-neutral-100'
-              }`}
-            >
-              {b.rotulo}
-            </button>
-          ))}
-        </div>
-        <p className="text-[11px] text-neutral-500">
-          {BASES.find((b) => b.clave === base)!.ayuda}
-        </p>
-      </div>
-
+      {/*
+        El % que se lee es SIEMPRE el que va sobre la primera etapa. El selector
+        "% sobre el total / % sobre la anterior" que tuvo este componente un rato
+        se quitó: la vista ya trae el suyo ("Desde la landing / Desde la 1ª
+        pregunta") y en la captura de referencia hay UNO solo. Dos segmentados
+        apilados, los dos hablando de "la base del porcentaje", se leen como el
+        mismo control duplicado. El % contra la etapa anterior no se perdió: es el
+        −33 % / −61 % que está debajo de cada etapa.
+      */}
       <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] text-neutral-500">
         {LEYENDA.map((l) => (
           <span key={l.sev} className="inline-flex items-center gap-1.5">
@@ -216,7 +164,7 @@ export function EmbudoChart({ etapas }: { etapas: EmbudoEtapa[] }): JSX.Element 
                   fill={cabeElTexto ? panelColors.ink : panelColors.inkOnDark}
                   style={{ fontFamily: 'var(--font-geist-mono), ui-monospace, monospace' }}
                 >
-                  {fmtPct(pct(e), 1)}
+                  {fmtPct(e.pctOfBase, 1)}
                 </text>
               </g>
             );
@@ -322,7 +270,7 @@ export function EmbudoChart({ etapas }: { etapas: EmbudoEtapa[] }): JSX.Element 
                   </p>
                 </div>
                 <p className="num shrink-0 font-mono text-sm font-medium text-neutral-100">
-                  {fmtPct(pct(e), 1)}
+                  {fmtPct(e.pctOfBase, 1)}
                 </p>
               </div>
             </li>

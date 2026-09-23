@@ -308,7 +308,7 @@ export function VentasView({
       {loading ? (
         // El estado cargando tiene la FORMA de los widgets (§9.10), no un
         // spinner centrado. Es la silueta del layout por defecto.
-        <Grid className="auto-rows-[240px]">
+        <Grid className="panel:auto-rows-[240px]">
           <div className="panel:col-span-2">
             <Skeleton variant="kpi" />
           </div>

@@ -22,8 +22,10 @@
  *   Escape restaura. El ancho se registra en la configuración en pantalla
  *   (`onAncho`), NUNCA en el Repo_Vistas (R5 c6).
  * - Ancho por defecto de `nombre` (R5 c8): cuando la configuración no lo
- *   declara (ancho ≤ 0), se asigna el 25 % del ancho visible de la tabla,
- *   medido con un ResizeObserver, acotado al rango.
+ *   declara (ancho ≤ 0), se asigna el 34 % del ancho visible de la tabla,
+ *   medido con un ResizeObserver, acotado al rango. Era 25 % hasta el rediseño
+ *   v3: con la marca de frescura al lado, un nombre de Meta se recortaba a
+ *   «CH-ES-ABO-VI…» y la columna dejaba de identificar la fila.
  * - Recorte por celda (R5 c10): ellipsis con `title` para el texto completo.
  * - Reordenamiento (R2 c6): `@dnd-kit/sortable`; el SortableContext incluye
  *   SOLO las claves no fijas, así arrastrar una Columna_Fija o soltar a su
@@ -302,11 +304,30 @@ export function TablaAds(props: PropsTablaAds): JSX.Element {
     const out = new Map<string, number>();
     for (const c of columnas) {
       let a = c.ancho;
-      if (c.clave === 'nombre' && a <= 0) a = Math.round(anchoVisible * 0.25);
+      if (c.clave === 'nombre' && a <= 0) a = Math.round(anchoVisible * 0.34);
       out.set(c.clave, acotar(a));
     }
     return out;
   }, [columnas, anchoVisible]);
+
+  /**
+   * Las columnas que se dibujan de verdad.
+   *
+   * En mobile se saca la casilla de selección. Mide 48px de los 390 de pantalla
+   * y sirve para las acciones EN LOTE, que son un gesto de escritorio: la barra
+   * que las ejecuta vive fuera de la tabla y pide elegir varias filas y después
+   * un importe. Con la casilla puesta, la columna del nombre —la única que
+   * identifica la fila— quedaba en «CH-E…», o sea que la tabla no se podía leer
+   * para ahorrar 48px a una función que ahí no se usa. Se ve en las capturas de
+   * verificación a 390px.
+   *
+   * No se toca `CLAVES_FIJAS` ni el catálogo: es una decisión de ANCHO de esta
+   * tabla, y en desktop la casilla sigue igual.
+   */
+  const columnasVisibles = useMemo(
+    () => (esMobile ? columnas.filter((c) => c.clave !== 'seleccion') : columnas),
+    [columnas, esMobile],
+  );
 
   const sensores = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -419,6 +440,13 @@ export function TablaAds(props: PropsTablaAds): JSX.Element {
           <span className="tabular-nums">
             {fila.dailyBudgetEur === null ? '—' : money(fila.dailyBudgetEur)}
           </span>
+          {/* «/ día» al lado del importe, como en la referencia. Sin esto, un
+              presupuesto de 120 y un gasto de 312 en la columna de al lado se
+              leen como dos cifras comparables, cuando una es por día y la otra
+              es el acumulado del período. */}
+          {fila.dailyBudgetEur !== null && (
+            <span className="shrink-0 text-xs text-neutral-600">/ día</span>
+          )}
           <PencilSimple
             size={12}
             aria-hidden
@@ -491,7 +519,7 @@ export function TablaAds(props: PropsTablaAds): JSX.Element {
         )}
         <table className="w-full text-left text-sm" style={{ tableLayout: 'fixed' }}>
           <colgroup>
-            {columnas.map((c) => (
+            {columnasVisibles.map((c) => (
               <col key={c.clave} style={{ width: anchosEfectivos.get(c.clave) ?? acotar(c.ancho) }} />
             ))}
             {/* La columna del menú «⋯». Va en el colgroup y NO en el catálogo de
@@ -507,7 +535,7 @@ export function TablaAds(props: PropsTablaAds): JSX.Element {
             <tr className={`border-b ${BORDE_ENCABEZADO}`}>
               <DndContext sensors={sensores} collisionDetection={closestCenter} onDragEnd={alArrastrar}>
                 <SortableContext items={clavesNoFijas} strategy={horizontalListSortingStrategy}>
-                  {columnas.map((c, i) => {
+                  {columnasVisibles.map((c, i) => {
                     const e = entrada(c.clave);
                     const esFija = CLAVES_FIJAS.includes(c.clave as (typeof CLAVES_FIJAS)[number]);
                     // Con la columna de acciones al final, NINGUNA columna del
@@ -515,7 +543,7 @@ export function TablaAds(props: PropsTablaAds): JSX.Element {
                     // de acciones es la que no lo lleva. Sigue dando N−1 bordes
                     // verticales por fila (R6 c4), con N = columnas + 1.
                     const esUltima = false;
-                    const leftFija = c.clave === 'nombre' ? (anchosEfectivos.get('seleccion') ?? 48) : 0;
+                    const leftFija = c.clave === 'nombre' && !esMobile ? (anchosEfectivos.get('seleccion') ?? 48) : 0;
                     const stickyClase = esFija ? 'sticky z-20 bg-surface' : '';
                     const clases = `relative px-3 py-2 align-middle text-xs font-semibold uppercase tracking-wide ${stickyClase} ${
                       grilla && !esUltima ? `border-r ${BORDE_CELDA}` : ''
@@ -597,7 +625,7 @@ export function TablaAds(props: PropsTablaAds): JSX.Element {
               <tr className={`border-b ${BORDE_CELDA}`}>
                 {/* Fila de ancho completo: sin bordes verticales internos (R6 c9). */}
                 <td
-                  colSpan={columnas.length + 1}
+                  colSpan={columnasVisibles.length + 1}
                   className="px-3 py-8 text-center text-sm text-neutral-500"
                 >
                   Sin filas para estos filtros
@@ -620,10 +648,10 @@ export function TablaAds(props: PropsTablaAds): JSX.Element {
                       abierta ? 'bg-good-900' : 'hover:bg-overlay/2'
                     }`}
                   >
-                    {columnas.map((c, j) => {
+                    {columnasVisibles.map((c, j) => {
                       const esFija = CLAVES_FIJAS.includes(c.clave as (typeof CLAVES_FIJAS)[number]);
                       const esUltima = false;
-                      const leftFija = c.clave === 'nombre' ? (anchosEfectivos.get('seleccion') ?? 48) : 0;
+                      const leftFija = c.clave === 'nombre' && !esMobile ? (anchosEfectivos.get('seleccion') ?? 48) : 0;
                       return (
                         <td
                           key={c.clave}

@@ -240,7 +240,7 @@ function PatrimonioCard({ overview }: { overview: FinanceOverview }): JSX.Elemen
     return (
       <div className="rounded-xl border border-border-subtle bg-surface p-5 shadow-inset-highlight panel:p-6">
         <div className="truncate text-xs font-medium text-neutral-400">Patrimonio</div>
-        <div className="num mt-1.5 font-mono text-[40px] font-medium -tracking-[0.02em] text-neutral-500 panel:text-[56px]">
+        <div className="mt-1.5 whitespace-nowrap font-mono text-[28px] font-medium -tracking-[0.02em] text-neutral-500 panel:text-[40px]">
           sin información
         </div>
         <div className="mt-1 text-xs text-neutral-500">
@@ -271,7 +271,16 @@ function PatrimonioCard({ overview }: { overview: FinanceOverview }): JSX.Elemen
         espacios no hay dónde cortar sin `anywhere`.
       */}
       <div
-        className={`num mt-1 font-mono text-[40px] font-medium leading-[1.05] -tracking-[0.02em] panel:text-[56px] ${
+        /*
+          `clamp()` y NO un tamaño fijo con overflow-wrap. Medido a 390px, con
+          40px fijos "EUR 132.472,57" no entraba y `overflow-wrap: anywhere` lo
+          partía en "EUR 132.472,5" + "7" — un número cortado al medio es peor
+          que un número más chico. Con clamp, el tipo baja con el ancho del
+          viewport (mínimo 28px, máximo 56) y el número siempre entra en una
+          línea. `whitespace-nowrap` es lo que garantiza que no busque cortar.
+        */
+        style={{ fontSize: 'clamp(1.75rem, 8vw, 3.5rem)' }}
+        className={`whitespace-nowrap font-mono font-medium leading-[1.05] -tracking-[0.02em] tabular-nums ${
           negativo ? 'text-bad-400' : 'text-neutral-50'
         }`}
       >

@@ -36,7 +36,8 @@ import type {
   ResultadoMetricas,
 } from '@/lib/ads/tipos';
 import type { CuentaAds } from './page';
-import { TabsNivel } from './TabsNivel';
+import { CaretDown, SlidersHorizontal } from '@phosphor-icons/react';
+import { BarraPrimaria } from './BarraPrimaria';
 import { BarraFrescura } from './BarraFrescura';
 import { BarraFiltros } from './BarraFiltros';
 import { ChipCascada } from './ChipCascada';
@@ -52,7 +53,7 @@ import { FormularioRenombrar, modoDeFormulario, type ModoFormulario } from './Fo
 import { FormularioProgramar } from './FormularioProgramar';
 import { isoConOffset, mananaMedianocheLocal } from './zonaHoraria';
 import { ResultadosLote, type RespuestaLote } from './ResultadosLote';
-import { Banner, Card, EmptyState, Skeleton, StatCard, fmtInt, fmtMoney } from '@/components/ui';
+import { Banner, Card, EmptyState, Grid, Skeleton, StatCard, fmtInt, fmtMoney } from '@/components/ui';
 import {
   aplicarEvento,
   estadoInicial,
@@ -105,8 +106,43 @@ type Respuesta = ResultadoMetricas & {
   sinCuentas?: boolean;
 };
 
-const NIVEL_LABEL: Record<NivelAds, string> = {
-  campaign: 'Campañas',
+/**
+ * Las columnas con las que arranca la tabla cuando no hay Vista por defecto
+ * guardada (rediseño v3).
+ *
+ * Antes eran las doce que el catálogo marca con `base: true`. Doce columnas en
+ * una tabla con scroll horizontal significa que el 60% de lo que se mira está
+ * fuera de pantalla, y las capturas de referencia muestran OCHO: nombre, estado,
+ * presupuesto, gasto, compras, costo por compra, ROAS y CTR. Son las que se
+ * miran para decidir si una campaña sigue o se pausa.
+ *
+ * `ingresos`, `ganancia`, `roi` y `ultimaActualizacion` no se borraron del
+ * catálogo: siguen disponibles en «Más filtros, columnas y totales», y el total
+ * de las tres primeras está en las tarjetas de ahí adentro. Lo que cambia es con
+ * qué arranca la tabla, no qué se puede ver.
+ *
+ * El catálogo NO se tocó a propósito: su `base` está cubierto por
+ * `lib/ads/catalogo.test.ts` y por las vistas guardadas de los usuarios, y esto
+ * es una decisión de presentación de ESTA pantalla.
+ *
+ * `seleccion` se queda aunque la referencia no la muestre: es la casilla que
+ * habilita las acciones en lote (pausar veinte conjuntos de una vez), con su
+ * propia cadena de tests. Sacarla para que la captura coincida sería borrar una
+ * función para ganar 48px.
+ */
+const COLUMNAS_V3 = [
+  'seleccion',
+  'nombre',
+  'estado',
+  'presupuesto',
+  'gastos',
+  'ventas',
+  'cpa',
+  'roas',
+  'ctr',
+] as const;
+
+const NIVEL_LABEL: Record<NivelAds, string> = {  campaign: 'Campañas',
   adset: 'Conjuntos',
   ad: 'Anuncios',
 };
@@ -805,9 +841,13 @@ export function GestorAnuncios({
     vistaPorDefecto
       ? resolverVista(vistaPorDefecto).columnas
       : columnasParaRender(
-          CATALOGO_METRICAS.filter((e) => e.base).map((e) => ({
-            clave: e.clave,
-            ancho: e.clave === 'nombre' ? 0 : 100, // 0 = sin declarar → 25 % en TablaAds (R5 c8)
+          COLUMNAS_V3.map((clave) => ({
+            clave,
+            // 0 = sin declarar → 25 % del ancho visible en TablaAds (R5 c8).
+            // El presupuesto necesita más que el resto porque muestra el importe
+            // MÁS el «/ día»: con los 100px que usaban todas, se montaba encima
+            // de la columna de gasto (visible en la captura de verificación).
+            ancho: clave === 'nombre' ? 0 : clave === 'presupuesto' ? 150 : 110,
           })),
         ),
   );
@@ -1737,62 +1777,179 @@ export function GestorAnuncios({
     return niveles.has('campaign') ? 'campaña (CBO)' : 'cada conjunto (ABO)';
   }, [nivel, data.filas, estadoSel.seleccion.ids]);
 
+  // ─── Lo que alimenta la barra primaria del rediseño v3 ────────────────────
+
+  /**
+   * Cuántas de las filas en pantalla están ACTIVAS, para el resumen «X de Y
+   * activas».
+   *
+   * Se mide contra `status`, que es lo que el panel puede cambiar, y no contra
+   * `effectiveStatus`: un conjunto con `status: ACTIVE` dentro de una campaña
+   * pausada tiene `effectiveStatus: CAMPAIGN_PAUSED`, y contarlo como apagado
+   * haría que el número no cierre con los interruptores que se ven prendidos en
+   * la columna Estado. La fila ya avisa de ese caso con su propio badge.
+   */
+  const filasActivas = useMemo(
+    () => filas.filter((f) => f.status === 'ACTIVE').length,
+    [filas],
+  );
+
+  /**
+   * Los conteos por nivel que se van conociendo.
+   *
+   * La consulta devuelve el total del nivel que se está mirando y nada más, así
+   * que los otros dos se acumulan acá a medida que se visitan. Un nivel que
+   * todavía no se visitó queda en `undefined` y el segmentado no le dibuja
+   * número: mostrar 0 diría "no hay conjuntos", que es una afirmación sobre los
+   * datos que no tenemos.
+   */
+  const [conteosPorNivel, setConteosPorNivel] = useState<Partial<Record<NivelAds, number>>>({});
+  useEffect(() => {
+    if (loading) return;
+    setConteosPorNivel((prev) =>
+      prev[nivel] === data.totales.filas ? prev : { ...prev, [nivel]: data.totales.filas },
+    );
+  }, [nivel, data.totales.filas, loading]);
+
+  /**
+   * Cuántos filtros están puestos, para el contador del desplegable cerrado.
+   *
+   * Sin esto, plegar los filtros esconde que hay uno activo cambiando lo que se
+   * ve: alguien puede mirar una tabla filtrada un buen rato sin saber por qué le
+   * faltan filas. El período NO cuenta —siempre tiene un valor y se ve arriba en
+   * el encabezado— y el nombre tampoco, porque su caja está a la vista.
+   */
+  const filtrosPuestos =
+    (status !== 'any' ? 1 : 0) +
+    (ocultarSinDatos ? 1 : 0) +
+    (ocultarPadreApagado ? 1 : 0) +
+    (cascada ? 1 : 0);
+
   return (
     <div className="space-y-4">
       {/* El encabezado y el SubNav los pone app/(panel)/anuncios/layout.tsx:
           uno solo para las tres pestañas, para que no cambien de lugar. */}
-      <TabsNivel nivel={nivel} onNivel={cambiarNivel} />
 
-      <div className="flex flex-wrap items-center justify-end gap-3">
-        {loading && <span className="text-xs text-neutral-500">Actualizando…</span>}
-        {!loading && refrescandoFondo && (
-          <span className="text-xs text-neutral-500">actualizando gasto…</span>
-        )}
-        <BarraFrescura
-          edadGasto={edadGasto}
-          errorGasto={frescura.error}
-          edadJerarquia={edadJerarquia}
-          errorJerarquia={frescuraJerarquia.error}
-          refrescando={refrescando}
-          segundosRestantes={frenoSegundos}
-          onActualizar={actualizar}
-        />
-      </div>
-
-      <BarraFiltros
+      {/*
+        ── La barra primaria (rediseño v3) ──────────────────────────────────
+        Segmentado con conteo + buscador + resumen, en UNA fila, como las
+        capturas de referencia. Todo lo demás (período, cuenta, estado, ocultar
+        sin datos, vistas y columnas, las cuatro tarjetas de KPI y la barra de
+        frescura) se fue al desplegable de abajo: eran seis bloques apilados que
+        a 390px obligaban a scrollear una pantalla y media para ver una campaña.
+      */}
+      <BarraPrimaria
         nivel={nivel}
-        period={period}
-        rango={data.rango}
-        status={status}
-        cuenta={account}
+        onNivel={cambiarNivel}
+        conteos={conteosPorNivel}
         nombre={nombre}
-        cuentas={cuentas}
-        cascada={
-          cascada ? (
-            <ChipCascada cascada={cascada} nivelActivo={nivel} nombres={new Map(Object.entries(nombresCascada))} onLimpiar={limpiarCascada} />
-          ) : null
-        }
-        ocultarSinDatos={ocultarSinDatos}
-        ocultarPadreApagado={ocultarPadreApagado}
-        onPeriodo={(p) => cambiarFiltro({ period: p })}
-        onOcultarSinDatos={(v) => cambiarFiltro({ ocultarSinDatos: v })}
-        onOcultarPadreApagado={(v) => cambiarFiltro({ ocultarPadreApagado: v })}
-        onStatus={(s) => cambiarFiltro({ status: s })}
         onNombre={(n) => cambiarFiltro({ nombre: n })}
+        activas={filasActivas}
+        totalFilas={data.totales.filas}
+        gastado={money(totGasto)}
       />
 
-      <ControlVistas
-        repo={repo}
-        vistaAplicada={vistaAplicada}
-        columnas={columnas}
-        orden={{ clave: ordenEstado.clave, dir: ordenEstado.dir }}
-        ignoradas={ignoradas}
-        errorRepo={errorRepo}
-        onCambiarRepo={(r) => void guardarRepo(r)}
-        onAplicarVista={aplicarVista}
-        onColumnas={setColumnas}
-        onNotificar={setAviso}
-      />
+      {/*
+        `<details>` nativo y no un estado de React: el navegador ya sabe abrir y
+        cerrar esto, lo hace accesible por teclado solo, y el contenido de adentro
+        no se monta hasta que se abre. Un `useState` acá sería reimplementar un
+        elemento del HTML con más código y peor semántica.
+      */}
+      <details className="group rounded-xl border border-border-subtle bg-surface">
+        <summary className="tap flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-2.5 text-sm text-neutral-300 transition-colors duration-250 hover:text-neutral-100">
+          <span className="flex items-center gap-2">
+            <SlidersHorizontal size={15} weight="bold" aria-hidden />
+            Más filtros, columnas y totales
+            {/* Cuántos filtros están puestos, para que cerrado no esconda que
+                hay un filtro activo cambiando lo que se ve. Sin esto, alguien
+                puede pasar media hora mirando una tabla filtrada sin saberlo. */}
+            {filtrosPuestos > 0 && (
+              <span className="rounded-md bg-good-900 px-1.5 py-0.5 text-xs font-medium text-good-200">
+                {filtrosPuestos}
+              </span>
+            )}
+          </span>
+          <CaretDown
+            size={14}
+            weight="bold"
+            aria-hidden
+            className="shrink-0 text-neutral-500 transition-transform duration-250 group-open:rotate-180"
+          />
+        </summary>
+
+        <div className="space-y-3 border-t border-divider p-4">
+          <div className="flex flex-wrap items-center justify-end gap-3">
+            {loading && <span className="text-xs text-neutral-500">Actualizando…</span>}
+            {!loading && refrescandoFondo && (
+              <span className="text-xs text-neutral-500">actualizando gasto…</span>
+            )}
+            <BarraFrescura
+              edadGasto={edadGasto}
+              errorGasto={frescura.error}
+              edadJerarquia={edadJerarquia}
+              errorJerarquia={frescuraJerarquia.error}
+              refrescando={refrescando}
+              segundosRestantes={frenoSegundos}
+              onActualizar={actualizar}
+            />
+          </div>
+
+          <BarraFiltros
+            nivel={nivel}
+            period={period}
+            rango={data.rango}
+            status={status}
+            cuenta={account}
+            nombre={nombre}
+            cuentas={cuentas}
+            cascada={
+              cascada ? (
+                <ChipCascada cascada={cascada} nivelActivo={nivel} nombres={new Map(Object.entries(nombresCascada))} onLimpiar={limpiarCascada} />
+              ) : null
+            }
+            ocultarSinDatos={ocultarSinDatos}
+            ocultarPadreApagado={ocultarPadreApagado}
+            onPeriodo={(p) => cambiarFiltro({ period: p })}
+            onOcultarSinDatos={(v) => cambiarFiltro({ ocultarSinDatos: v })}
+            onOcultarPadreApagado={(v) => cambiarFiltro({ ocultarPadreApagado: v })}
+            onStatus={(s) => cambiarFiltro({ status: s })}
+            onNombre={(n) => cambiarFiltro({ nombre: n })}
+          />
+
+          <ControlVistas
+            repo={repo}
+            vistaAplicada={vistaAplicada}
+            columnas={columnas}
+            orden={{ clave: ordenEstado.clave, dir: ordenEstado.dir }}
+            ignoradas={ignoradas}
+            errorRepo={errorRepo}
+            onCambiarRepo={(r) => void guardarRepo(r)}
+            onAplicarVista={aplicarVista}
+            onColumnas={setColumnas}
+            onNotificar={setAviso}
+          />
+
+          {/* Los cuatro rótulos nombran el alcance («Gasto de conjuntos
+              activos») y la línea de abajo dice sobre cuántas filas y con qué
+              otros filtros (R7.2, R7.4). El rótulo lleva nivel y estado porque
+              son los filtros que mueven filas dentro y fuera del total sin que
+              la plata cambie; el resto va en la línea, que es una sola para los
+              cuatro.
+
+              Viven acá adentro desde el rediseño v3: el número que se mira todo
+              el tiempo es el gasto, y ese ya está en el resumen de la barra
+              primaria. */}
+          <div className="space-y-2">
+            <Grid>
+              <StatCard label={`Gasto de ${alcance}`} value={money(totGasto)} sub={edadGasto} tone="warn" />
+              <StatCard label={`Ingresos de ${alcance}`} value={money(totIngresos)} sub="bruto aprobado" />
+              <StatCard label={`Ganancia de ${alcance}`} value={money(totGanancia)} sub="neto − gasto" tone={totGanancia < 0 ? 'bad' : 'good'} />
+              <StatCard label={`ROI de ${alcance}`} value={totRoi === null ? '—' : `${totRoi.toFixed(2)}×`} sub="neto ÷ gasto de ads" tone={totRoi === null ? 'neutral' : totRoi < 1 ? 'bad' : totRoi < 2 ? 'warn' : 'good'} />
+            </Grid>
+            <p className="text-xs text-neutral-500">{detalleTotales}</p>
+          </div>
+        </div>
+      </details>
 
       {(error || aviso || avisoTablaVieja) && (
         <Banner
@@ -1836,22 +1993,6 @@ export function GestorAnuncios({
 
       {resultados && <ResultadosLote respuesta={resultados} />}
 
-
-      {/* Los cuatro rótulos nombran el alcance («Gasto de conjuntos activos») y
-          la línea de abajo dice sobre cuántas filas y con qué otros filtros
-          (R7.2, R7.4). El rótulo lleva nivel y estado porque son los filtros que
-          mueven filas dentro y fuera del total sin que la plata cambie; el resto
-          va en la línea, que es una sola para los cuatro. */}
-      <div className="space-y-2">
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <StatCard label={`Gasto de ${alcance}`} value={money(totGasto)} sub={edadGasto} tone="warn" />
-          <StatCard label={`Ingresos de ${alcance}`} value={money(totIngresos)} sub="bruto aprobado" />
-          <StatCard label={`Ganancia de ${alcance}`} value={money(totGanancia)} sub="neto − gasto" tone={totGanancia < 0 ? 'bad' : 'good'} />
-          <StatCard label={`ROI de ${alcance}`} value={totRoi === null ? '—' : `${totRoi.toFixed(2)}×`} sub="neto ÷ gasto de ads" tone={totRoi === null ? 'neutral' : totRoi < 1 ? 'bad' : totRoi < 2 ? 'warn' : 'good'} />
-        </div>
-        <p className="text-xs text-neutral-500">{detalleTotales}</p>
-      </div>
-
       {data.sinAtribuir.sales > 0 && (
         <Banner tone={sinAtribuirPct > 0.2 ? 'warn' : 'info'} title="Ventas sin atribuir a un anuncio">
           {fmtInt(data.sinAtribuir.sales)} ventas ({money(data.sinAtribuir.revenueEur)}) entraron en el período pero sus UTMs no
@@ -1894,22 +2035,50 @@ export function GestorAnuncios({
           entero, así que dos números del mismo tablero tienen alcances distintos
           y cada uno tiene que declarar el suyo. */}
       {frasesFrescuraFilas.length > 0 && (
+        /*
+          Una LÍNEA, no un bloque de cuatro renglones (rediseño v3).
+
+          Medido a 390px, este aviso ocupaba ~330px de alto: el título, tres
+          líneas explicando qué significa que el dato esté atrasado, y una cuarta
+          con la antigüedad del más viejo. Con el banner de arriba y la barra
+          primaria, la primera fila de la tabla arrancaba fuera de pantalla.
+
+          Y lo que dice no cambia casi nunca: el texto largo explica el MECANISMO
+          (que la próxima corrida del cron las vuelve a confirmar), que se lee una
+          vez y ya. El dato que sí cambia es cuántas filas y hace cuánto, y eso es
+          la primera frase. El resto queda en el `title`.
+
+          Cuando hay DESAPARECIDAS sigue desplegado: esa condición no se arregla
+          sola y hay que ir a mirar el administrador de anuncios.
+        */
         <Banner
           // Ámbar sólo cuando hay desaparecidas: son las que no se arreglan
           // solas. Un atraso de la jerarquía lo cierra la próxima corrida del
           // cron y no amerita el color de un problema.
           tone={frescuraFilas.desaparecidas > 0 ? 'warn' : 'neutral'}
-          title="Filas con el dato atrasado"
+          title={frescuraFilas.desaparecidas > 0 ? 'Filas con el dato atrasado' : undefined}
         >
-          <span className="flex flex-col gap-1">
-            {frasesFrescuraFilas.map((frase) => (
-              <span key={frase}>{frase}</span>
-            ))}
-          </span>
+          {frescuraFilas.desaparecidas > 0 ? (
+            <span className="flex flex-col gap-1">
+              {frasesFrescuraFilas.map((frase) => (
+                <span key={frase}>{frase}</span>
+              ))}
+            </span>
+          ) : (
+            <span
+              className="block truncate panel:whitespace-normal"
+              title={frasesFrescuraFilas.join(' ')}
+            >
+              {frasesFrescuraFilas[0]}
+            </span>
+          )}
         </Banner>
       )}
 
-      <Card title={NIVEL_LABEL[nivel]} hint={`viendo ${filas.length} de ${fmtInt(data.totales.filas)} fila(s)`}>
+      {/* Sin título ni hint: el segmentado de la barra primaria ya dice el nivel
+          Y su conteo, así que un encabezado «Campañas · viendo 4 de 4 fila(s)»
+          repetía lo mismo 40px más abajo. */}
+      <Card>
         {loading && filas.length === 0 ? (
           <Skeleton variant="table" rows={8} />
         ) : filas.length === 0 ? (

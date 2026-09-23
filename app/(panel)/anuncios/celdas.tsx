@@ -226,16 +226,32 @@ export function MarcaFrescura({
   }
 
   if (f.marca === 'vieja') {
+    /*
+      Un PUNTO, no un badge con texto (rediseño v3).
+
+      El badge «dato hace 46 min» medía ~110px dentro de la celda del nombre, y
+      el nombre es la columna que identifica la fila: con la marca al lado,
+      «CH-ES-ABO-VID-03 | Amplio | Ventas | 25-45 | sep» se recortaba a
+      «CH-ES-ABO-VI…». Se ve en las capturas de verificación. Encima, cuando TODAS
+      las filas están viejas —el caso normal si el sync se atrasó— el texto se
+      repetía idéntico en cada fila, o sea ~110px por fila para decir lo mismo.
+
+      El punto ocupa 6px, lleva el mismo texto completo en el `title`, y el conteo
+      agregado sigue estando en el banner de arriba («4 de las 4 filas en
+      pantalla…»), que es donde se lee "hay un problema de frescura" de un vistazo.
+      La condición GRAVE (`desaparecida`, que no se arregla sola) sigue siendo un
+      badge con texto: esa sí tiene que gritar.
+    */
     return (
-      <Badge tone="neutral">
-        <span
-          title={`Este objeto no se confirma contra Meta ${textoAntiguedad(
-            f.edadSegundos,
-          )} (el umbral es ${textoDuracion(umbralSegundos)}). El estado y el presupuesto que se muestran pueden no ser los de Meta; la próxima corrida de la sincronización puede ponerlos al día.`}
-        >
-          dato {textoAntiguedad(f.edadSegundos)}
-        </span>
-      </Badge>
+      <span
+        className="inline-flex shrink-0 items-center"
+        title={`Este objeto no se confirma contra Meta ${textoAntiguedad(
+          f.edadSegundos,
+        )} (el umbral es ${textoDuracion(umbralSegundos)}). El estado y el presupuesto que se muestran pueden no ser los de Meta; la próxima corrida de la sincronización puede ponerlos al día.`}
+      >
+        <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-warn-500/70" />
+        <span className="sr-only">dato de hace {textoAntiguedad(f.edadSegundos)}</span>
+      </span>
     );
   }
 

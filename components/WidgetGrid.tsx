@@ -593,7 +593,7 @@ export function WidgetGrid<T>({
             }}
           >
             <SortableContext items={placements.map((p) => p.id)} strategy={rectSortingStrategy}>
-              <Grid className="auto-rows-[240px]">
+              <Grid className="panel:auto-rows-[240px]">
                 {placements.map((p) => {
                   const def = catalogo[p.id];
                   if (!def) return null;
@@ -612,7 +612,7 @@ export function WidgetGrid<T>({
             </SortableContext>
           </DndContext>
         ) : (
-          <Grid className="auto-rows-[240px]">
+          <Grid className="panel:auto-rows-[240px]">
             {placements.map((p) => {
               const def = catalogo[p.id];
               if (!def) return null;
