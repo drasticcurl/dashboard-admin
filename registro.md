@@ -10,7 +10,47 @@ Lo más nuevo va arriba. Las reglas de cómo se escribe una entrada están en
 
 ---
 
-## 2026-09-23 (6) — Cambiar de pestaña se colgaba unos segundos: la navegación esperaba a Meta Ads
+## 2026-09-25 — Campañas nuevas de Alma Gemela (24/09 y 25/09) sin mapear a su funnel
+
+**Qué pasaba.** El usuario pidió atribuir al funnel `almagemela` (id 5) las
+campañas "alma gemela" que corren en la cuenta de Chau Hinchazón
+(`act_2501344510302910`, funnel 1 por defecto). Ya existía un mapeo hecho a mano
+el 2026-09-22/23 (ver `ad_campaign_funnel`) para 20 campañas de esa cuenta; se
+verificó contra la base real (VPS, `psql`) y quedaban **13 campañas nuevas sin
+mapear**: 5 del 24/09 ("24/09 Alma Gemela" a "5") y 8 del 25/09 ("25/09 alma
+gemela" 1-4 + sus copias), creadas después del último mapeo manual.
+
+**Por qué se resolvió así.** Es el mismo mecanismo que ya usa esta cuenta desde
+la migración 033 (`ad_campaign_funnel`, tabla de excepciones por campaña: sin
+fila, hereda el funnel de la cuenta). No se creó nada nuevo: se completó el
+patrón existente para las campañas que se sumaron después del último mapeo.
+Se hizo por SQL directo en la VPS en vez del endpoint
+`/api/config/ads/campanas` porque no había forma de autenticarse contra el
+panel desde este entorno; el efecto es el mismo (mismo INSERT ... ON CONFLICT
+que usa el POST del endpoint).
+
+**Qué se ejecutó, en este orden:**
+1. `INSERT INTO ad_campaign_funnel` para las 13 campañas, con
+   `nota = 'Reasignada de chauhinchazon a almagemela (comparten cuenta
+   act_2501344510302910) - 2026-09-25'` (mismo formato que las notas previas).
+2. `UPDATE ad_spend SET funnel_id = 5` para esas campañas — **122 filas**
+   reasignadas (gasto del 20/09 al 25/09, las campañas viejas ya estaban bien
+   desde el mapeo anterior).
+3. `npm run rollup -- --from=2026-09-20 --to=2026-09-25` (44 filas) para que
+   `daily_metrics` (Resumen, brief de IA, reconciliación) deje de mostrar la
+   imputación vieja — es un agregado congelado, no se recalcula solo.
+
+**Qué se verificó.** Query de campañas "alma gemela" en `ad_campaigns` de esa
+cuenta sin mapeo a funnel 5: vacío. `daily_metrics` del 20 al 25/09 agrupado por
+`day, funnel_id`: el funnel 1 conserva su gasto propio y el funnel 5 muestra
+gasto en los 6 días, incluidos 24 y 25/09 (antes en 0 o incompleto). **Sin
+verificar:** que el ROAS/ROI de Anuncios (que atribuye por UTM, no por este
+mapeo — ver comentario de la 033) coincida con lo esperado para esas 13
+campañas nuevas; y si hay campañas "alma gemela" futuras se van a seguir
+creando sin mapeo automático, así que este proceso hay que repetirlo cada vez
+que se lancen campañas nuevas en esta cuenta compartida.
+
+
 
 **Qué pasaba.** El usuario reportó que cambiar entre pestañas del panel (sobre
 todo Resumen, Ventas y Anuncios) se colgaba "unos segs" de forma intermitente.
