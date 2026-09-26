@@ -31,13 +31,14 @@ import { debeMostrarCardVariantes } from './EmbudoView';
  *  - No recorta el embudo. La card muestra los dos brazos juntos y no existe un
  *    `?exp=` que parta la pantalla, que era la mitad peligrosa de la superficie
  *    vieja: un control que recortaba todo sin nada que explicara el recorte.
- *  - No pasa por `FunnelData`. Trae sus datos de `/api/data/pitch`, así que
- *    `lib/queries/funnel.ts` sigue sin lectores del desglose por experimento.
+ *  - No pasa por `FunnelData`. Trae sus datos de `/api/data/pitch`.
  *
- * O sea: el desglose por `experiment` de `funnel.ts` sigue siendo el slot
- * dormido que este archivo cuida, y la lectura del test que corre hoy es un
- * módulo aparte. Si alguien vuelve a querer partir el embudo por brazo, que
- * lea primero por qué se sacó.
+ * Y desde 2026-09-26 hay una tercera, `CardTestEstetica.tsx` (A/B de estética
+ * del quiz de almagemela), que SÍ lee el desglose por `experiment` de
+ * `FunnelData` —el slot dormido— pero con el mismo contrato que la del pitch:
+ * módulo aparte con sus gates y sus tests, los brazos lado a lado, sin toggle
+ * ni `?exp=`. El embudo sigue siendo uno solo. Si alguien vuelve a querer
+ * PARTIR el embudo por brazo, que lea primero por qué se sacó.
  */
 
 describe('debeMostrarCardVariantes (puro)', () => {

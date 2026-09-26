@@ -42,6 +42,7 @@ import type { Funnel } from '@/lib/funnels';
 import type { BaseMode, FunnelData } from '@/lib/queries/funnel';
 import { EmbudoChart } from '@/components/EmbudoChart';
 import { CardPitch, debeMostrarCardPitch } from './CardPitch';
+import { CardTestEstetica, debeMostrarCardEstetica } from './CardTestEstetica';
 import {
   Badge,
   Banner,
@@ -385,6 +386,17 @@ export function EmbudoView({
         dos brazos juntos, que es la única forma de compararlos.
       */}
       {debeMostrarCardPitch(funnel.experiments) && <CardPitch funnel={funnel} />}
+
+      {/*
+        El A/B de estética del quiz (almagemela). Lee `data.experiments`, que ya
+        viene en el mismo fetch del embudo, así que se actualiza con los mismos
+        filtros y rango. Mismo contrato que la del pitch: no recorta nada, muestra
+        los dos brazos juntos, y cuando el test cierre se borra el archivo y esta
+        línea.
+      */}
+      {debeMostrarCardEstetica(funnel.experiments) && (
+        <CardTestEstetica funnel={funnel} filas={data.experiments} />
+      )}
 
       {/* Los cuatro bloques de abajo van plegados en mobile (ver `Desglose` en
           components/ui.tsx): son desgloses que se consultan cuando hacen falta, y
