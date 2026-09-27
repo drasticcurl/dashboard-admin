@@ -10,6 +10,69 @@ Lo más nuevo va arriba. Las reglas de cómo se escribe una entrada están en
 
 ---
 
+## 2026-09-27 (2) — Resumen: cada card de Funnels muestra su resultado (neto − ads)
+
+**Qué pasaba.** El usuario pidió que cada funnel del widget "Funnels" de
+Resumen diga su profit. La card mostraba neto, neto en su moneda, órdenes y
+conversión, pero no cuánto quedaba después de pagar la publicidad: para saber
+si un funnel gana había que ir a Anuncios o hacer la resta a mano.
+
+**Por qué se resolvió así.** `FunnelSummary` ya traía `resultEur` (neto −
+gasto en ads, donde el neto ya descuenta devoluciones, comisiones y costos) y
+`roi` por funnel; sólo no se mostraban. Es un cambio de la card
+(`lib/widgets/catalogo-resumen.tsx`), sin query nueva. Se llama "Resultado" y
+no "profit" porque es el mismo número que el widget de Resultado del total, y
+dos nombres para lo mismo hacen dudar de si son dos cuentas. Verde si gana,
+rojo si pierde, gris en 0 (un funnel sin ventas ni gasto no es uno que "no
+pierde"). Sin gasto cargado dice "sin gasto en ads" en vez de un ROI "—".
+
+**Qué se verificó.** Render del widget con tres funnels de prueba (gana,
+pierde, sin gasto): color y texto correctos en los tres. `npm test` y
+`npm run build` en verde.
+
+**Además, en la misma sesión:** se mapearon al funnel 5 otras 3 campañas de
+Alma Gemela creadas el 27/09 a la noche ("28/09 alma gemela elyon/zyra/zurak -
+Copia", ids `120249718492430617`, `120249718501480617`, `120249718501810617`),
+con la misma nota que la entrada de abajo. Todavía no tenían gasto, así que no
+hubo filas de `ad_spend` que mover ni rollup que correr: el sync las imputa al
+funnel 5 desde el primer gasto.
+
+---
+
+## 2026-09-27 — 4 campañas nuevas de Alma Gemela (27/09) sin mapear a su funnel
+
+**Qué pasaba.** Mismo caso que el del 2026-09-25: el usuario pidió asignar las
+campañas de Alma Gemela al funnel `almagemela` (id 5). Contra la base real
+quedaban **4 campañas sin mapear**, creadas el 26/09 en la cuenta compartida
+`act_2501344510302910`: "27/09 alma gemela zyra", "27/09 alma gemela zyra -
+Copia", "27/09 alma gemela elyon" y "27/09 alma gemela zurak". Su gasto (45
+filas, 142,31 € del 27/09) estaba imputado a Chau Hinchazón.
+
+**Por qué se resolvió así.** Mismo mecanismo que las veces anteriores
+(`ad_campaign_funnel`) y por SQL directo en la VPS con el mismo INSERT ... ON
+CONFLICT y UPDATE que usa el POST de `/api/config/ads/campanas`, en una sola
+transacción.
+
+**Qué se ejecutó:**
+1. `INSERT INTO ad_campaign_funnel` para las 4 campañas, con
+   `nota = 'Reasignada de chauhinchazon a almagemela (comparten cuenta
+   act_2501344510302910) - 2026-09-27'`.
+2. `UPDATE ad_spend SET funnel_id = 5` — **45 filas**, todas del 27/09.
+3. Rollup del 27/09 (4 filas). Ojo: `npm run rollup` en la VPS falla con
+   "DATABASE_URL no está configurada" porque `tsx` no lee el env solo; hay que
+   correrlo como dice COMO-DEPLOYAR §11:
+   `/usr/bin/node --env-file=.env.production ./node_modules/.bin/tsx scripts/rollup.ts --from=2026-09-27 --to=2026-09-27`.
+
+**Qué se verificó.** Ninguna campaña con "alma" o "gemela" en el nombre queda
+resuelta a un funnel distinto de 5, y no queda gasto de esas campañas en
+`ad_spend` fuera del funnel 5. `daily_metrics` del 27/09: funnel 5 con 375,55 €
+de gasto. **Sin verificar:** lo mismo que la entrada del 25/09 — el ROAS de
+Anuncios atribuye por UTM, no por este mapeo. El mapeo sigue siendo manual:
+cada tanda nueva de campañas de Alma Gemela en esa cuenta va a caer en Chau
+Hinchazón hasta que alguien la mapee.
+
+---
+
 ## 2026-09-25 — Campañas nuevas de Alma Gemela (24/09 y 25/09) sin mapear a su funnel
 
 **Qué pasaba.** El usuario pidió atribuir al funnel `almagemela` (id 5) las
@@ -50,7 +113,9 @@ campañas nuevas; y si hay campañas "alma gemela" futuras se van a seguir
 creando sin mapeo automático, así que este proceso hay que repetirlo cada vez
 que se lancen campañas nuevas en esta cuenta compartida.
 
+---
 
+## 2026-09-23 (6) — Cambiar de pestaña se colgaba unos segundos: la navegación esperaba a Meta Ads
 
 **Qué pasaba.** El usuario reportó que cambiar entre pestañas del panel (sobre
 todo Resumen, Ventas y Anuncios) se colgaba "unos segs" de forma intermitente.

@@ -161,10 +161,16 @@ const LINK_CLS =
   'tap rounded-lg border border-border-subtle px-2.5 py-1 text-xs font-semibold text-neutral-300 transition-colors hover:bg-overlay/4 hover:text-neutral-50 focus:outline-none focus:ring-2 focus:ring-good-500/50';
 
 /**
- * La tarjeta de un funnel: neto en la moneda vista + neto en su moneda + los
- * links. `moneda` es la de `OverviewData.moneda` (el switch EUR/USD).
+ * La tarjeta de un funnel: neto en la moneda vista + neto en su moneda + el
+ * resultado (neto − ads, la misma cuenta que el widget de Resultado pero de
+ * este funnel) + los links. `moneda` es la de `OverviewData.moneda` (el switch
+ * EUR/USD).
  */
 function FunnelCard({ f, moneda }: { f: FunnelSummary; moneda: MonedaReporte }): JSX.Element {
+  // Verde o rojo sólo si hay algo que decir: un funnel sin ventas ni gasto da
+  // resultado 0, y pintarlo de verde lo haría pasar por uno que no pierde.
+  const resultadoCls =
+    f.resultEur > 0 ? 'text-good-400' : f.resultEur < 0 ? 'text-bad-400' : 'text-neutral-300';
   return (
     <div className="rounded-xl border border-border-subtle bg-canvas p-3.5">
       <div className="flex items-center gap-2">
@@ -179,6 +185,17 @@ function FunnelCard({ f, moneda }: { f: FunnelSummary; moneda: MonedaReporte }):
         </span>
         <span className="text-xs tabular-nums text-neutral-400">
           {fmtMoney(f.netOrig, f.sellCurrency)}
+        </span>
+      </div>
+      {/* El ROI con el mismo formato que el widget de ROI (dos decimales y ×,
+          null → sin gasto): acá no hay espacio para explicar un "—". */}
+      <div className="mt-1.5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-xs tabular-nums">
+        <span className="text-neutral-400">Resultado</span>
+        <span className={`text-sm font-semibold ${resultadoCls}`}>{fmtMoney(f.resultEur, moneda)}</span>
+        <span className="text-neutral-500">
+          {f.roi === null
+            ? 'sin gasto en ads'
+            : `ads ${fmtMoney(f.adSpendEur, moneda)} · ROI ${f.roi.toFixed(2)}×`}
         </span>
       </div>
       <p className="mt-1 text-xs tabular-nums text-neutral-500">
@@ -853,7 +870,7 @@ export const catalogoResumen: WidgetCatalogo<OverviewData> = {
   funnels: {
     id: 'funnels',
     label: 'Funnels',
-    hint: 'Uno por funnel, ordenados por neto: neto consolidado, neto en su moneda y links a Embudo y Ventas.',
+    hint: 'Uno por funnel, ordenados por neto: neto consolidado, neto en su moneda, resultado (neto − gasto en ads) y links a Embudo y Ventas.',
     grupo: 'listas',
     tamañoPorDefecto: { w: 2, h: 2 },
     tamañosPermitidos: [{ w: 2, h: 2 }],
