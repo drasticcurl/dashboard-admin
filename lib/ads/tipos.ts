@@ -277,6 +277,15 @@ export type ResultadoMetricas = {
     revenueEur: number;
     netEur: number;
     profitEur: number;
+    /**
+     * La suma de `profitEur` de las filas que PIERDEN (ganancia < 0), así que
+     * es ≤ 0. Es lo que esos objetos le restaron a `profitEur`: la ganancia
+     * «sin los que pierden» es `profitEur − perdidaEur`. Una fila con ganancia
+     * exactamente 0 no cuenta: sin gasto y sin ventas no perdió nada.
+     */
+    perdidaEur: number;
+    /** Cuántas filas del filtro tienen ganancia < 0. */
+    filasPerdiendo: number;
     sales: number;
     filas: number;
   };

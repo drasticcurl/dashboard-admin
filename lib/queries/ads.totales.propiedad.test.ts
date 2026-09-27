@@ -669,6 +669,9 @@ describe.skipIf(!dbAvailable)('Property 9 — totales del filtro, no de la pági
           expect(primera.totales.revenueEur).toBeCloseTo(suma((f) => f.revenueEur), 6);
           expect(primera.totales.netEur).toBeCloseTo(suma((f) => f.netEur), 6);
           expect(primera.totales.profitEur).toBeCloseTo(suma((f) => f.profitEur), 6);
+          // La pérdida de los que pierden cierra contra sumar los rojos a mano.
+          expect(primera.totales.perdidaEur).toBeCloseTo(suma((f) => Math.min(0, f.profitEur)), 6);
+          expect(primera.totales.filasPerdiendo).toBe(todas.filter((f) => f.profitEur < 0).length);
         }),
         // 60 iteraciones. Cada una recorre TODAS las páginas del filtro y cada
         // página son tres consultas, así que el costo crece con `numRuns` mucho

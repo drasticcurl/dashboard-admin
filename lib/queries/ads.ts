@@ -243,6 +243,8 @@ export type RowTotales = {
   revenueEur: string;
   netEur: string;
   profitEur: string;
+  perdidaEur: string;
+  filasPerdiendo: string;
   sales: string;
   filas: string;
 };
@@ -258,6 +260,8 @@ export function totalesDesdeRow(row: RowTotales | null): ResultadoMetricas['tota
     revenueEur: Number(row?.revenueEur ?? 0),
     netEur: Number(row?.netEur ?? 0),
     profitEur: Number(row?.profitEur ?? 0),
+    perdidaEur: Number(row?.perdidaEur ?? 0),
+    filasPerdiendo: Number(row?.filasPerdiendo ?? 0),
     sales: Number(row?.sales ?? 0),
     filas: Number(row?.filas ?? 0),
   };
@@ -814,6 +818,11 @@ SELECT COALESCE(sum(m."spendEur"), 0)   AS "spendEur",
        COALESCE(sum(m."revenueEur"), 0) AS "revenueEur",
        COALESCE(sum(m."netEur"), 0)     AS "netEur",
        COALESCE(sum(m."profitEur"), 0)  AS "profitEur",
+       -- Las filas que pierden, sobre la MISMA columna que la tabla pinta en
+       -- rojo: así "la pérdida de los que pierden" cierra contra sumar a mano
+       -- los rojos de la columna Ganancia.
+       COALESCE(sum(m."profitEur") FILTER (WHERE m."profitEur" < 0), 0) AS "perdidaEur",
+       count(*) FILTER (WHERE m."profitEur" < 0) AS "filasPerdiendo",
        COALESCE(sum(m."sales"), 0)      AS "sales",
        count(*)                         AS "filas"
   FROM medidas m`;

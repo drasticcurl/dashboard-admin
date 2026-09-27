@@ -150,7 +150,7 @@ export async function GET(req: NextRequest): Promise<Response> {
       alcanceError: null,
       // Los seis en cero, que es el mismo criterio que `totalesDesdeRow` aplica
       // a un filtro sin filas: un total de 0 es un total real, no un hueco.
-      totales: { spendEur: 0, revenueEur: 0, netEur: 0, profitEur: 0, sales: 0, filas: 0 },
+      totales: { spendEur: 0, revenueEur: 0, netEur: 0, profitEur: 0, perdidaEur: 0, filasPerdiendo: 0, sales: 0, filas: 0 },
     };
     return json(200, {
       ok: true,

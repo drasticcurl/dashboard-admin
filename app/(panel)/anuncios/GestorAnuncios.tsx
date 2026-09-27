@@ -45,6 +45,7 @@ import { ControlVistas } from './ControlVistas';
 import { TablaAds, type FilaEnProceso } from './TablaAds';
 import { frasesFrescura, resumenFrescura } from './celdas';
 import { Paginacion } from './Paginacion';
+import { FranjaTotales } from './FranjaTotales';
 import { BarraSeleccion } from './BarraSeleccion';
 import { DialogoConfirmacion } from './DialogoConfirmacion';
 import { FormularioPresupuesto } from './FormularioPresupuesto';
@@ -53,7 +54,7 @@ import { FormularioRenombrar, modoDeFormulario, type ModoFormulario } from './Fo
 import { FormularioProgramar } from './FormularioProgramar';
 import { isoConOffset, mananaMedianocheLocal } from './zonaHoraria';
 import { ResultadosLote, type RespuestaLote } from './ResultadosLote';
-import { Banner, Card, EmptyState, Grid, Skeleton, StatCard, fmtInt, fmtMoney } from '@/components/ui';
+import { Banner, Card, EmptyState, Skeleton, fmtInt, fmtMoney } from '@/components/ui';
 import {
   aplicarEvento,
   estadoInicial,
@@ -164,7 +165,8 @@ const OBJETOS_NIVEL: Record<NivelAds, { plural: string; activo: string; pausado:
 };
 
 /**
- * El alcance de los totales en dos palabras, para el rótulo de cada StatCard
+ * El alcance de los totales en dos palabras, para el rótulo de cada celda de
+ * FranjaTotales
  * (R7.2, R7.4 — task 17.2).
  *
  * Sólo nivel y estado, que son los dos filtros que hacen entrar y salir filas de
@@ -1122,13 +1124,16 @@ export function GestorAnuncios({
       if (cambios.nombre) params.set('nombre', cambios.nombre);
       else params.delete('nombre');
     }
+    // En la URL de la PÁGINA ocultar es el default (ver anuncios/page.tsx): se
+    // escribe sólo el `=1` de "mostrar". La del endpoint (`construirUrl`) sigue
+    // con su forma de siempre, `=0` para ocultar.
     if (cambios.ocultarSinDatos !== undefined) {
-      if (cambios.ocultarSinDatos) params.set('sinDatos', '0');
-      else params.delete('sinDatos');
+      if (cambios.ocultarSinDatos) params.delete('sinDatos');
+      else params.set('sinDatos', '1');
     }
     if (cambios.ocultarPadreApagado !== undefined) {
-      if (cambios.ocultarPadreApagado) params.set('padreApagado', '0');
-      else params.delete('padreApagado');
+      if (cambios.ocultarPadreApagado) params.delete('padreApagado');
+      else params.set('padreApagado', '1');
     }
     router.replace(`/anuncios?${params.toString()}`, { scroll: false });
   };
@@ -1651,15 +1656,10 @@ export function GestorAnuncios({
   // sin OFFSET ni LIMIT, así que es una función del filtro y no de la página.
   const filas = data.filas;
   const totales = data.totales;
+  // El gasto se sigue leyendo acá porque lo muestra también la barra
+  // primaria; el resto de los totales (y el ROI, que se deriva) los arma
+  // FranjaTotales.
   const totGasto = totales.spendEur;
-  const totIngresos = totales.revenueEur;
-  const totGanancia = totales.profitEur;
-  const totNeto = totales.netEur;
-  // El ROI se deriva ACÁ porque el agregado no manda cocientes a propósito: el
-  // cociente de las sumas no es la suma de los cocientes. `null` y NO 0 cuando
-  // no hubo gasto, que es la regla de lib/ads/tipos.ts: un 0 se leería como
-  // «no devolvió nada», y sin gasto el retorno no se puede calcular.
-  const totRoi = totGasto > 0 ? totNeto / totGasto : null;
   // El alcance con el que se rotulan los cuatro KPIs y la línea de contexto de
   // abajo. Los dos salen de los filtros vigentes, no de `data`: `data` puede ser
   // de un pedido anterior mientras el nuevo está en vuelo, y en ese instante el
@@ -1835,11 +1835,15 @@ export function GestorAnuncios({
    * ve: alguien puede mirar una tabla filtrada un buen rato sin saber por qué le
    * faltan filas. El período NO cuenta —siempre tiene un valor y se ve arriba en
    * el encabezado— y el nombre tampoco, porque su caja está a la vista.
+   *
+   * Los dos «ocultar» cuentan cuando se APAGAN, no cuando están puestos: vienen
+   * prendidos por defecto, así que contarlos prendidos dejaría un «2» fijo que
+   * no avisa nada, y apagados sí cambian lo que se ve respecto de lo de siempre.
    */
   const filtrosPuestos =
     (status !== 'any' ? 1 : 0) +
-    (ocultarSinDatos ? 1 : 0) +
-    (ocultarPadreApagado ? 1 : 0) +
+    (!ocultarSinDatos ? 1 : 0) +
+    (nivel !== 'campaign' && !ocultarPadreApagado ? 1 : 0) +
     (cascada ? 1 : 0);
 
   return (
@@ -1850,10 +1854,11 @@ export function GestorAnuncios({
       {/*
         ── La barra primaria (rediseño v3) ──────────────────────────────────
         Segmentado con conteo + buscador + resumen, en UNA fila, como las
-        capturas de referencia. Todo lo demás (período, cuenta, estado, ocultar
-        sin datos, vistas y columnas, las cuatro tarjetas de KPI y la barra de
-        frescura) se fue al desplegable de abajo: eran seis bloques apilados que
-        a 390px obligaban a scrollear una pantalla y media para ver una campaña.
+        capturas de referencia. Los filtros secundarios (período, cuenta,
+        estado, ocultar sin datos, vistas y columnas y la barra de frescura) se
+        fueron al desplegable de abajo: eran seis bloques apilados que a 390px
+        obligaban a scrollear una pantalla y media para ver una campaña. Los
+        totales volvieron afuera, en una franja chica: se miran siempre.
       */}
       <BarraPrimaria
         nivel={nivel}
@@ -1867,6 +1872,23 @@ export function GestorAnuncios({
       />
 
       {/*
+        Los totales van AFUERA del desplegable y siempre a la vista, en una
+        franja chica (FranjaTotales.tsx). Adentro no se veían nunca: el
+        desplegable pasa cerrado casi todo el tiempo.
+
+        Los rótulos nombran el alcance («Gasto de conjuntos activos») y la línea
+        de abajo dice sobre cuántas filas y con qué otros filtros (R7.2, R7.4).
+      */}
+      <FranjaTotales
+        totales={totales}
+        alcance={alcance}
+        plural={OBJETOS_NIVEL[nivel].plural}
+        edadGasto={edadGasto}
+        detalle={detalleTotales}
+        money={money}
+      />
+
+      {/*
         `<details>` nativo y no un estado de React: el navegador ya sabe abrir y
         cerrar esto, lo hace accesible por teclado solo, y el contenido de adentro
         no se monta hasta que se abre. Un `useState` acá sería reimplementar un
@@ -1876,7 +1898,7 @@ export function GestorAnuncios({
         <summary className="tap flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-2.5 text-sm text-neutral-300 transition-colors duration-250 hover:text-neutral-100">
           <span className="flex items-center gap-2">
             <SlidersHorizontal size={15} weight="bold" aria-hidden />
-            Más filtros, columnas y totales
+            Más filtros y columnas
             {/* Cuántos filtros están puestos, para que cerrado no esconda que
                 hay un filtro activo cambiando lo que se ve. Sin esto, alguien
                 puede pasar media hora mirando una tabla filtrada sin saberlo. */}
@@ -1945,26 +1967,6 @@ export function GestorAnuncios({
             onColumnas={setColumnas}
             onNotificar={setAviso}
           />
-
-          {/* Los cuatro rótulos nombran el alcance («Gasto de conjuntos
-              activos») y la línea de abajo dice sobre cuántas filas y con qué
-              otros filtros (R7.2, R7.4). El rótulo lleva nivel y estado porque
-              son los filtros que mueven filas dentro y fuera del total sin que
-              la plata cambie; el resto va en la línea, que es una sola para los
-              cuatro.
-
-              Viven acá adentro desde el rediseño v3: el número que se mira todo
-              el tiempo es el gasto, y ese ya está en el resumen de la barra
-              primaria. */}
-          <div className="space-y-2">
-            <Grid>
-              <StatCard label={`Gasto de ${alcance}`} value={money(totGasto)} sub={edadGasto} tone="warn" />
-              <StatCard label={`Ingresos de ${alcance}`} value={money(totIngresos)} sub="bruto aprobado" />
-              <StatCard label={`Ganancia de ${alcance}`} value={money(totGanancia)} sub="neto − gasto" tone={totGanancia < 0 ? 'bad' : 'good'} />
-              <StatCard label={`ROI de ${alcance}`} value={totRoi === null ? '—' : `${totRoi.toFixed(2)}×`} sub="neto ÷ gasto de ads" tone={totRoi === null ? 'neutral' : totRoi < 1 ? 'bad' : totRoi < 2 ? 'warn' : 'good'} />
-            </Grid>
-            <p className="text-xs text-neutral-500">{detalleTotales}</p>
-          </div>
         </div>
       </details>
 

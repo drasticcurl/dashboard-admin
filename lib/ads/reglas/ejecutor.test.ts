@@ -133,6 +133,8 @@ function resultadoMetricas(filas: MetricasObjeto[]): ResultadoMetricas {
       revenueEur: filas.reduce((a, f) => a + f.revenueEur, 0),
       netEur: filas.reduce((a, f) => a + f.netEur, 0),
       profitEur: filas.reduce((a, f) => a + f.profitEur, 0),
+      perdidaEur: filas.reduce((a, f) => a + Math.min(0, f.profitEur), 0),
+      filasPerdiendo: filas.filter((f) => f.profitEur < 0).length,
       sales: filas.reduce((a, f) => a + f.sales, 0),
       filas: filas.length,
     },

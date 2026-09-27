@@ -127,6 +127,12 @@ describe.skipIf(!dbAvailable)('getMetricasAds — totales del filtro completo (R
     );
     expect(paginas[0]!.totales.profitEur).toBeCloseTo(-SUMA_TOTAL, 6);
     expect(paginas[0]!.totales.sales).toBe(0);
+
+    // Sin ventas, las siete filas pierden su gasto entero: la pérdida de las que
+    // pierden es toda la ganancia (negativa), y sin ellas la ganancia queda en 0.
+    expect(paginas[0]!.totales.filasPerdiendo).toBe(GASTOS.length);
+    expect(paginas[0]!.totales.perdidaEur).toBeCloseTo(-SUMA_TOTAL, 6);
+    expect(paginas[0]!.totales.profitEur - paginas[0]!.totales.perdidaEur).toBeCloseTo(0, 6);
   });
 
   it('en una página más allá del final los totales siguen siendo los del filtro', async () => {
@@ -159,6 +165,8 @@ describe.skipIf(!dbAvailable)('getMetricasAds — totales del filtro completo (R
       revenueEur: 0,
       netEur: 0,
       profitEur: 0,
+      perdidaEur: 0,
+      filasPerdiendo: 0,
       sales: 0,
       filas: 0,
     });

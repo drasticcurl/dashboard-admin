@@ -105,10 +105,16 @@ export default async function AnunciosPage({ searchParams }: { searchParams: Sea
   const account = cuentaActual.accountId;
 
   const nombre = single(searchParams.nombre);
-  // Se leen como "=0" para que la AUSENCIA signifique "mostrar todo", que es el
-  // comportamiento de siempre y el que no sorprende al abrir la pantalla.
-  const ocultarSinDatos = single(searchParams.sinDatos) === '0';
-  const ocultarPadreApagado = single(searchParams.padreApagado) === '0';
+  // Los dos filtros de ruido vienen PRENDIDOS por defecto: la AUSENCIA en la
+  // URL significa "ocultar", y sólo `=1` muestra esas filas. Antes era al revés
+  // (ausente = mostrar todo), y lo primero que se hacía al abrir la pantalla era
+  // tildar los dos: con decenas de conjuntos sin gasto o con la campaña apagada,
+  // la tabla abría llena de filas que no dicen nada.
+  //
+  // `=0` se sigue leyendo como "ocultar" para que los links y marcadores que se
+  // guardaron con la forma vieja abran igual que siempre.
+  const ocultarSinDatos = single(searchParams.sinDatos) !== '1';
+  const ocultarPadreApagado = single(searchParams.padreApagado) !== '1';
 
   // ── Filtro_Cascada de la URL (R8 c7, c13): la tabla abre ya filtrada ──
   //
