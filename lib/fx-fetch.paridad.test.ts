@@ -3,6 +3,7 @@ import { q, q1 } from './db';
 import {
   assertPlausibleParidad,
   fetchParidad,
+  monedasAExtraer,
   monedasDeVentaAExtraer,
   saveRate,
 } from './fx-fetch';
@@ -196,7 +197,53 @@ describe('monedasDeVentaAExtraer', () => {
   });
 });
 
+describe('monedasAExtraer (el dólar del switch del Resumen)', () => {
+  beforeEach(() => vi.resetAllMocks());
+
+  it('suma la moneda alternativa aunque ningún funnel venda en ella', async () => {
+    vi.mocked(q).mockResolvedValue([]);
+    expect(await monedasAExtraer()).toEqual(['USD']);
+  });
+
+  it('no la duplica cuando un funnel ya vende en ella', async () => {
+    vi.mocked(q).mockResolvedValue([{ base: 'USD' }]);
+    expect(await monedasAExtraer()).toEqual(['USD']);
+  });
+
+  it('conserva las otras monedas de venta, ordenadas', async () => {
+    vi.mocked(q).mockResolvedValue([{ base: 'BRL' }, { base: 'MXN' }]);
+    expect(await monedasAExtraer()).toEqual(['BRL', 'MXN', 'USD']);
+  });
+});
+
 describe('fetch-fx CLI con más de un par', () => {
+  beforeEach(() => vi.resetAllMocks());
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('guarda USD→EUR aunque ningún funnel venda en dólares (lo necesita el switch del Resumen)', async () => {
+    vi.mocked(q1).mockResolvedValueOnce({ value: '"oficial"' }).mockResolvedValue(null);
+    vi.mocked(q).mockImplementation(async () => [] as never);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) =>
+        String(url).includes('er-api') ? jsonResponse(ERAPI_USD) : jsonResponse(DOLARAPI_OK),
+      ),
+    );
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await fetchFxMain(['--day=2026-09-14']);
+
+    const inserts = vi
+      .mocked(q)
+      .mock.calls.filter(([sql]) => String(sql).includes('INSERT INTO fx_rates'))
+      .map(([, params]) => params);
+    expect(inserts).toHaveLength(2);
+    expect(inserts[1]).toEqual(['2026-09-14', 'USD', 'EUR', 0.862246, 'er-api']);
+    logSpy.mockRestore();
+  });
+});
+
+describe('fetch-fx CLI con más de un par (moneda de venta)', () => {
   beforeEach(() => vi.resetAllMocks());
   afterEach(() => vi.unstubAllGlobals());
 

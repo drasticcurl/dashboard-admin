@@ -22,6 +22,7 @@ import { getOverviewData } from '@/lib/queries/overview';
 import { resolveRange, today } from '@/lib/day';
 import { ensureFreshAdSpend } from '@/lib/ads/live';
 import { q1 } from '@/lib/db';
+import { leerMonedaVista } from '@/lib/moneda-reporte';
 import type { WidgetLayout } from '@/lib/widgets/tipos';
 import { ResumenView } from './ResumenView';
 
@@ -67,7 +68,9 @@ export default async function ResumenPage({ searchParams }: { searchParams: Sear
   const adsFreshness = await ensureFreshAdSpend(range.to, hoy, { esperar: false });
 
   const [data, layoutRow] = await Promise.all([
-    getOverviewData(range),
+    // El switch EUR/USD vive en `?moneda=`: se lee acá también para que la
+    // primera pintura ya salga en la moneda elegida y no en euros un instante.
+    getOverviewData(range, leerMonedaVista(single(searchParams.moneda))),
     // Lectura propia de la fila, igual que el GET de /api/config/ui-layout:
     // la whitelist de getSettingsRecord() no incluye los layouts.
     q1<{ value: unknown }>('SELECT value FROM settings WHERE key = $1', ['ui_layout_resumen']),

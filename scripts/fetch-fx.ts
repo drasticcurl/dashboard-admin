@@ -3,13 +3,16 @@
  * Cron diario de las cotizaciones que el panel necesita para consolidar (T03,
  * D12/D13 del plan).
  *
- * Archiva DOS clases de par:
+ * Archiva TRES clases de par:
  *   · ARS → moneda de reporte, con dolarapi como fuente primaria y er-api como
  *     respaldo. Es el par histórico y el que decide la moneda de reporte
  *     (NEXT_PUBLIC_REPORT_CURRENCY, ver lib/moneda-reporte.ts).
  *   · <moneda de venta> → moneda de reporte para cada funnel activo que no venda
  *     en pesos ni en la moneda de reporte (hoy USD, del funnel LATAM), con la
  *     paridad directa de er-api. Ver `fetchParidad` en lib/fx-fetch.ts.
+ *   · la moneda alternativa (hoy USD) → moneda de reporte, SIEMPRE, aunque
+ *     ningún funnel venda en ella: es la que usa el switch EUR/USD del Resumen
+ *     para convertir cada día con su cotización. Ver `monedasAExtraer`.
  *
  * Línea de cron (la instalación de la máquina la escribe T12):
  *   # Cotización ARS→moneda de reporte, todos los días a las 03:10 hora de Argentina
@@ -29,7 +32,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { getPool, q, q1 } from '../lib/db';
 import { today } from '../lib/day';
-import { fetchParidad, fetchRate, monedasDeVentaAExtraer, saveRate, type FxFetchResult } from '../lib/fx-fetch';
+import { fetchParidad, fetchRate, monedasAExtraer, saveRate, type FxFetchResult } from '../lib/fx-fetch';
 import { MONEDA_REPORTE } from '../lib/moneda-reporte';
 import { runBackfill } from './backfill-fx';
 
@@ -138,7 +141,7 @@ export async function main(args: string[] = process.argv.slice(2)): Promise<void
   // backfill de abajo: se junta y se tira al final, para que el cron avise con
   // exit 1 pero el trabajo que sí se pudo hacer quede hecho.
   const fallos: string[] = [];
-  for (const base of await monedasDeVentaAExtraer()) {
+  for (const base of await monedasAExtraer()) {
     try {
       const yaEsta = await q1<{ source: string }>(
         `SELECT source FROM fx_rates WHERE day = $1 AND base = $2 AND quote = $3`,

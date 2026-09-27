@@ -49,7 +49,7 @@ import {
 import { PanelInsight } from '@/components/PanelInsight';
 import type { FunnelSummary, OverviewData } from '@/lib/queries/overview';
 import type { WidgetCatalogo, WidgetSize } from './tipos';
-import { MONEDA_REPORTE, SIMBOLO_REPORTE } from '@/lib/moneda-reporte';
+import type { MonedaReporte } from '@/lib/moneda-reporte';
 
 // El trend es (actual − anterior) ÷ anterior. Sin período anterior (rango
 // 'all') o con anterior en 0 no hay comparación posible: undefined, y el KPI
@@ -160,8 +160,11 @@ const byDayTicket = (d: OverviewData): SparkPoint[] =>
 const LINK_CLS =
   'tap rounded-lg border border-border-subtle px-2.5 py-1 text-xs font-semibold text-neutral-300 transition-colors hover:bg-overlay/4 hover:text-neutral-50 focus:outline-none focus:ring-2 focus:ring-good-500/50';
 
-/** La tarjeta de un funnel: neto EUR + neto en su moneda + los links. */
-function FunnelCard({ f }: { f: FunnelSummary }): JSX.Element {
+/**
+ * La tarjeta de un funnel: neto en la moneda vista + neto en su moneda + los
+ * links. `moneda` es la de `OverviewData.moneda` (el switch EUR/USD).
+ */
+function FunnelCard({ f, moneda }: { f: FunnelSummary; moneda: MonedaReporte }): JSX.Element {
   return (
     <div className="rounded-xl border border-border-subtle bg-canvas p-3.5">
       <div className="flex items-center gap-2">
@@ -172,7 +175,7 @@ function FunnelCard({ f }: { f: FunnelSummary }): JSX.Element {
       </div>
       <div className="mt-2 flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
         <span className="text-lg font-semibold tabular-nums tracking-tight text-neutral-50">
-          {fmtMoney(f.netEur, MONEDA_REPORTE)}
+          {fmtMoney(f.netEur, moneda)}
         </span>
         <span className="text-xs tabular-nums text-neutral-400">
           {fmtMoney(f.netOrig, f.sellCurrency)}
@@ -180,7 +183,7 @@ function FunnelCard({ f }: { f: FunnelSummary }): JSX.Element {
       </div>
       <p className="mt-1 text-xs tabular-nums text-neutral-500">
         {fmtInt(f.orders)} órdenes · {fmtInt(f.sessions)} sesiones · conv{' '}
-        {fmtPct(f.convSessionToSale * 100, 1)} · ticket {fmtMoney(f.avgTicketEur, MONEDA_REPORTE)}
+        {fmtPct(f.convSessionToSale * 100, 1)} · ticket {fmtMoney(f.avgTicketEur, moneda)}
       </p>
       <div className="mt-2.5 flex gap-2">
         <Link href={`/embudo?f=${f.slug}`} className={LINK_CLS}>
@@ -211,9 +214,12 @@ type DayPoint = OverviewData['byDay'][number];
 function StackedTooltip({
   active,
   payload,
+  moneda,
 }: {
   active?: boolean;
   payload?: Array<{ name?: string; value?: number; color?: string; payload: DayPoint }>;
+  /** Llega por el elemento que se le pasa a <Tooltip content>: recharts lo clona conservando los props. */
+  moneda: MonedaReporte;
 }): JSX.Element | null {
   if (!active || !payload?.length) return null;
   const d = payload[0]!.payload;
@@ -221,10 +227,10 @@ function StackedTooltip({
   return (
     <div className="rounded-lg border border-border-strong bg-surface-raised px-3 py-2 text-xs shadow-float">
       <p className="mb-1 font-semibold text-neutral-100">{d.day}</p>
-      <p className="tabular-nums text-neutral-300">Total: {fmtMoney(d.netEur, MONEDA_REPORTE)}</p>
+      <p className="tabular-nums text-neutral-300">Total: {fmtMoney(d.netEur, moneda)}</p>
       {bands.map((p) => (
         <p key={p.name} className="tabular-nums" style={{ color: p.color }}>
-          {p.name}: {fmtMoney(Number(p.value), MONEDA_REPORTE)}
+          {p.name}: {fmtMoney(Number(p.value), moneda)}
         </p>
       ))}
       <p className="tabular-nums text-neutral-400">
@@ -266,7 +272,7 @@ function NetoPorDia({ data }: { data: OverviewData }): JSX.Element {
             axisLine={false}
             width={56}
           />
-          <Tooltip content={<StackedTooltip />} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
+          <Tooltip content={<StackedTooltip moneda={data.moneda} />} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
           {data.funnels.map((f) => (
             <Bar key={f.slug} dataKey={`perFunnel.${f.slug}`} stackId="net" fill={f.color} name={f.name} />
           ))}
@@ -411,7 +417,7 @@ export const catalogoResumen: WidgetCatalogo<OverviewData> = {
   neto: {
     id: 'neto',
     label: 'Neto total',
-    hint: 'Bruto − devoluciones − comisiones − costos, todo en EUR.',
+    hint: 'Bruto − devoluciones − comisiones − costos.',
     grupo: 'plata',
     tamañoPorDefecto: { w: 1, h: 1 },
     tamañosPermitidos: [
@@ -423,8 +429,8 @@ export const catalogoResumen: WidgetCatalogo<OverviewData> = {
       <Kpi
         size={size}
         k={{
-          valor: fmtMoney(d.totals.netEur, MONEDA_REPORTE),
-          sub: 'EUR · bruto − devuelto',
+          valor: fmtMoney(d.totals.netEur, d.moneda),
+          sub: `${d.moneda} · bruto − devuelto`,
           trend: trendPct(d.totals.netEur, d.prev?.netEur),
           tone: 'good',
           spark: byDayNeto(d),
@@ -447,7 +453,7 @@ export const catalogoResumen: WidgetCatalogo<OverviewData> = {
       <Kpi
         size={size}
         k={{
-          valor: fmtMoney(d.totals.resultEur, MONEDA_REPORTE),
+          valor: fmtMoney(d.totals.resultEur, d.moneda),
           sub: 'neto − gasto en ads',
           trend: trendPct(d.totals.resultEur, d.prev?.resultEur),
           tone: d.totals.resultEur < 0 ? 'bad' : 'good',
@@ -469,7 +475,7 @@ export const catalogoResumen: WidgetCatalogo<OverviewData> = {
       <Kpi
         size={size}
         k={{
-          valor: fmtMoney(d.totals.grossEur, MONEDA_REPORTE),
+          valor: fmtMoney(d.totals.grossEur, d.moneda),
           sub: 'antes de devoluciones y costos',
         }}
       />
@@ -478,7 +484,7 @@ export const catalogoResumen: WidgetCatalogo<OverviewData> = {
   ads: {
     id: 'ads',
     label: 'Gasto en ads',
-    hint: 'El gasto de publicidad del período, en EUR (Meta, sincronizado).',
+    hint: 'El gasto de publicidad del período (Meta, sincronizado).',
     grupo: 'plata',
     tamañoPorDefecto: { w: 1, h: 1 },
     tamañosPermitidos: [
@@ -489,7 +495,7 @@ export const catalogoResumen: WidgetCatalogo<OverviewData> = {
       <Kpi
         size={size}
         k={{
-          valor: fmtMoney(d.totals.adSpendEur, MONEDA_REPORTE),
+          valor: fmtMoney(d.totals.adSpendEur, d.moneda),
           sub: 'gasto en publicidad',
           trend: trendPct(d.totals.adSpendEur, d.prev?.adSpendEur),
         }}
@@ -499,7 +505,7 @@ export const catalogoResumen: WidgetCatalogo<OverviewData> = {
   devuelto: {
     id: 'devuelto',
     label: 'Devuelto',
-    hint: 'El importe devuelto del período, en EUR.',
+    hint: 'El importe devuelto del período.',
     grupo: 'plata',
     tamañoPorDefecto: { w: 1, h: 1 },
     tamañosPermitidos: [
@@ -510,7 +516,7 @@ export const catalogoResumen: WidgetCatalogo<OverviewData> = {
       <Kpi
         size={size}
         k={{
-          valor: fmtMoney(d.totals.refundedEur, MONEDA_REPORTE),
+          valor: fmtMoney(d.totals.refundedEur, d.moneda),
           sub: `${fmtInt(d.totals.ordersRefunded)} órdenes devueltas`,
         }}
       />
@@ -519,7 +525,7 @@ export const catalogoResumen: WidgetCatalogo<OverviewData> = {
   ticket: {
     id: 'ticket',
     label: 'Ticket promedio',
-    hint: 'Neto ÷ órdenes, en EUR.',
+    hint: 'Neto ÷ órdenes.',
     grupo: 'plata',
     tamañoPorDefecto: { w: 1, h: 1 },
     tamañosPermitidos: [
@@ -531,7 +537,7 @@ export const catalogoResumen: WidgetCatalogo<OverviewData> = {
       <Kpi
         size={size}
         k={{
-          valor: fmtMoney(d.totals.avgTicketEur, MONEDA_REPORTE),
+          valor: fmtMoney(d.totals.avgTicketEur, d.moneda),
           sub: 'neto ÷ órdenes',
           trend: trendPct(d.totals.avgTicketEur, d.prev?.avgTicketEur),
           spark: byDayTicket(d),
@@ -637,7 +643,7 @@ export const catalogoResumen: WidgetCatalogo<OverviewData> = {
   roas: {
     id: 'roas',
     label: 'ROAS',
-    hint: `Bruto ÷ gasto en ads: por cada ${SIMBOLO_REPORTE} de publicidad, cuánto ${SIMBOLO_REPORTE} bruto volvió. 0 sin gasto cargado.`,
+    hint: 'Bruto ÷ gasto en ads: cuántas veces volvió en bruto lo que se puso en publicidad. 0 sin gasto cargado.',
     grupo: 'eficiencia',
     tamañoPorDefecto: { w: 1, h: 1 },
     tamañosPermitidos: [
@@ -647,7 +653,7 @@ export const catalogoResumen: WidgetCatalogo<OverviewData> = {
     render: (d, size) => (
       <Kpi
         size={size}
-        k={{ valor: fmtMoney(d.totals.roas, MONEDA_REPORTE), sub: 'bruto ÷ gasto en ads' }}
+        k={{ valor: fmtMoney(d.totals.roas, d.moneda), sub: 'bruto ÷ gasto en ads' }}
       />
     ),
   },
@@ -700,7 +706,7 @@ export const catalogoResumen: WidgetCatalogo<OverviewData> = {
     render: (d, size) => (
       <Kpi
         size={size}
-        k={{ valor: fmtMoney(d.totals.cpa ?? NaN, MONEDA_REPORTE), sub: 'gasto en ads ÷ órdenes' }}
+        k={{ valor: fmtMoney(d.totals.cpa ?? NaN, d.moneda), sub: 'gasto en ads ÷ órdenes' }}
       />
     ),
   },
@@ -741,7 +747,7 @@ export const catalogoResumen: WidgetCatalogo<OverviewData> = {
   'rev-sesion': {
     id: 'rev-sesion',
     label: 'Ingreso por sesión',
-    hint: 'Neto ÷ sesiones, en EUR: junta tráfico y plata en un número. — sin sesiones.',
+    hint: 'Neto ÷ sesiones: junta tráfico y plata en un número. — sin sesiones.',
     grupo: 'eficiencia',
     tamañoPorDefecto: { w: 1, h: 1 },
     tamañosPermitidos: [
@@ -751,7 +757,7 @@ export const catalogoResumen: WidgetCatalogo<OverviewData> = {
     render: (d, size) => (
       <Kpi
         size={size}
-        k={{ valor: fmtMoney(d.totals.revPerSession ?? NaN, MONEDA_REPORTE), sub: 'neto ÷ sesiones' }}
+        k={{ valor: fmtMoney(d.totals.revPerSession ?? NaN, d.moneda), sub: 'neto ÷ sesiones' }}
       />
     ),
   },
@@ -847,14 +853,14 @@ export const catalogoResumen: WidgetCatalogo<OverviewData> = {
   funnels: {
     id: 'funnels',
     label: 'Funnels',
-    hint: 'Uno por funnel, ordenados por neto: neto EUR, neto en su moneda y links a Embudo y Ventas.',
+    hint: 'Uno por funnel, ordenados por neto: neto consolidado, neto en su moneda y links a Embudo y Ventas.',
     grupo: 'listas',
     tamañoPorDefecto: { w: 2, h: 2 },
     tamañosPermitidos: [{ w: 2, h: 2 }],
     render: (d) => (
       <div className="grid gap-3 sm:grid-cols-2">
         {d.funnels.map((f) => (
-          <FunnelCard key={f.slug} f={f} />
+          <FunnelCard key={f.slug} f={f} moneda={d.moneda} />
         ))}
       </div>
     ),

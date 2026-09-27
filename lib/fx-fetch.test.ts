@@ -154,7 +154,16 @@ describe('fetch-fx CLI', () => {
   it('feliz: guarda la fila, imprime la línea y corre el backfill', async () => {
     vi.mocked(q1).mockResolvedValueOnce({ value: '"oficial"' }).mockResolvedValue(null);
     vi.mocked(q).mockResolvedValue([]);
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(DOLARAPI_OK)));
+    // El cron pide también USD→EUR aunque ningún funnel venda en dólares (el
+    // switch EUR/USD del Resumen): er-api contesta ese par, dolarapi el del peso.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) =>
+        String(url).includes('er-api')
+          ? jsonResponse({ result: 'success', time_last_update_unix: 1754841600, base_code: 'USD', rates: { EUR: 0.86 } })
+          : jsonResponse(DOLARAPI_OK),
+      ),
+    );
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     await fetchFxMain(['--day=2026-08-11']);
     expect(q).toHaveBeenCalledWith(
@@ -162,6 +171,10 @@ describe('fetch-fx CLI', () => {
       ['2026-08-11', 'ARS', 'EUR', expect.any(Number), 'dolarapi'],
     );
     expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('2026-08-11 ARS→EUR'));
+    expect(q).toHaveBeenCalledWith(
+      expect.stringContaining('INSERT INTO fx_rates'),
+      ['2026-08-11', 'USD', 'EUR', 0.86, 'er-api'],
+    );
     expect(runBackfill).toHaveBeenCalledWith({ limit: 5000, dryRun: false });
     logSpy.mockRestore();
   });

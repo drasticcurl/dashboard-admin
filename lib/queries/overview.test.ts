@@ -613,4 +613,48 @@ describe.skipIf(!(dbAvailable && schemaReady))('getOverviewData (integración)',
     // Sin clicks al checkout en ningún funnel: null, no 0.
     expect(t.convCheckoutToSale).toBeNull();
   });
+  it('13. el switch EUR/USD convierte cada día con SU cotización, no con la del último día', async () => {
+    // Dos días, dos cotizaciones muy distintas a propósito: con una sola
+    // cotización para todo el rango el total daría otro número y el test lo ve.
+    //   DAY:       10 EUR ÷ 0,8 = 12,5 USD
+    //   DAY_EMPTY: 20 EUR ÷ 0,5 = 40   USD   → 52,5 USD (con 0,5 para todo: 60)
+    const FUENTE = 'test-overview';
+    await q(
+      `INSERT INTO fx_rates (day, base, quote, rate, source)
+       VALUES ($1::date, 'USD', 'EUR', 0.8, $3), ($2::date, 'USD', 'EUR', 0.5, $3)
+       ON CONFLICT (day, base, quote) DO UPDATE SET rate = EXCLUDED.rate, source = EXCLUDED.source`,
+      [DAY, DAY_EMPTY, FUENTE],
+    );
+    try {
+      await seedSession(chau.id, DAY, 0);
+      await seedOrder(chau.id, { externalId: 'ov-t13-a', amount: 17000, amountEur: 10 });
+      await seedOrder(chau.id, { externalId: 'ov-t13-b', amount: 34000, amountEur: 20, day: DAY_EMPTY });
+      await rollupRange({ from: DAY, to: DAY_EMPTY });
+
+      const eur = await getOverviewData({ from: DAY, to: DAY_EMPTY });
+      expect(eur.moneda).toBe('EUR');
+      expect(eur.cotizacion).toBeNull();
+      expect(eur.totals.netEur).toBe(30);
+
+      const usd = await getOverviewData({ from: DAY, to: DAY_EMPTY }, 'USD');
+      expect(usd.moneda).toBe('USD');
+      expect(usd.monedaSinCotizacion).toBeNull();
+      expect(usd.totals.netEur).toBeCloseTo(52.5, 6);
+      expect(usd.byDay.map((d) => d.netEur)).toEqual([
+        expect.closeTo(12.5, 6),
+        expect.closeTo(40, 6),
+      ]);
+      // La que se muestra al lado del switch es la del último día del rango.
+      expect(usd.cotizacion).toEqual({ rate: 0.5, dia: DAY_EMPTY, source: FUENTE });
+
+      // Lo que está en la moneda de venta NO se convierte: es el "neto en su moneda".
+      const c = usd.funnels.find((f) => f.funnelId === chau.id)!;
+      expect(c.netOrig).toBe(51000);
+      expect(c.netEur).toBeCloseTo(52.5, 6);
+      // Los conteos no dependen de la moneda.
+      expect(usd.totals.orders).toBe(eur.totals.orders);
+    } finally {
+      await q(`DELETE FROM fx_rates WHERE base = 'USD' AND source = $1`, [FUENTE]);
+    }
+  });
 });

@@ -15,6 +15,7 @@
     "fx:fetch": "tsx scripts/fetch-fx.ts",
     "fx:backfill": "tsx scripts/backfill-fx.ts",
     "fx:historico": "tsx scripts/backfill-fx-historico.ts",
+    "fx:historico-alternativa": "tsx scripts/backfill-fx-alternativa.ts",
     "rollup": "tsx scripts/rollup.ts",
     "finance:pagos": "tsx scripts/finance-scheduled-payments.ts",
     "import:purchases": "tsx scripts/import-purchases.ts",

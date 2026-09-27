@@ -41,6 +41,7 @@ import { nombreVisible } from '@/lib/funnel-nombre';
 import { PanelLogo } from '@/components/PanelLogo';
 import { EncabezadoPagina } from '@/components/EncabezadoPagina';
 import { SelectorFunnel, tabActiva, tabsVisibles, type Tab } from '@/components/Nav';
+import { SwitchMoneda } from '@/components/SwitchMoneda';
 
 /** El ancho del sidebar (handoff: 220px). */
 const ANCHO_SIDEBAR = 'w-[220px]';
@@ -55,9 +56,13 @@ const ANCHO_SIDEBAR = 'w-[220px]';
  * `funnel` y `periodo` se declaran por pantalla porque no todas dependen de los
  * dos: Tareas no tiene período (una tarea no pertenece a un rango) y Config no
  * tiene ninguno salvo las secciones por funnel, que traen su propio selector.
+ *
+ * `moneda` es el switch EUR/USD (components/SwitchMoneda.tsx). Por ahora sólo
+ * el Resumen sabe convertir al leer; prenderlo en otra pantalla sin que su
+ * query lea `?moneda=` dejaría un switch que no hace nada.
  */
-const PANTALLAS: Record<string, { subtitulo: string; funnel: boolean; periodo: boolean }> = {
-  '/resumen':   { subtitulo: 'Cómo viene el período, en una mirada.',        funnel: true,  periodo: true },
+const PANTALLAS: Record<string, { subtitulo: string; funnel: boolean; periodo: boolean; moneda?: boolean }> = {
+  '/resumen':   { subtitulo: 'Cómo viene el período, en una mirada.',        funnel: true,  periodo: true, moneda: true },
   '/embudo':    { subtitulo: 'Dónde se cae la gente, paso por paso.',        funnel: true,  periodo: true },
   '/ventas':    { subtitulo: 'Lo que entró, lo que costó y lo que quedó.',   funnel: true,  periodo: true },
   '/anuncios':  { subtitulo: 'Tocá un presupuesto para editarlo ahí mismo.', funnel: false, periodo: true },
@@ -322,7 +327,11 @@ export function Shell({
                   </span>
                 ) : null
               }
-            />
+            >
+              {/* El switch va en `children`, que EncabezadoPagina dibuja a la
+                  izquierda del selector de funnel. */}
+              {conf?.moneda && <SwitchMoneda />}
+            </EncabezadoPagina>
           )}
           {children}
         </main>

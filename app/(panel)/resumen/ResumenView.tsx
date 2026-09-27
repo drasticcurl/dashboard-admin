@@ -34,6 +34,7 @@ import type { FrescuraAds } from '@/lib/ads/live';
 import type { WidgetLayout } from '@/lib/widgets/tipos';
 import { textoEdad, usePollingGasto } from '@/lib/ads/polling';
 import { Badge, Banner, EmptyState, Skeleton, Spinner, fmtDateTime } from '@/components/ui';
+import { MONEDA_REPORTE, leerMonedaVista } from '@/lib/moneda-reporte';
 
 // El reloj '14:20' de los avisos. La query lo arma con DASHBOARD_TZ en el
 // server; acá se usa la TZ del browser, que es lo que el usuario espera ver.
@@ -42,6 +43,26 @@ function fmtClock(iso: string): string {
   if (Number.isNaN(d.getTime())) return '—';
   return new Intl.DateTimeFormat('es-AR', { hour: '2-digit', minute: '2-digit' }).format(d);
 }
+
+/** '2026-09-27' → '27/09', para la cotización al lado del switch. */
+function fmtDiaCorto(dia: string): string {
+  return `${dia.slice(8, 10)}/${dia.slice(5, 7)}`;
+}
+
+/** 0,8612: cuatro decimales, que es donde se mueve un cruce EUR/USD. */
+const fmtCotizacion = new Intl.NumberFormat('es-AR', { minimumFractionDigits: 4, maximumFractionDigits: 4 });
+
+/**
+ * Qué dispara un pedido, y cómo se ve mientras viaja:
+ *  · `completo` — cambió el rango o se reintentó: esqueleto en lugar del grid.
+ *  · `moneda`   — sólo cambió el switch EUR/USD: el grid se queda con los
+ *                 números viejos (que siguen diciendo su moneda de verdad,
+ *                 `data.moneda`) y se reemplazan cuando llegan los nuevos. Un
+ *                 toggle no debería vaciar la pantalla ni tirar ediciones de
+ *                 layout sin guardar.
+ *  · `tick`     — el polling del gasto: silencioso, y cede si hay otro en vuelo.
+ */
+type ModoCarga = 'completo' | 'moneda' | 'tick';
 
 /** Esqueleto con la forma del contenido: los 4 KPIs, el gráfico y la tabla. */
 function EsqueletoResumen(): JSX.Element {
@@ -73,49 +94,56 @@ export function ResumenView({
   const [data, setData] = useState<OverviewData>(initialData);
   const [frescura, setFrescura] = useState<FrescuraAds>(adsFreshness);
   const [loading, setLoading] = useState(false);
+  const [cambiandoMoneda, setCambiandoMoneda] = useState(false);
   const [refrescando, setRefrescando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [retryTick, setRetryTick] = useState(0);
 
-  // La primera pintura ya trae los datos del server: no refetchear al
-  // montar, solo ante cambios de rango o retry.
-  const firstRun = useRef(true);
+  // Lo que define el pedido, separado en sus dos mitades: el rango y la
+  // moneda. Separarlas es lo que permite que el switch no muestre el esqueleto.
+  // Depender de `searchParams` entero, como antes, refetcheaba también cuando
+  // cambiaba el `?f=` que deja el selector de funnel, que el Resumen ignora.
+  const rangeParam = searchParams.get('range');
+  const fromParam = searchParams.get('from');
+  const toParam = searchParams.get('to');
+  const moneda = leerMonedaVista(searchParams.get('moneda'));
+
   const enVuelo = useRef<AbortController | null>(null);
 
-  // Un solo camino de fetch para los dos disparadores: el cambio de rango y el
-  // tick del gasto. `silencioso` es la única diferencia y NO es cosmética:
-  // `loading` desmonta el WidgetGrid, y hacerlo cada minuto haría parpadear la
-  // pantalla entera y tiraría las ediciones de layout sin guardar. El tick
-  // cambia los números en su lugar y nada más.
+  // Un solo camino de fetch para los tres disparadores (ver ModoCarga).
+  // `tick` NO es cosmético: `loading` desmonta el WidgetGrid, y hacerlo cada
+  // minuto haría parpadear la pantalla entera y tiraría las ediciones de layout
+  // sin guardar. El tick cambia los números en su lugar y nada más.
   const cargar = useCallback(
-    ({ silencioso }: { silencioso: boolean }): void => {
+    (modo: ModoCarga): void => {
       if (enVuelo.current) {
         // El polling cede: si ya hay un pedido abierto (un cambio de rango, o
         // el tick anterior que tardó más que el intervalo), este tick se
-        // saltea. El cambio de rango es al revés: manda, y aborta lo que haya.
-        if (silencioso) return;
+        // saltea. Los otros dos son al revés: mandan, y abortan lo que haya.
+        if (modo === 'tick') return;
         enVuelo.current.abort();
       }
       const ctrl = new AbortController();
       enVuelo.current = ctrl;
 
-      if (silencioso) {
+      if (modo === 'tick') {
         setRefrescando(true);
+      } else if (modo === 'moneda') {
+        setCambiandoMoneda(true);
+        setError(null);
       } else {
         setLoading(true);
         setError(null);
       }
 
       const params = new URLSearchParams();
-      const range = searchParams.get('range');
-      const from = searchParams.get('from');
-      const to = searchParams.get('to');
-      if (from && to) {
-        params.set('from', from);
-        params.set('to', to);
+      if (fromParam && toParam) {
+        params.set('from', fromParam);
+        params.set('to', toParam);
       } else {
-        params.set('range', range ?? 'today');
+        params.set('range', rangeParam ?? 'today');
       }
+      if (moneda !== MONEDA_REPORTE) params.set('moneda', moneda);
 
       fetch(`/api/data/overview?${params.toString()}`, {
         signal: ctrl.signal,
@@ -137,26 +165,35 @@ export function ResumenView({
           // Un tick que falla no tapa la pantalla con el banner rojo: los
           // números que se están viendo siguen siendo válidos, solo quedaron
           // viejos, y la marca de frescura ya lo cuenta. El error del cambio de
-          // rango sí se muestra, que ahí no quedó nada para mirar.
-          if (!silencioso) setError(err instanceof Error ? err.message : 'Error de red');
+          // rango o de moneda sí se muestra: lo que se ve no es lo que se pidió.
+          if (modo !== 'tick') setError(err instanceof Error ? err.message : 'Error de red');
         })
         .finally(() => {
           if (enVuelo.current === ctrl) enVuelo.current = null;
-          if (silencioso) setRefrescando(false);
+          if (modo === 'tick') setRefrescando(false);
+          else if (modo === 'moneda') setCambiandoMoneda(false);
           else setLoading(false);
         });
     },
-    [searchParams],
+    [rangeParam, fromParam, toParam, moneda],
   );
 
+  // La primera pintura ya trae los datos del server: no refetchear al montar,
+  // solo ante cambios de rango, de moneda o retry. Se compara contra lo último
+  // que se pidió para saber cuál de los tres cambió.
+  const claveRango = `${rangeParam ?? ''}|${fromParam ?? ''}|${toParam ?? ''}`;
+  const ultimo = useRef({ claveRango, moneda, retryTick });
   useEffect(() => {
-    if (firstRun.current) {
-      firstRun.current = false;
-      return;
-    }
-    cargar({ silencioso: false });
-    return () => enVuelo.current?.abort();
-  }, [cargar, retryTick]);
+    const antes = ultimo.current;
+    ultimo.current = { claveRango, moneda, retryTick };
+    if (antes.claveRango === claveRango && antes.moneda === moneda && antes.retryTick === retryTick) return;
+    const soloMoneda = antes.claveRango === claveRango && antes.retryTick === retryTick;
+    cargar(soloMoneda ? 'moneda' : 'completo');
+  }, [cargar, claveRango, moneda, retryTick]);
+
+  // Al desmontar, lo que esté en vuelo se aborta: sin esto un setData llegaría
+  // a un componente que ya no existe.
+  useEffect(() => () => enVuelo.current?.abort(), []);
 
   // Si el server pintó sin esperar al sync (`refreshed: false` con
   // `ageSeconds` ya vencido — ver `esperar: false` en resumen/page.tsx), no hay
@@ -165,7 +202,7 @@ export function ResumenView({
   // a propósito) — un cambio de rango ya tiene su propio fetch no silencioso
   // arriba, y repetir esto en cada re-render de `frescura` crearía un loop.
   useEffect(() => {
-    if (!adsFreshness.refreshed) cargar({ silencioso: true });
+    if (!adsFreshness.refreshed) cargar('tick');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -173,7 +210,7 @@ export function ResumenView({
   // Meta antes de leer, así que repetir el pedido ES el refresco. Con un rango
   // cerrado no cuesta una llamada — `ensureFreshAdSpend` sale antes — y el
   // pedido igual repinta las ventas, que sí se mueven.
-  usePollingGasto(() => cargar({ silencioso: true }), { pausado: loading });
+  usePollingGasto(() => cargar('tick'), { pausado: loading });
 
   const edadGasto = textoEdad(frescura) ?? '—';
   const empty = data.funnels.every((f) => f.sessions === 0 && f.orders === 0);
@@ -181,10 +218,26 @@ export function ResumenView({
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          {loading && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          {(loading || cambiandoMoneda) && (
             <span className="flex items-center gap-2 text-xs text-neutral-500">
-              <Spinner /> Actualizando…
+              <Spinner /> {cambiandoMoneda ? `Pasando a ${moneda}…` : 'Actualizando…'}
+            </span>
+          )}
+          {/* La cotización con la que se convirtió el último día del rango. Los
+              días anteriores usan cada uno la suya (lo dice el title): mostrar
+              una sola cotización sin aclararlo haría creer que el mes entero se
+              convirtió con la de hoy. */}
+          {data.cotizacion && !cambiandoMoneda && (
+            <span
+              className="font-mono text-xs tabular-nums text-neutral-500"
+              title={`Cada día del período se convierte con la cotización de ese día. Esta es la del ${fmtDiaCorto(
+                data.cotizacion.dia,
+              )} (fuente: ${data.cotizacion.source}).`}
+            >
+              1 {data.moneda} = {fmtCotizacion.format(data.cotizacion.rate)} {MONEDA_REPORTE}
+              {data.cotizacion.dia !== (data.byDay[data.byDay.length - 1]?.day ?? data.cotizacion.dia) &&
+                ` · del ${fmtDiaCorto(data.cotizacion.dia)}`}
             </span>
           )}
         </div>
@@ -218,6 +271,15 @@ export function ResumenView({
               Reintentar
             </button>
           </span>
+        </Banner>
+      )}
+
+      {data.monedaSinCotizacion && (
+        <Banner tone="warn" title={`Todavía no hay cotización ${data.monedaSinCotizacion}`}>
+          Los importes siguen en {data.moneda}. El cron diario la guarda en la próxima corrida; para
+          cargarla ya y completar los días pasados corré{' '}
+          <code className="rounded bg-overlay/10 px-1">npm run fx:fetch</code> y{' '}
+          <code className="rounded bg-overlay/10 px-1">npm run fx:historico-alternativa</code>.
         </Banner>
       )}
 

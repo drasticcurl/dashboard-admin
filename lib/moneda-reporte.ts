@@ -89,3 +89,26 @@ export const SIMBOLO_REPORTE: string = MONEDA_REPORTE === 'USD' ? 'US$' : '€';
  * no un comentario repetido en cada query.
  */
 export const SUFIJO_COLUMNA_REPORTE = 'eur';
+
+/**
+ * La otra moneda en la que se puede MIRAR el Resumen: el switch EUR/USD del
+ * encabezado. En la instancia que reporta en euros es el dólar, y al revés.
+ *
+ * ─── ES DE VISUALIZACIÓN, NO DE CONSOLIDACIÓN ──────────────────────────────
+ * No cambia nada de lo que se guarda: las columnas `*_eur` siguen en la moneda
+ * de reporte, congeladas al insertar. El Resumen convierte AL LEER, día por día,
+ * con la cotización `MONEDA_ALTERNATIVA → MONEDA_REPORTE` que el cron archiva
+ * todos los días en `fx_rates` (ver `monedasAExtraer` en lib/fx-fetch.ts). Cada
+ * día se divide por SU cotización y no por la de hoy: el resultado de marzo
+ * visto en dólares es lo que valía en dólares en marzo.
+ */
+export const MONEDA_ALTERNATIVA: MonedaReporte = MONEDA_REPORTE === 'EUR' ? 'USD' : 'EUR';
+
+/**
+ * Lee el `?moneda=` de la URL. Cualquier cosa que no sea la moneda alternativa
+ * —ausente, vacía, en minúscula mal escrita, un código que no existe— cae en la
+ * de reporte: es un parámetro de visualización y no merece un 400.
+ */
+export function leerMonedaVista(raw: string | null | undefined): MonedaReporte {
+  return raw?.trim().toUpperCase() === MONEDA_ALTERNATIVA ? MONEDA_ALTERNATIVA : MONEDA_REPORTE;
+}

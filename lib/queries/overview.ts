@@ -22,6 +22,7 @@
 import { q, q1 } from '@/lib/db';
 import { listFunnels } from '@/lib/funnels';
 import { leerInsightVigente, type InsightGuardado } from '@/lib/ia/insights';
+import { MONEDA_REPORTE, type MonedaReporte } from '@/lib/moneda-reporte';
 import { UNATTRIBUTED_FUNNEL } from './sales';
 
 export type OverviewFilters = { from: string; to: string }; // en DASHBOARD_TZ
@@ -80,7 +81,37 @@ export type FunnelSummary = {
   cpa: number | null;
 };
 
+/**
+ * La cotización con la que se convirtió el ÚLTIMO día del rango cuando el
+ * Resumen se mira en la moneda alternativa (el switch EUR/USD). Es la que se
+ * muestra al lado del switch; los días anteriores usan cada uno la suya.
+ */
+export type CotizacionVista = {
+  /** Unidades de la moneda de reporte por 1 de la moneda vista (EUR por USD). */
+  rate: number;
+  /** De qué día es la fila. Distinto del último día del rango = arrastrada. */
+  dia: string;
+  source: string;
+};
+
 export type OverviewData = {
+  /**
+   * En qué moneda están TODOS los importes de este objeto. Los campos se
+   * siguen llamando `*Eur` por lo mismo que las columnas (ver
+   * SUFIJO_COLUMNA_REPORTE): el nombre dice "moneda consolidada", y esta es la
+   * que dice cuál. Los widgets formatean con esto y NO con el `?moneda=` de la
+   * URL: mientras el pedido nuevo viaja, los números viejos siguen diciendo su
+   * moneda de verdad.
+   */
+  moneda: MonedaReporte;
+  /** null cuando `moneda` es la de reporte (no hubo conversión). */
+  cotizacion: CotizacionVista | null;
+  /**
+   * La moneda que se pidió y no se pudo usar porque `fx_rates` no tiene
+   * ninguna fila del par. Los importes quedan en la de reporte y la pantalla
+   * lo avisa; convertir con un factor inventado sería peor que no convertir.
+   */
+  monedaSinCotizacion: MonedaReporte | null;
   totals: {
     sessions: number;
     orders: number;
@@ -173,7 +204,7 @@ export type PrevTotals = {
   avgTicketEur: number;
   // Agregados por T02 (rediseño): el trend de un widget de Resultado o de
   // Gasto necesita el período anterior de estos dos, y computePrev ya corre
-  // SUMMARY_SQL, que trae adSpendEur — son dos líneas, no una query más.
+  // summarySql, que trae adSpendEur — son dos líneas, no una query más.
   adSpendEur: number;
   resultEur: number;
 };
@@ -203,32 +234,65 @@ type SummaryRow = {
   grossEur: string;
 };
 
-const SUMMARY_SQL = `
-  SELECT funnel_id AS "funnelId",
-         SUM(sessions_count)::int       AS sessions,
-         SUM(quiz_started)::int         AS "quizStarted",
-         SUM(sales_views)::int          AS "salesViews",
-         SUM(checkout_clicks)::int      AS "checkoutClicks",
-         SUM(orders_count)::int         AS orders,
-         SUM(orders_refunded)::int      AS "ordersRefunded",
+/**
+ * El factor que pasa cada fila de daily_metrics a la moneda en la que se mira.
+ *
+ * Sin conversión es un 1 constante y la query queda igual que siempre. Con
+ * conversión (el switch en la moneda alternativa) cada fila se divide por la
+ * cotización de SU día: la última fila del par con `day <= dm.day`, y si el
+ * día es anterior a la primera cotización guardada, la primera que haya. Ese
+ * segundo caso es para que un histórico sin backfill (npm run
+ * fx:historico-alternativa) se vea aproximado en lugar de en cero.
+ *
+ * `$3`/`$4` son la base y el quote del par: moneda vista → moneda de reporte,
+ * o sea "cuántos EUR vale 1 USD". Dividir por eso pasa EUR a USD.
+ */
+function joinFactor(convierte: boolean): string {
+  if (!convierte) return 'CROSS JOIN (SELECT 1::numeric AS k) fx';
+  return `CROSS JOIN LATERAL (
+    SELECT 1 / COALESCE(
+      (SELECT r.rate FROM fx_rates r
+        WHERE r.base = $3 AND r.quote = $4 AND r.day <= dm.day
+        ORDER BY r.day DESC LIMIT 1),
+      (SELECT r.rate FROM fx_rates r
+        WHERE r.base = $3 AND r.quote = $4
+        ORDER BY r.day ASC LIMIT 1)
+    ) AS k
+  ) fx`;
+}
+
+// Las columnas `_eur` se multiplican por el factor; las de la moneda de venta
+// (`revenue_gross`, `ad_spend`, …) NO: son el "neto en su moneda" de cada
+// funnel y no dependen de en qué moneda se mire el consolidado.
+function summarySql(convierte: boolean): string {
+  return `
+  SELECT dm.funnel_id AS "funnelId",
+         SUM(dm.sessions_count)::int       AS sessions,
+         SUM(dm.quiz_started)::int         AS "quizStarted",
+         SUM(dm.sales_views)::int          AS "salesViews",
+         SUM(dm.checkout_clicks)::int      AS "checkoutClicks",
+         SUM(dm.orders_count)::int         AS orders,
+         SUM(dm.orders_refunded)::int      AS "ordersRefunded",
          -- El neto descuenta comisiones, igual que la pantalla de Ventas: si las
          -- dos definiciones difieren, el panel muestra dos verdades para lo
          -- mismo y deja de usarse (test 4 de T08).
-         (COALESCE(SUM(revenue_gross_eur), 0)
-        - COALESCE(SUM(revenue_refunded_eur), 0)
-        - COALESCE(SUM(commissions_eur), 0)
-        - COALESCE(SUM(costs_eur), 0))::text AS "netEur",
-         COALESCE(SUM(ad_spend_eur), 0)::text AS "adSpendEur",
-         COALESCE(SUM(ad_spend), 0)::text     AS "adSpendOrig",
-         COALESCE(SUM(revenue_gross_eur), 0)::text AS "grossEur",
-         (COALESCE(SUM(revenue_gross), 0)
-        - COALESCE(SUM(revenue_refunded), 0)
-        - COALESCE(SUM(commissions), 0)
-        - COALESCE(SUM(costs), 0))::text AS "netOrig",
-         COALESCE(SUM(revenue_refunded_eur), 0)::text AS "refundedEur"
-  FROM daily_metrics
-  WHERE variant = '*' AND day BETWEEN $1::date AND $2::date
-  GROUP BY funnel_id`;
+         (COALESCE(SUM(dm.revenue_gross_eur * fx.k), 0)
+        - COALESCE(SUM(dm.revenue_refunded_eur * fx.k), 0)
+        - COALESCE(SUM(dm.commissions_eur * fx.k), 0)
+        - COALESCE(SUM(dm.costs_eur * fx.k), 0))::text AS "netEur",
+         COALESCE(SUM(dm.ad_spend_eur * fx.k), 0)::text AS "adSpendEur",
+         COALESCE(SUM(dm.ad_spend), 0)::text     AS "adSpendOrig",
+         COALESCE(SUM(dm.revenue_gross_eur * fx.k), 0)::text AS "grossEur",
+         (COALESCE(SUM(dm.revenue_gross), 0)
+        - COALESCE(SUM(dm.revenue_refunded), 0)
+        - COALESCE(SUM(dm.commissions), 0)
+        - COALESCE(SUM(dm.costs), 0))::text AS "netOrig",
+         COALESCE(SUM(dm.revenue_refunded_eur * fx.k), 0)::text AS "refundedEur"
+  FROM daily_metrics dm
+  ${joinFactor(convierte)}
+  WHERE dm.variant = '*' AND dm.day BETWEEN $1::date AND $2::date
+  GROUP BY dm.funnel_id`;
+}
 
 type DayRowRaw = {
   day: string;
@@ -238,16 +302,38 @@ type DayRowRaw = {
   sessions: number;
 };
 
-const DAY_SQL = `
-  SELECT day::text AS day, funnel_id AS "funnelId",
-         (COALESCE(SUM(revenue_gross_eur), 0)
-        - COALESCE(SUM(revenue_refunded_eur), 0))::text AS "netEur",
-         SUM(orders_count)::int  AS orders,
-         SUM(sessions_count)::int AS sessions
-  FROM daily_metrics
-  WHERE variant = '*' AND day BETWEEN $1::date AND $2::date
+function daySql(convierte: boolean): string {
+  return `
+  SELECT dm.day::text AS day, dm.funnel_id AS "funnelId",
+         (COALESCE(SUM(dm.revenue_gross_eur * fx.k), 0)
+        - COALESCE(SUM(dm.revenue_refunded_eur * fx.k), 0))::text AS "netEur",
+         SUM(dm.orders_count)::int  AS orders,
+         SUM(dm.sessions_count)::int AS sessions
+  FROM daily_metrics dm
+  ${joinFactor(convierte)}
+  WHERE dm.variant = '*' AND dm.day BETWEEN $1::date AND $2::date
   GROUP BY 1, 2
   ORDER BY day`;
+}
+
+/** Los parámetros de summarySql/daySql: el rango, y el par si se convierte. */
+function paramsRango(from: string, to: string, moneda: MonedaReporte): string[] {
+  return moneda === MONEDA_REPORTE ? [from, to] : [from, to, moneda, MONEDA_REPORTE];
+}
+
+/**
+ * La cotización del último día del rango (o la última anterior), para
+ * mostrarla al lado del switch. null si el par no tiene ni una fila: en ese
+ * caso no se convierte nada (ver `monedaSinCotizacion`).
+ */
+const COTIZACION_SQL = `
+  SELECT day::text AS dia, rate::text AS rate, source
+    FROM fx_rates
+   WHERE base = $1 AND quote = $2
+   ORDER BY (day <= $3::date) DESC,
+            CASE WHEN day <= $3::date THEN day END DESC,
+            day ASC
+   LIMIT 1`;
 
 // La "última señal" de un funnel: la más reciente entre el último batche de
 // tracking (sessions.last_seen_at) y la última compra registrada por el
@@ -307,8 +393,8 @@ function dayCount(from: string, to: string): number {
   )) / 86_400_000) + 1;
 }
 
-async function computePrev(from: string, to: string): Promise<PrevTotals> {
-  const rows = await q<SummaryRow>(SUMMARY_SQL, [from, to]);
+async function computePrev(from: string, to: string, moneda: MonedaReporte): Promise<PrevTotals> {
+  const rows = await q<SummaryRow>(summarySql(moneda !== MONEDA_REPORTE), paramsRango(from, to, moneda));
   let netEur = 0;
   let orders = 0;
   let sessions = 0;
@@ -340,8 +426,37 @@ function fmtClock(iso: string): string {
 const intFmt = new Intl.NumberFormat('es-AR');
 const fmtInt = (n: number): string => intFmt.format(n);
 
-export async function getOverviewData(f: OverviewFilters): Promise<OverviewData> {
+/**
+ * `moneda` es la moneda en la que se quieren ver los importes (el switch
+ * EUR/USD). Por defecto la de reporte, que es lo que siguen pidiendo el brief
+ * de IA y los tests: para ellos no cambia nada.
+ */
+export async function getOverviewData(
+  f: OverviewFilters,
+  monedaPedida: MonedaReporte = MONEDA_REPORTE,
+): Promise<OverviewData> {
   const now = Date.now();
+
+  // Primero la cotización: sin ninguna fila del par no se convierte (un factor
+  // NULL daría todos los importes en 0, creíbles y falsos), se sigue en la
+  // moneda de reporte y la pantalla avisa.
+  let moneda: MonedaReporte = MONEDA_REPORTE;
+  let cotizacion: CotizacionVista | null = null;
+  let monedaSinCotizacion: MonedaReporte | null = null;
+  if (monedaPedida !== MONEDA_REPORTE) {
+    const c = await q1<{ dia: string; rate: string; source: string }>(COTIZACION_SQL, [
+      monedaPedida,
+      MONEDA_REPORTE,
+      f.to,
+    ]);
+    if (c && Number(c.rate) > 0) {
+      moneda = monedaPedida;
+      cotizacion = { rate: Number(c.rate), dia: c.dia, source: c.source };
+    } else {
+      monedaSinCotizacion = monedaPedida;
+    }
+  }
+  const convierte = moneda !== MONEDA_REPORTE;
 
   const [
     funnelRows,
@@ -356,8 +471,8 @@ export async function getOverviewData(f: OverviewFilters): Promise<OverviewData>
     insight,
   ] = await Promise.all([
     listFunnels(),
-    q<SummaryRow>(SUMMARY_SQL, [f.from, f.to]),
-    q<DayRowRaw>(DAY_SQL, [f.from, f.to]),
+    q<SummaryRow>(summarySql(convierte), paramsRango(f.from, f.to, moneda)),
+    q<DayRowRaw>(daySql(convierte), paramsRango(f.from, f.to, moneda)),
     q1<CountRow>(UNATTRIBUTED_SQL, [f.from, f.to]),
     q1<CountRow>(FX_STALE_SQL),
     q1<CountRow>(UNKNOWN_TIER_SQL),
@@ -373,7 +488,9 @@ export async function getOverviewData(f: OverviewFilters): Promise<OverviewData>
   // no se inventa un 0%.
   const len = dayCount(f.from, f.to);
   const prev =
-    f.from <= '2000-01-01' ? null : await computePrev(shiftDay(f.from, -len), shiftDay(f.from, -1));
+    f.from <= '2000-01-01'
+      ? null
+      : await computePrev(shiftDay(f.from, -len), shiftDay(f.from, -1), moneda);
 
   const summaryByFunnel = new Map(summaryRows.map((r) => [r.funnelId, r]));
   const lastByFunnel = new Map(lastEventRows.map((r) => [r.funnelId, r.lastEventAt]));
@@ -554,6 +671,9 @@ export async function getOverviewData(f: OverviewFilters): Promise<OverviewData>
   }
 
   return {
+    moneda,
+    cotizacion,
+    monedaSinCotizacion,
     totals,
     funnels,
     byDay,

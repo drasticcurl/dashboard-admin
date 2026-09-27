@@ -112,6 +112,9 @@ function funnel(over: Partial<FunnelSummary> = {}): FunnelSummary {
 
 function overview(over: Partial<OverviewData> = {}): OverviewData {
   return {
+    moneda: 'EUR',
+    cotizacion: null,
+    monedaSinCotizacion: null,
     totals: {
       sessions: 1000,
       orders: 30,

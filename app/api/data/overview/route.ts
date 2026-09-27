@@ -16,6 +16,7 @@ import { ensureFreshAdSpend } from '@/lib/ads/live';
 import { resolveFunnelRange } from '@/lib/queries/funnel';
 import { getDashboardTimezone } from '@/lib/queries/sales';
 import { getOverviewData } from '@/lib/queries/overview';
+import { leerMonedaVista } from '@/lib/moneda-reporte';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -53,7 +54,9 @@ export async function GET(req: NextRequest) {
   const hoy = await today(tz);
   const adsFreshness = await ensureFreshAdSpend(range.to, hoy);
 
-  const data = await getOverviewData(range);
+  // `?moneda=` es el switch EUR/USD del encabezado. Un valor que no se conoce
+  // cae en la moneda de reporte (es visualización, no merece un 400).
+  const data = await getOverviewData(range, leerMonedaVista(sp.get('moneda')));
 
   return NextResponse.json({ ok: true, ...data, adsFreshness }, {
     headers: { 'Cache-Control': 'no-store' },

@@ -1,5 +1,5 @@
 import { q, q1 } from './db';
-import { MONEDA_REPORTE, type MonedaReporte } from './moneda-reporte';
+import { MONEDA_ALTERNATIVA, MONEDA_REPORTE, type MonedaReporte } from './moneda-reporte';
 
 export type FxFetchResult = { rate: number; source: 'dolarapi' | 'er-api'; asOf: Date };
 
@@ -224,6 +224,21 @@ export async function monedasDeVentaAExtraer(): Promise<string[]> {
     [MONEDA_REPORTE],
   );
   return rows.map((r) => r.base);
+}
+
+/**
+ * Todas las paridades que el cron archiva además de la del peso: las monedas de
+ * venta de `monedasDeVentaAExtraer` MÁS la moneda alternativa del switch del
+ * Resumen (hoy el dólar), venda o no venda algún funnel en ella.
+ *
+ * Antes del switch el dólar se archivaba sólo porque el funnel LATAM vende en
+ * USD: el día que ese funnel se desactivara, `monedasDeVentaAExtraer` dejaba de
+ * devolverlo y el Resumen en dólares se quedaba sin cotizaciones nuevas sin que
+ * nada fallara (seguiría convirtiendo con la última, cada día más vieja).
+ */
+export async function monedasAExtraer(): Promise<string[]> {
+  const deVenta = await monedasDeVentaAExtraer();
+  return deVenta.includes(MONEDA_ALTERNATIVA) ? deVenta : [...deVenta, MONEDA_ALTERNATIVA].sort();
 }
 
 /** Pide la cotización a la fuente primaria; si falla, a la de respaldo. */
