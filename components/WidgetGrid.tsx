@@ -69,6 +69,8 @@ const TAMAÑO_LABEL: Record<string, string> = {
   '2x1': '2 × 1 · ancho',
   '1x2': '1 × 2 · alto',
   '2x2': '2 × 2 · grande',
+  'fullx1': 'Todo el ancho',
+  'fullx2': 'Todo el ancho · alto',
 };
 
 function tamañoLabel(size: WidgetSize): string {
@@ -81,7 +83,11 @@ function spanClases(placement: WidgetPlacement): string {
   // el MISMO punto en el que la grilla deja de tener una sola columna. Con `md:`
   // (768) quedaban 8px de viewport donde la grilla ya era de dos columnas y el
   // widget de ancho 2 todavía ocupaba una.
-  const ancho = placement.w === 2 ? 'panel:col-span-2' : '';
+  //
+  // `full` va sin prefijo: en una columna sola ya es todo el ancho, y
+  // `col-span-full` (1 / -1) es exactamente eso en cualquier cantidad de
+  // columnas que arme el auto-fill.
+  const ancho = placement.w === 'full' ? 'col-span-full' : placement.w === 2 ? 'panel:col-span-2' : '';
   const alto = placement.h === 2 ? 'row-span-2' : '';
   return `${ancho} ${alto}`.trim();
 }
@@ -222,20 +228,44 @@ function TarjetaWidget<T>({
   arrastrando?: boolean;
   controles?: ReactNode;
 }): JSX.Element {
+  // Escribe la posición del puntero en dos variables CSS y nada más: sin
+  // estado de React, así mover el mouse no re-renderiza el widget (que puede
+  // ser un gráfico de recharts entero).
+  function seguirPuntero(e: React.PointerEvent<HTMLDivElement>): void {
+    if (e.pointerType !== 'mouse') return;
+    const r = e.currentTarget.getBoundingClientRect();
+    e.currentTarget.style.setProperty('--mx', `${e.clientX - r.left}px`);
+    e.currentTarget.style.setProperty('--my', `${e.clientY - r.top}px`);
+  }
+
   return (
     <div
-      className={`flex h-full flex-col rounded-2xl border border-border-subtle bg-surface shadow-inset-highlight transition-opacity ${
+      onPointerMove={seguirPuntero}
+      className={`group/tarjeta relative flex h-full flex-col rounded-2xl border border-border-subtle bg-surface shadow-inset-highlight transition-[opacity,border-color] duration-300 hover:border-border-strong ${
         arrastrando ? 'opacity-80' : ''
       }`}
     >
-      <div className="flex items-start justify-between gap-3 border-b border-border-subtle px-4 py-3">
+      {/* El brillo que sigue al mouse. Capa aparte con su propio
+          `overflow-hidden` y NO en la tarjeta: el menú de tamaño es un
+          `absolute` que cuelga del header, y recortar la tarjeta lo cortaría.
+          Es sólo luz: pointer-events-none, aria-hidden y sin movimiento propio
+          (con reduced-motion la transición de opacidad ya queda en 0). */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 overflow-hidden rounded-2xl opacity-0 transition-opacity duration-500 group-hover/tarjeta:opacity-100"
+        style={{
+          background:
+            'radial-gradient(420px circle at var(--mx, 50%) var(--my, 0%), rgba(62, 215, 160, 0.055), transparent 60%)',
+        }}
+      />
+      <div className="relative flex items-start justify-between gap-3 border-b border-border-subtle px-4 py-3">
         <div className="min-w-0">
           <h3 className="truncate text-sm font-semibold text-neutral-100">{def.label}</h3>
           {def.hint && <p className="mt-0.5 text-xs text-neutral-500">{def.hint}</p>}
         </div>
         {controles && <div className="flex shrink-0 items-center gap-1.5">{controles}</div>}
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto p-4">
+      <div className="relative min-h-0 flex-1 overflow-y-auto p-4">
         {def.render(data, { w: placement.w, h: placement.h })}
       </div>
     </div>
@@ -612,12 +642,14 @@ export function WidgetGrid<T>({
             </SortableContext>
           </DndContext>
         ) : (
-          <Grid className="panel:auto-rows-[240px]">
+          /* `reveal`: la cascada de entrada de globals.css (45ms entre widgets).
+             Sólo fuera del modo edición: ahí los transforms son de @dnd-kit. */
+          <Grid className="reveal panel:auto-rows-[240px]">
             {placements.map((p) => {
               const def = catalogo[p.id];
               if (!def) return null;
               return (
-                <div key={p.id} className={spanClases(p)}>
+                <div key={p.id} className={`min-w-0 ${spanClases(p)}`}>
                   <TarjetaWidget def={def} placement={p} data={data} />
                 </div>
               );

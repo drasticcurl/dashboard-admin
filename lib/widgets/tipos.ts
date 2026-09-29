@@ -28,11 +28,22 @@
 
 import type { ReactNode } from 'react';
 
-/** Los cuatro tamaños de D-R03. `w` y `h` en celdas de la grilla. */
-export type WidgetSize = { w: 1 | 2; h: 1 | 2 };
+/**
+ * El ancho de un widget en celdas de la grilla.
+ *
+ * `'full'` se agregó el 2026-09-29 (pedido explícito del usuario: "un widget que
+ * ocupe todo el ancho"). No es un número porque la Grid es `auto-fill`: tiene 5
+ * columnas en un monitor ancho y 1 en un teléfono, así que "5" sería mentira en
+ * cualquier otra pantalla. `'full'` es `grid-column: 1 / -1`: todas las que haya.
+ * Es una AMPLIACIÓN: todo layout guardado antes sigue siendo válido tal cual.
+ */
+export type WidgetAncho = 1 | 2 | 'full';
+
+/** Los tamaños de D-R03 más el ancho completo. `w` y `h` en celdas de la grilla. */
+export type WidgetSize = { w: WidgetAncho; h: 1 | 2 };
 
 /** Una entrada del layout guardado. El ORDEN del array es el orden en pantalla. */
-export type WidgetPlacement = { id: string; w: 1 | 2; h: 1 | 2 };
+export type WidgetPlacement = { id: string; w: WidgetAncho; h: 1 | 2 };
 
 /** Lo que se guarda en settings.ui_layout_*. `v` permite migrar el formato. */
 export type WidgetLayout = { v: 1; widgets: WidgetPlacement[] };
