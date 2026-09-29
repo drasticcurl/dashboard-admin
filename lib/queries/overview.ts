@@ -23,7 +23,7 @@ import { q, q1 } from '@/lib/db';
 import { listFunnels } from '@/lib/funnels';
 import { leerInsightVigente, type InsightGuardado } from '@/lib/ia/insights';
 import { MONEDA_REPORTE, type MonedaReporte } from '@/lib/moneda-reporte';
-import { UNATTRIBUTED_FUNNEL } from './sales';
+import { UNATTRIBUTED_FUNNEL, getDashboardTimezone } from './sales';
 
 export type OverviewFilters = { from: string; to: string }; // en DASHBOARD_TZ
 
@@ -175,6 +175,17 @@ export type OverviewData = {
     sessions: number;
     perFunnel: Record<string, number>; // netEur por slug, para el gráfico apilado
   }[];
+  /**
+   * Las 24 horas del día (0..23, SIEMPRE las 24 aunque no haya ventas: un hueco
+   * en el eje mentiría sobre la madrugada). En un rango de varios días cada hora
+   * suma todos los días: "a las 21 se vendió X en la semana".
+   *
+   * `prevOrders`/`prevGrossEur` son las mismas horas del período anterior de
+   * igual largo, para la sombra de comparación. null con el rango 'all'.
+   */
+  byHour: HourPoint[];
+  /** Día y hora de ahora en DASHBOARD_TZ: el widget marca la hora en curso. */
+  ahora: { day: string; hour: number };
   alerts: Alert[];
   generatedAt: string;
   staleRollup: boolean; // true si el rollup más nuevo tiene más de 30 min
@@ -195,6 +206,17 @@ export type OverviewData = {
    * migración 029).
    */
   insight: InsightGuardado | null;
+};
+
+export type HourPoint = {
+  hour: number;
+  orders: number;
+  /** Bruto aprobado de esa hora, en `OverviewData.moneda`. */
+  grossEur: number;
+  /** Bruto por slug, para apilar por funnel. Todos los funnels, en 0 si no vendieron. */
+  perFunnel: Record<string, number>;
+  prevOrders: number | null;
+  prevGrossEur: number | null;
 };
 
 export type PrevTotals = {
@@ -247,12 +269,12 @@ type SummaryRow = {
  * `$3`/`$4` son la base y el quote del par: moneda vista → moneda de reporte,
  * o sea "cuántos EUR vale 1 USD". Dividir por eso pasa EUR a USD.
  */
-function joinFactor(convierte: boolean): string {
+function joinFactor(convierte: boolean, dia = 'dm.day'): string {
   if (!convierte) return 'CROSS JOIN (SELECT 1::numeric AS k) fx';
   return `CROSS JOIN LATERAL (
     SELECT 1 / COALESCE(
       (SELECT r.rate FROM fx_rates r
-        WHERE r.base = $3 AND r.quote = $4 AND r.day <= dm.day
+        WHERE r.base = $3 AND r.quote = $4 AND r.day <= ${dia}
         ORDER BY r.day DESC LIMIT 1),
       (SELECT r.rate FROM fx_rates r
         WHERE r.base = $3 AND r.quote = $4
@@ -315,6 +337,44 @@ function daySql(convierte: boolean): string {
   GROUP BY 1, 2
   ORDER BY day`;
 }
+
+/**
+ * Las ventas por hora del día: la ÚNICA lectura del Resumen que no sale de
+ * daily_metrics, porque la tabla es por día y no tiene la hora. Va contra
+ * `orders` filtrando por `day` (índice orders_funnel_day_idx), así que el
+ * escaneo es el de las órdenes del rango, no el de la tabla entera.
+ *
+ * Mismo criterio que el rollup (scripts/rollup.ts): una venta es una orden
+ * `approved`, y su importe es `amount_eur` (el bruto). No es el neto: descontar
+ * comisiones y costos hora por hora daría un número que ninguna otra pantalla
+ * muestra. El widget lo dice.
+ *
+ * La hora es la del reloj del dashboard (DASHBOARD_TZ, D19), que es el mismo
+ * reloj con el que se resuelve el rango. Las órdenes sin funnel quedan afuera,
+ * igual que en daily_metrics: si entraran, la suma de las 24 horas no cerraría
+ * con el KPI de Órdenes.
+ */
+function hourSql(convierte: boolean): string {
+  const tz = convierte ? '$5' : '$3';
+  return `
+  SELECT EXTRACT(HOUR FROM o.purchased_at AT TIME ZONE ${tz})::int AS hour,
+         o.funnel_id AS "funnelId",
+         count(*)::int AS orders,
+         COALESCE(SUM(o.amount_eur * fx.k), 0)::text AS "grossEur"
+  FROM orders o
+  ${joinFactor(convierte, 'o.day')}
+  WHERE o.status = 'approved'
+    AND o.funnel_id IS NOT NULL
+    AND o.day BETWEEN $1::date AND $2::date
+  GROUP BY 1, 2`;
+}
+
+type HourRowRaw = { hour: number; funnelId: number; orders: number; grossEur: string };
+
+/** El día y la hora de ahora en la TZ del dashboard, para marcar "ahora". */
+const AHORA_SQL = `
+  SELECT (now() AT TIME ZONE $1)::date::text AS day,
+         EXTRACT(HOUR FROM now() AT TIME ZONE $1)::int AS hour`;
 
 /** Los parámetros de summarySql/daySql: el rango, y el par si se convierte. */
 function paramsRango(from: string, to: string, moneda: MonedaReporte): string[] {
@@ -457,6 +517,7 @@ export async function getOverviewData(
     }
   }
   const convierte = moneda !== MONEDA_REPORTE;
+  const timezone = getDashboardTimezone();
 
   const [
     funnelRows,
@@ -469,6 +530,8 @@ export async function getOverviewData(
     rollupRow,
     lastEventRows,
     insight,
+    hourRows,
+    ahoraRow,
   ] = await Promise.all([
     listFunnels(),
     q<SummaryRow>(summarySql(convierte), paramsRango(f.from, f.to, moneda)),
@@ -480,6 +543,8 @@ export async function getOverviewData(
     q1<RollupRow>(LATEST_ROLLUP_SQL),
     q<LastEventRow>(LAST_EVENT_SQL),
     leerInsightVigente('resumen'),
+    q<HourRowRaw>(hourSql(convierte), [...paramsRango(f.from, f.to, moneda), timezone]),
+    q1<{ day: string; hour: number }>(AHORA_SQL, [timezone]),
   ]);
 
   // Período anterior de igual largo (task §6.2): 7d compara contra los 7
@@ -487,10 +552,15 @@ export async function getOverviewData(
   // no hay período anterior posible y prev queda null: el trend se oculta,
   // no se inventa un 0%.
   const len = dayCount(f.from, f.to);
-  const prev =
-    f.from <= '2000-01-01'
-      ? null
-      : await computePrev(shiftDay(f.from, -len), shiftDay(f.from, -1), moneda);
+  const prevFrom = shiftDay(f.from, -len);
+  const prevTo = shiftDay(f.from, -1);
+  const hayPrev = f.from > '2000-01-01';
+  const [prev, prevHourRows] = hayPrev
+    ? await Promise.all([
+        computePrev(prevFrom, prevTo, moneda),
+        q<HourRowRaw>(hourSql(convierte), [...paramsRango(prevFrom, prevTo, moneda), timezone]),
+      ])
+    : [null, null];
 
   const summaryByFunnel = new Map(summaryRows.map((r) => [r.funnelId, r]));
   const lastByFunnel = new Map(lastEventRows.map((r) => [r.funnelId, r.lastEventAt]));
@@ -627,6 +697,39 @@ export async function getOverviewData(
     byDay.push({ day, netEur, orders, sessions, perFunnel });
   }
 
+  // byHour: las 24 horas siempre, con todos los funnels en 0 de arranque
+  // (mismo criterio que byDay: una banda del apilado no puede cortarse).
+  const slugDe = new Map(funnels.map((fn) => [fn.funnelId, fn.slug]));
+  const byHour: HourPoint[] = Array.from({ length: 24 }, (_, hour) => {
+    const perFunnel: Record<string, number> = {};
+    for (const fn of funnels) perFunnel[fn.slug] = 0;
+    return {
+      hour,
+      orders: 0,
+      grossEur: 0,
+      perFunnel,
+      prevOrders: prevHourRows ? 0 : null,
+      prevGrossEur: prevHourRows ? 0 : null,
+    };
+  });
+  for (const r of hourRows) {
+    const h = byHour[r.hour];
+    const slug = slugDe.get(r.funnelId);
+    // Un funnel borrado de la config pero con órdenes: se cuenta en el total
+    // (cierra con los KPIs) aunque no tenga banda propia.
+    if (!h) continue;
+    const monto = MONEY(r.grossEur);
+    h.orders += r.orders;
+    h.grossEur += monto;
+    if (slug !== undefined) h.perFunnel[slug] += monto;
+  }
+  for (const r of prevHourRows ?? []) {
+    const h = byHour[r.hour];
+    if (!h) continue;
+    h.prevOrders = (h.prevOrders ?? 0) + r.orders;
+    h.prevGrossEur = (h.prevGrossEur ?? 0) + MONEY(r.grossEur);
+  }
+
   // ─── Alerts (task §4) ──────────────────────────────────────────────────
   //
   // Las dos 'bad' son las que importan: un funnel que dejó de mandar
@@ -677,6 +780,8 @@ export async function getOverviewData(
     totals,
     funnels,
     byDay,
+    byHour,
+    ahora: ahoraRow ?? { day: f.to, hour: 0 },
     alerts,
     generatedAt: new Date().toISOString(),
     staleRollup,

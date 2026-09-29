@@ -138,6 +138,9 @@ function overview(over: Partial<OverviewData> = {}): OverviewData {
       cpa: 1000 / 30,
     },
     funnels: [funnel()],
+    // Ventas por hora (2026-09-29): el brief no las usa, la fábrica sólo completa el tipo.
+    byHour: [],
+    ahora: { day: '2026-09-03', hour: 12 },
     byDay: [
       { day: '2026-09-01', netEur: 1500, orders: 15, sessions: 500, perFunnel: { uno: 1500 } },
       { day: '2026-09-02', netEur: 1500, orders: 15, sessions: 500, perFunnel: { uno: 1500 } },

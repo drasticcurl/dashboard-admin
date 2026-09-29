@@ -10,6 +10,61 @@ Lo más nuevo va arriba. Las reglas de cómo se escribe una entrada están en
 
 ---
 
+## 2026-09-29 — Resumen: widget de ventas por hora (ancho completo), rango de fechas personalizado, Funnels compacto de hasta 3
+
+**Qué pasaba.** Pedido del usuario, en tres partes: (1) un widget que ocupe
+todo el ancho del Resumen con las ventas por hora; (2) poder elegir un rango
+de fechas propio en el selector de período, que sólo tenía presets; (3) el
+widget Funnels era 2×2 con todos los funnels y scroll, y los que están en 0
+tapaban a los que venden: lo quería en 1×2, más comprimido, eligiendo 2 o 3.
+
+**Por qué se resolvió así.**
+- **Ancho `'full'` en `WidgetSize`/`WidgetPlacement` (tipos.ts, CONGELADO).** Se
+  tocó con pedido explícito del usuario. Es una ampliación: los layouts
+  guardados siguen validando igual (`w: 3` sigue siendo inválido, lo lockean
+  los tests de layout). No es `w: 5` porque la Grid es `auto-fill`: "5
+  columnas" es sólo el caso de un monitor ancho. `'full'` es `col-span-full`.
+- **Ventas por hora lee `orders`, no `daily_metrics`** (que no tiene la hora).
+  Mismo criterio que el rollup: órdenes `approved`, importe = bruto
+  (`amount_eur`), sin órdenes sin funnel, hora en `DASHBOARD_TZ`. No es el neto:
+  descontar comisiones y costos por hora sería un número que ninguna otra
+  pantalla muestra. Suma el período anterior de igual largo para la raya de
+  comparación. Viaja en `OverviewData.byHour` + `ahora` (regla 2: el widget
+  no hace fetch). Gráfico a mano (components/VentasPorHora.tsx) y no recharts,
+  para marcar la hora en curso y atenuar las que todavía no pasaron.
+- **Rango personalizado:** el `<select>` pasó a ser un popover (Portal) con los
+  presets y un calendario. Escribe `?from=&to=` y BORRA `range` (y al revés):
+  si quedaran los dos, `from/to` ganan en `resolveFunnelRange` y el preset
+  elegido no haría nada. Resumen, Embudo, Ventas y Leads ya aceptaban
+  `from/to`; Anuncios usa su propio `?period=` y no cambió. La aritmética de
+  fechas va en `lib/rango-fechas.ts`, con Date.UTC sobre strings.
+- **Funnels:** `tamañosPermitidos` pasa a `[1×2, 2×1]`. Un layout guardado en
+  2×2 cae solo al default 1×2 (regla 3 de `resolveLayout`). La elección de
+  funnels va en localStorage (preferencia de quien mira; el layout es
+  compartido); sin elección, los 3 de más neto. La tarjeta perdió el gasto en
+  ads como monto (queda el ROI) y el neto en moneda propia pasó al `title`.
+- **"Magia":** la grilla usa la cascada `.reveal` que ya existía (sólo fuera
+  del modo edición), y las tarjetas un brillo que sigue al mouse (variables CSS,
+  sin estado de React). No se tocó `ui.tsx`, `tailwind.config.ts` ni
+  `globals.css`.
+
+**Qué se verificó.**
+- `npx tsc --noEmit`: sólo el TS2783 conocido de `tablero.test.ts`.
+- `DATABASE_URL= npm test`: 93 archivos pasan, 44 salteados (necesitan base),
+  1352 tests. Nuevos: `lib/widgets/ventas-por-hora.test.ts` (6) y
+  `lib/rango-fechas.test.ts` (7).
+- `npm run build`: OK.
+- La query por hora (variante con conversión a USD) contra la base del Docker
+  local: corre y devuelve filas.
+- **Sin verificar:** la UI en el navegador (el panel local pide login y no se
+  ingresó). Falta mirar en desktop y a menos de 760px: el widget de horas, el
+  popover/hoja del calendario y Funnels en 1×2. Tampoco se corrió
+  `overview.test.ts` contra una base de test.
+- **Para verlo con un layout ya guardado:** Editar widgets → Agregar → "Ventas
+  por hora" (se agrega al final; arrastrarlo arriba) → Guardar.
+
+---
+
 ## 2026-09-28 — Embudo: la card de estética compara los brazos de cada funnel (Original contra Ritual en chauhinchazon) + migración 035
 
 **Qué pasaba.** El funnel de chauhinchazon (AR `/quiz` y LATAM `/latam`) abre
