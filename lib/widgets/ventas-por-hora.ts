@@ -8,17 +8,38 @@
 
 import type { HourPoint } from '@/lib/queries/overview';
 
-export type MedidaHora = 'importe' | 'ordenes';
+/**
+ * `resultado` = neto − gasto en ads de la hora (puede ser negativo: la hora
+ * perdió plata). `ventas` = el bruto aprobado.
+ */
+export type MedidaHora = 'resultado' | 'ventas';
 
 export function valorHora(h: HourPoint, medida: MedidaHora): number {
-  return medida === 'importe' ? h.grossEur : h.orders;
+  return medida === 'resultado' ? h.resultEur : h.grossEur;
 }
 
 export function valorPrevHora(h: HourPoint, medida: MedidaHora): number | null {
-  return medida === 'importe' ? h.prevGrossEur : h.prevOrders;
+  return medida === 'resultado' ? h.prevResultEur : h.prevGrossEur;
 }
 
-/** La hora con más ventas. null si no se vendió nada: no hay pico que marcar. */
+/**
+ * La hora que MENOS dio. null si ninguna quedó abajo de cero: "la peor hora"
+ * de un día sin pérdidas no es una mala noticia que haya que pintar de rojo.
+ */
+export function horaPeor(horas: HourPoint[], medida: MedidaHora): number | null {
+  let peor: number | null = null;
+  let min = 0;
+  for (const h of horas) {
+    const v = valorHora(h, medida);
+    if (v < min) {
+      min = v;
+      peor = h.hour;
+    }
+  }
+  return peor;
+}
+
+/** La hora con el valor más alto. null si ninguna quedó arriba de cero. */
 export function horaPico(horas: HourPoint[], medida: MedidaHora): number | null {
   let mejor: number | null = null;
   let max = 0;

@@ -803,8 +803,10 @@ export const catalogoResumen: WidgetCatalogo<OverviewData> = {
   },
   'ventas-hora': {
     id: 'ventas-hora',
-    label: 'Ventas por hora',
-    hint: 'Bruto aprobado por hora del día (hora del panel). La raya gris es la misma hora del período anterior.',
+    // El id sigue siendo 'ventas-hora' (regla 1 de tipos.ts: es la clave del
+    // layout guardado); desde el 2026-09-29 muestra primero la ganancia/pérdida.
+    label: 'Ganancia por hora',
+    hint: 'Neto − gasto en ads de cada hora: verde ganó, rojo perdió.',
     grupo: 'graficos',
     tamañoPorDefecto: { w: 'full', h: 1 },
     tamañosPermitidos: [
@@ -827,18 +829,20 @@ export const catalogoResumen: WidgetCatalogo<OverviewData> = {
   funnels: {
     id: 'funnels',
     label: 'Funnels',
-    hint: 'Hasta 3 funnels a elección: neto, resultado (neto − ads) y ROI.',
+    hint: 'Hasta 3 a elección: neto, resultado y ROI.',
     grupo: 'listas',
-    // 1×2 desde el 2026-09-29 (antes 2×2 con todos los funnels y scroll). Un
-    // layout guardado en 2×2 cae solo a 1×2: `resolveLayout` manda los tamaños
-    // que ya no están permitidos al `tamañoPorDefecto`.
-    tamañoPorDefecto: { w: 1, h: 2 },
+    // 2×1 (dos de ancho, uno de alto) desde el 2026-09-29, pedido del usuario:
+    // antes era 2×2 con todos los funnels y scroll. Un layout guardado en 2×2
+    // cae solo a 2×1: `resolveLayout` manda los tamaños que ya no están
+    // permitidos al `tamañoPorDefecto`. 1×2 queda como alternativa.
+    tamañoPorDefecto: { w: 2, h: 1 },
     tamañosPermitidos: [
-      { w: 1, h: 2 },
       { w: 2, h: 1 },
+      { w: 1, h: 2 },
     ],
     render: (d, size) => <FunnelsElegidos data={d} size={size} />,
   },
+
   'tabla-funnels': {
     id: 'tabla-funnels',
     label: 'Embudo comparado',

@@ -20,7 +20,7 @@ export const layoutPorDefectoResumen: WidgetPlacement[] = [
   { id: 'ticket', w: 1, h: 1 },
   { id: 'ventas-hora', w: 'full', h: 1 },
   { id: 'alertas', w: 2, h: 1 },
-  { id: 'funnels', w: 1, h: 2 },
+  { id: 'funnels', w: 2, h: 1 },
   { id: 'neto-dia', w: 2, h: 2 },
   { id: 'tabla-funnels', w: 2, h: 2 },
 ];

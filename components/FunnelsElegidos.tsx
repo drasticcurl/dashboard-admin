@@ -131,7 +131,12 @@ export function FunnelsElegidos({ data, size }: { data: OverviewData; size: Widg
         </>
       )}
 
-      <div className={`grid min-h-0 flex-1 gap-2 ${horizontal ? 'panel:grid-cols-3' : 'auto-rows-fr'}`}>
+      {/* En 2×1 una columna por funnel elegido (2 o 3), todas del mismo ancho;
+          en mobile, una debajo de la otra. En 1×2, filas del mismo alto. */}
+      <div
+        className={`grid min-h-0 flex-1 gap-2 ${horizontal ? 'panel:[grid-template-columns:repeat(var(--cols),minmax(0,1fr))]' : 'auto-rows-fr'}`}
+        style={{ '--cols': Math.max(visibles.length, 1) } as React.CSSProperties}
+      >
         {visibles.map((f) => (
           <TarjetaCompacta key={f.slug} f={f} moneda={data.moneda} />
         ))}
@@ -151,7 +156,7 @@ function TarjetaCompacta({ f, moneda }: { f: FunnelSummary; moneda: MonedaReport
     f.resultEur > 0 ? 'text-good-400' : f.resultEur < 0 ? 'text-bad-400' : 'text-neutral-400';
   return (
     <div
-      className="relative flex min-w-0 flex-col justify-center overflow-hidden rounded-xl border border-border-subtle bg-canvas px-3 py-2.5"
+      className="relative flex min-w-0 flex-col justify-center overflow-hidden rounded-xl border border-border-subtle bg-canvas px-3 py-2"
       // Un filo del color del funnel a la izquierda: identifica la tarjeta sin
       // gastar una línea en el punto de color.
       style={{ boxShadow: `inset 2px 0 0 0 ${f.color}` }}
