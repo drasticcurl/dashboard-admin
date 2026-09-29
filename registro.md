@@ -10,6 +10,56 @@ Lo más nuevo va arriba. Las reglas de cómo se escribe una entrada están en
 
 ---
 
+## 2026-09-29 (2) — Ganancia por hora (neto − gasto) con gasto horario propio (migración 036) · Funnels 2×1 · sin scroll
+
+**Qué pasaba.** Después del primer deploy, el usuario: (1) Funnels lo quería
+2 de ancho × 1 de alto, no 1×2; (2) el widget por hora tenía que mostrar
+ganancia/pérdida (verde ganamos, rojo perdimos), no sólo ventas; (3) el widget
+por hora no entraba en su fila y había que hacer scroll adentro.
+
+**Por qué se resolvió así.**
+- **El gasto de Meta está por día** (`ad_spend.day`); no existe por hora. Se le
+  preguntó al usuario entre repartir el del día o guardarlo por hora: "a partir
+  de ahora lo empezamos a guardar, los anteriores ya no importan".
+- **Migración 036 con un trigger sobre `ad_spend`**, no código en la sync:
+  `lib/ads/**` mueve plata real y el README pide no tocarlo sin revisión. Cada
+  escritura de `ad_spend` (el `INSERT ... ON CONFLICT` de la sync, el cron de
+  los :07 y el refresco en vivo) deja en `ad_spend_hora` el acumulado del día
+  por funnel, una fila por hora de reloj (la última lectura). Dos triggers por
+  statement con tabla de transición (Postgres no permite un trigger de dos
+  eventos con transition tables). Sólo días recientes (`>= current_date - 2`).
+- **El reparto (`lib/queries/gasto-hora.ts`, puro, 5 tests):** lo gastado entre
+  dos lecturas se reparte en proporción al tiempo entre las horas que cubre
+  (con el cron solo, la lectura de las 14:07 son 53 min de las 13); antes de la
+  primera lectura, desde las 00; días sin lecturas, parejo en las horas que
+  pasaron; lo que falte hasta el total del día, desde la última lectura. Así
+  las 24 horas SUMAN el gasto del día y el resultado cierra con el KPI.
+- **Neto por hora** = bruto − comisiones − costos de las aprobadas − importe de
+  las devueltas, por hora de compra: la cuenta del rollup bajada a la hora.
+- El widget arranca en "Ganancia / pérdida": barras verdes arriba y rojas
+  abajo de una línea de cero; "Ventas" queda como segunda vista. El `id` sigue
+  siendo `ventas-hora` (regla 1 de tipos.ts); cambió el `label`.
+- **Sin scroll:** hint de una línea y lecturas en 2×2 al costado.
+- **Funnels:** default 2×1 (1×2 queda como opción); una columna por funnel
+  elegido. El layout guardado en 2×2 cae solo al 2×1.
+- Las horas cuentan sólo los funnels activos, igual que los totales.
+
+**Qué se verificó.**
+- `tsc`: sólo el TS2783 conocido. `DATABASE_URL= npm test`: 94 archivos,
+  1359 tests.
+- 036 contra la base local dentro de un BEGIN/ROLLBACK, aplicada dos veces
+  (idempotente), más un insert y un upsert simulando la sync: registró 15 y
+  después 17 en la misma fila horaria. Después se aplicó a la base local (a
+  mano, sin `schema_migrations`: `db:migrate` la va a repetir sin efecto).
+- `getOverviewData` contra la base local, 2026-09-01→29, en EUR y USD, con el
+  rollup local recién corrido: la suma de las 24 horas da exactamente el neto,
+  el gasto y el resultado del KPI (666,21 / 759,68).
+- **Sin verificar:** la UI en el navegador (login) y `overview.test.ts`
+  contra base de test. La 036 corre en las DOS bases de producción en su
+  próximo deploy (infinix no está en esta VPS: ver la entrada anterior).
+
+---
+
 ## 2026-09-29 — Resumen: widget de ventas por hora (ancho completo), rango de fechas personalizado, Funnels compacto de hasta 3
 
 **Qué pasaba.** Pedido del usuario, en tres partes: (1) un widget que ocupe

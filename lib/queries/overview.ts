@@ -24,6 +24,7 @@ import { listFunnels } from '@/lib/funnels';
 import { leerInsightVigente, type InsightGuardado } from '@/lib/ia/insights';
 import { MONEDA_REPORTE, type MonedaReporte } from '@/lib/moneda-reporte';
 import { UNATTRIBUTED_FUNNEL, getDashboardTimezone } from './sales';
+import { repartirGastoDelDia, type LecturaGasto } from './gasto-hora';
 
 export type OverviewFilters = { from: string; to: string }; // en DASHBOARD_TZ
 
@@ -215,8 +216,17 @@ export type HourPoint = {
   grossEur: number;
   /** Bruto por slug, para apilar por funnel. Todos los funnels, en 0 si no vendieron. */
   perFunnel: Record<string, number>;
+  /** Neto de la hora: bruto − devoluciones − comisiones − costos (la cuenta del KPI Neto). */
+  netEur: number;
+  /** Gasto de ads de la hora (ver lib/queries/gasto-hora.ts: cómo se reparte). */
+  adSpendEur: number;
+  /** Neto − gasto: verde si la hora ganó plata, rojo si perdió. */
+  resultEur: number;
+  /** Resultado por slug, para el tooltip. */
+  resultPerFunnel: Record<string, number>;
   prevOrders: number | null;
   prevGrossEur: number | null;
+  prevResultEur: number | null;
 };
 
 export type PrevTotals = {
@@ -339,37 +349,129 @@ function daySql(convierte: boolean): string {
 }
 
 /**
- * Las ventas por hora del día: la ÚNICA lectura del Resumen que no sale de
+ * Lo que pasó hora por hora: la ÚNICA lectura del Resumen que no sale de
  * daily_metrics, porque la tabla es por día y no tiene la hora. Va contra
  * `orders` filtrando por `day` (índice orders_funnel_day_idx), así que el
  * escaneo es el de las órdenes del rango, no el de la tabla entera.
  *
- * Mismo criterio que el rollup (scripts/rollup.ts): una venta es una orden
- * `approved`, y su importe es `amount_eur` (el bruto). No es el neto: descontar
- * comisiones y costos hora por hora daría un número que ninguna otra pantalla
- * muestra. El widget lo dice.
+ * Mismas cuentas que el rollup (scripts/rollup.ts), bajadas a la hora de la
+ * compra: órdenes y bruto son las `approved`; el neto es bruto − comisiones −
+ * costos de las aprobadas, menos el importe de las devueltas. Sumadas las 24
+ * horas dan el Neto del KPI.
  *
  * La hora es la del reloj del dashboard (DASHBOARD_TZ, D19), que es el mismo
  * reloj con el que se resuelve el rango. Las órdenes sin funnel quedan afuera,
- * igual que en daily_metrics: si entraran, la suma de las 24 horas no cerraría
- * con el KPI de Órdenes.
+ * igual que en daily_metrics.
  */
 function hourSql(convierte: boolean): string {
   const tz = convierte ? '$5' : '$3';
   return `
   SELECT EXTRACT(HOUR FROM o.purchased_at AT TIME ZONE ${tz})::int AS hour,
          o.funnel_id AS "funnelId",
-         count(*)::int AS orders,
-         COALESCE(SUM(o.amount_eur * fx.k), 0)::text AS "grossEur"
+         (count(*) FILTER (WHERE o.status = 'approved'))::int AS orders,
+         COALESCE(SUM(o.amount_eur * fx.k) FILTER (WHERE o.status = 'approved'), 0)::text AS "grossEur",
+         (COALESCE(SUM((o.amount_eur - COALESCE(o.commission_amount_eur, 0) - COALESCE(o.cost_amount_eur, 0)) * fx.k)
+                   FILTER (WHERE o.status = 'approved'), 0)
+        - COALESCE(SUM(o.amount_eur * fx.k) FILTER (WHERE o.status <> 'approved'), 0))::text AS "netEur"
   FROM orders o
   ${joinFactor(convierte, 'o.day')}
-  WHERE o.status = 'approved'
-    AND o.funnel_id IS NOT NULL
+  WHERE o.funnel_id IS NOT NULL
     AND o.day BETWEEN $1::date AND $2::date
   GROUP BY 1, 2`;
 }
 
-type HourRowRaw = { hour: number; funnelId: number; orders: number; grossEur: string };
+type HourRowRaw = { hour: number; funnelId: number; orders: number; grossEur: string; netEur: string };
+
+/**
+ * El gasto total de cada funnel y día del rango (la misma suma que el rollup
+ * pasa a daily_metrics.ad_spend_eur) y las 00:00 de ese día en la TZ del
+ * dashboard, que es desde donde se reparte en horas.
+ */
+function spendDaySql(convierte: boolean): string {
+  const tz = convierte ? '$5' : '$3';
+  return `
+  SELECT a.funnel_id AS "funnelId", a.day::text AS day,
+         COALESCE(SUM(a.spend_eur * fx.k), 0)::text AS total,
+         (EXTRACT(EPOCH FROM (a.day::timestamp AT TIME ZONE ${tz})) * 1000)::text AS "inicioMs"
+  FROM ad_spend a
+  ${joinFactor(convierte, 'a.day')}
+  WHERE a.funnel_id IS NOT NULL AND a.day BETWEEN $1::date AND $2::date
+  GROUP BY a.funnel_id, a.day`;
+}
+
+/** Las lecturas del gasto acumulado que guarda el trigger de la 036. */
+function spendLecturasSql(convierte: boolean): string {
+  return `
+  SELECT s.funnel_id AS "funnelId", s.day::text AS day,
+         (EXTRACT(EPOCH FROM s.tomado_at) * 1000)::text AS t,
+         (s.spend_eur_acum * fx.k)::text AS acum
+  FROM ad_spend_hora s
+  ${joinFactor(convierte, 's.day')}
+  WHERE s.day BETWEEN $1::date AND $2::date`;
+}
+
+type HorasFunnel = { orders: number[]; gross: number[]; net: number[]; spend: number[] };
+
+/**
+ * Las 24 horas de cada funnel en un rango: órdenes, bruto, neto y gasto. En un
+ * rango de varios días cada hora suma todos los días.
+ */
+async function leerHoras(
+  from: string,
+  to: string,
+  moneda: MonedaReporte,
+  timezone: string,
+): Promise<Map<number, HorasFunnel>> {
+  const convierte = moneda !== MONEDA_REPORTE;
+  const params = [...paramsRango(from, to, moneda), timezone];
+  const [ventas, gastoDia, lecturas] = await Promise.all([
+    q<HourRowRaw>(hourSql(convierte), params),
+    q<{ funnelId: number; day: string; total: string; inicioMs: string }>(spendDaySql(convierte), params),
+    q<{ funnelId: number; day: string; t: string; acum: string }>(
+      spendLecturasSql(convierte),
+      paramsRango(from, to, moneda),
+    ),
+  ]);
+
+  const porFunnel = new Map<number, HorasFunnel>();
+  const de = (id: number): HorasFunnel => {
+    let x = porFunnel.get(id);
+    if (!x) {
+      const cero = (): number[] => Array.from({ length: 24 }, () => 0);
+      x = { orders: cero(), gross: cero(), net: cero(), spend: cero() };
+      porFunnel.set(id, x);
+    }
+    return x;
+  };
+
+  for (const r of ventas) {
+    if (r.hour < 0 || r.hour > 23) continue;
+    const x = de(r.funnelId);
+    x.orders[r.hour]! += r.orders;
+    x.gross[r.hour]! += MONEY(r.grossEur);
+    x.net[r.hour]! += MONEY(r.netEur);
+  }
+
+  const lecturasDe = new Map<string, LecturaGasto[]>();
+  for (const l of lecturas) {
+    const k = `${l.funnelId}:${l.day}`;
+    const arr = lecturasDe.get(k) ?? [];
+    arr.push({ t: Number(l.t), acum: MONEY(l.acum) });
+    lecturasDe.set(k, arr);
+  }
+  const ahoraMs = Date.now();
+  for (const g of gastoDia) {
+    const horas = repartirGastoDelDia({
+      inicioMs: Number(g.inicioMs),
+      ahoraMs,
+      total: MONEY(g.total),
+      lecturas: lecturasDe.get(`${g.funnelId}:${g.day}`) ?? [],
+    });
+    const x = de(g.funnelId);
+    for (let h = 0; h < 24; h++) x.spend[h]! += horas[h]!;
+  }
+  return porFunnel;
+}
 
 /** El día y la hora de ahora en la TZ del dashboard, para marcar "ahora". */
 const AHORA_SQL = `
@@ -530,7 +632,7 @@ export async function getOverviewData(
     rollupRow,
     lastEventRows,
     insight,
-    hourRows,
+    horasActual,
     ahoraRow,
   ] = await Promise.all([
     listFunnels(),
@@ -543,7 +645,7 @@ export async function getOverviewData(
     q1<RollupRow>(LATEST_ROLLUP_SQL),
     q<LastEventRow>(LAST_EVENT_SQL),
     leerInsightVigente('resumen'),
-    q<HourRowRaw>(hourSql(convierte), [...paramsRango(f.from, f.to, moneda), timezone]),
+    leerHoras(f.from, f.to, moneda, timezone),
     q1<{ day: string; hour: number }>(AHORA_SQL, [timezone]),
   ]);
 
@@ -555,11 +657,8 @@ export async function getOverviewData(
   const prevFrom = shiftDay(f.from, -len);
   const prevTo = shiftDay(f.from, -1);
   const hayPrev = f.from > '2000-01-01';
-  const [prev, prevHourRows] = hayPrev
-    ? await Promise.all([
-        computePrev(prevFrom, prevTo, moneda),
-        q<HourRowRaw>(hourSql(convierte), [...paramsRango(prevFrom, prevTo, moneda), timezone]),
-      ])
+  const [prev, horasPrev] = hayPrev
+    ? await Promise.all([computePrev(prevFrom, prevTo, moneda), leerHoras(prevFrom, prevTo, moneda, timezone)])
     : [null, null];
 
   const summaryByFunnel = new Map(summaryRows.map((r) => [r.funnelId, r]));
@@ -698,36 +797,54 @@ export async function getOverviewData(
   }
 
   // byHour: las 24 horas siempre, con todos los funnels en 0 de arranque
-  // (mismo criterio que byDay: una banda del apilado no puede cortarse).
+  // (mismo criterio que byDay: una banda del apilado no puede cortarse). Sólo
+  // los funnels de `funnels` (los activos), igual que los totales: si no, la
+  // suma de las 24 horas no cerraría con los KPIs.
   const slugDe = new Map(funnels.map((fn) => [fn.funnelId, fn.slug]));
   const byHour: HourPoint[] = Array.from({ length: 24 }, (_, hour) => {
     const perFunnel: Record<string, number> = {};
-    for (const fn of funnels) perFunnel[fn.slug] = 0;
+    const resultPerFunnel: Record<string, number> = {};
+    for (const fn of funnels) {
+      perFunnel[fn.slug] = 0;
+      resultPerFunnel[fn.slug] = 0;
+    }
     return {
       hour,
       orders: 0,
       grossEur: 0,
       perFunnel,
-      prevOrders: prevHourRows ? 0 : null,
-      prevGrossEur: prevHourRows ? 0 : null,
+      netEur: 0,
+      adSpendEur: 0,
+      resultEur: 0,
+      resultPerFunnel,
+      prevOrders: horasPrev ? 0 : null,
+      prevGrossEur: horasPrev ? 0 : null,
+      prevResultEur: horasPrev ? 0 : null,
     };
   });
-  for (const r of hourRows) {
-    const h = byHour[r.hour];
-    const slug = slugDe.get(r.funnelId);
-    // Un funnel borrado de la config pero con órdenes: se cuenta en el total
-    // (cierra con los KPIs) aunque no tenga banda propia.
-    if (!h) continue;
-    const monto = MONEY(r.grossEur);
-    h.orders += r.orders;
-    h.grossEur += monto;
-    if (slug !== undefined) h.perFunnel[slug] += monto;
+  for (const [funnelId, x] of Array.from(horasActual.entries())) {
+    const slug = slugDe.get(funnelId);
+    if (slug === undefined) continue;
+    for (let i = 0; i < 24; i++) {
+      const h = byHour[i]!;
+      const resultado = x.net[i]! - x.spend[i]!;
+      h.orders += x.orders[i]!;
+      h.grossEur += x.gross[i]!;
+      h.netEur += x.net[i]!;
+      h.adSpendEur += x.spend[i]!;
+      h.resultEur += resultado;
+      h.perFunnel[slug]! += x.gross[i]!;
+      h.resultPerFunnel[slug]! += resultado;
+    }
   }
-  for (const r of prevHourRows ?? []) {
-    const h = byHour[r.hour];
-    if (!h) continue;
-    h.prevOrders = (h.prevOrders ?? 0) + r.orders;
-    h.prevGrossEur = (h.prevGrossEur ?? 0) + MONEY(r.grossEur);
+  for (const [funnelId, x] of Array.from(horasPrev?.entries() ?? [])) {
+    if (!slugDe.has(funnelId)) continue;
+    for (let i = 0; i < 24; i++) {
+      const h = byHour[i]!;
+      h.prevOrders = (h.prevOrders ?? 0) + x.orders[i]!;
+      h.prevGrossEur = (h.prevGrossEur ?? 0) + x.gross[i]!;
+      h.prevResultEur = (h.prevResultEur ?? 0) + x.net[i]! - x.spend[i]!;
+    }
   }
 
   // ─── Alerts (task §4) ──────────────────────────────────────────────────
