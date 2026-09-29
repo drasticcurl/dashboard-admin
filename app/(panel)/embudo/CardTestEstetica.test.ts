@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import type { ExperimentoRow } from '@/lib/queries/funnel';
 import { calcularTasasExperimento, SIN_EXPERIMENTO } from '@/lib/queries/funnel';
 import {
+  BRAZOS_DEL_TEST,
   MIN_COMPRAS_POR_BRAZO,
+  brazosDelTest,
   brazosEstetica,
   debeMostrarCardEstetica,
   liderEstetica,
@@ -125,5 +127,65 @@ describe('muestraChicaEstetica', () => {
     expect(
       muestraChicaEstetica([fila('estetica_tarot', 5000, n + 50, 1), fila('estetica_original_hilvanapp', 9000, n * 5, 1)]),
     ).toBe(true);
+  });
+});
+
+/**
+ * Generalización (2026-09-28): el test de estética de chauhinchazon /
+ * chauhinchazon-latam compara Original contra Ritual. Los brazos salen de lo que
+ * el funnel declara; los tests de arriba (almagemela) no pasan brazos y prueban
+ * el default, igual que antes.
+ */
+describe('brazosDelTest', () => {
+  it('chauhinchazon: solo los estetica_* declarados, fuera los A/B de portada y del pitch', () => {
+    expect(brazosDelTest(['A', 'B', 'pitch_A', 'pitch_B', 'estetica_original', 'estetica_ritual'])).toEqual([
+      'estetica_original',
+      'estetica_ritual',
+    ]);
+  });
+
+  it('almagemela: la fila de referencia (_hilvanapp) no compite', () => {
+    expect(brazosDelTest(['estetica_original', 'estetica_tarot', 'estetica_original_hilvanapp'])).toEqual([
+      'estetica_original',
+      'estetica_tarot',
+    ]);
+  });
+
+  it('sin brazos declarados, el comportamiento de antes', () => {
+    expect(brazosDelTest([])).toEqual(BRAZOS_DEL_TEST);
+  });
+
+  it('Original va primero aunque se haya declarado después', () => {
+    expect(brazosDelTest(['estetica_ritual', 'estetica_original'])).toEqual(['estetica_original', 'estetica_ritual']);
+  });
+});
+
+describe('Original contra Ritual (chauhinchazon)', () => {
+  const brazos = brazosDelTest(['A', 'B', 'pitch_A', 'pitch_B', 'estetica_original', 'estetica_ritual']);
+
+  it('ordena Original y después Ritual (el SQL las trae alfabéticas)', () => {
+    const filas = [fila('estetica_ritual', 100, 3, 300), fila(SIN_EXPERIMENTO, 900, 9, 900), fila('estetica_original', 100, 3, 300)];
+    expect(brazosEstetica(filas, brazos).map((f) => f.experiment)).toEqual(['estetica_original', 'estetica_ritual']);
+  });
+
+  it('gana el que más plata por sesión deja, aunque tenga menos compras', () => {
+    // Original: 6 compras / 100 sesiones, 600 → 6/sesión. Ritual: 5 / 80, 640 → 8/sesión.
+    const original = fila('estetica_original', 100, 6, 600);
+    const ritual = fila('estetica_ritual', 80, 5, 640);
+    expect(liderEstetica([original, ritual], brazos)?.experiment).toBe('estetica_ritual');
+    // Sin los brazos, Ritual caería como referencia y nunca ganaría: por eso hacen falta.
+    expect(liderEstetica([original, ritual])).toBeNull();
+  });
+
+  it('la muestra alcanza solo con MIN_COMPRAS_POR_BRAZO en los DOS brazos', () => {
+    const n = MIN_COMPRAS_POR_BRAZO;
+    expect(muestraChicaEstetica([fila('estetica_original', 5000, n + 50, 1)], brazos)).toBe(true);
+    expect(muestraChicaEstetica([fila('estetica_original', 5000, n + 50, 1), fila('estetica_ritual', 5000, n - 1, 1)], brazos)).toBe(true);
+    expect(muestraChicaEstetica([fila('estetica_original', 5000, n - 1, 1), fila('estetica_ritual', 5000, n + 50, 1)], brazos)).toBe(true);
+    expect(muestraChicaEstetica([fila('estetica_original', 5000, n, 1), fila('estetica_ritual', 5000, n, 1)], brazos)).toBe(false);
+  });
+
+  it('el nombre de la fila nueva', () => {
+    expect(nombreBrazoEstetica('estetica_ritual')).toBe('Ritual');
   });
 });

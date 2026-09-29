@@ -1,7 +1,14 @@
 'use client';
 
 /**
- * CardTestEstetica — el A/B de estética del quiz de almagemela, en /embudo.
+ * CardTestEstetica — el A/B de estética del quiz, en /embudo.
+ *
+ * Sirve a dos tests con la misma card (generalizada el 2026-09-28, no
+ * duplicada): el de almagemela (Original contra Tarot, lo que sigue) y el de
+ * chauhinchazon / chauhinchazon-latam (Original contra Ritual, ver
+ * `testfunnel/.kiro/specs/estetica-ritual-ab`). Qué brazos compiten sale de lo
+ * que el funnel DECLARA en `funnels.experiments` (`brazosDelTest`), así que la
+ * card no necesita saber qué funnel está mirando.
  *
  * El funnel reparte 50/50 a quienes ven el quiz real en los dominios del test:
  * la mitad ve el quiz original y la otra mitad el mismo quiz (mismas preguntas,
@@ -45,8 +52,48 @@ export const PREFIJO_ESTETICA = 'estetica_';
 /** Compras por brazo por debajo de las cuales la diferencia todavía es ruido. */
 export const MIN_COMPRAS_POR_BRAZO = 100;
 
-/** Los dos brazos que compiten. Todo otro `estetica_*` es referencia. */
+/**
+ * Los dos brazos que compiten en almagemela. Es el default de todas las
+ * funciones de abajo: sin brazos declarados, la card se comporta como antes de
+ * generalizarla (y los tests de almagemela, que no pasan brazos, prueban
+ * exactamente lo mismo que antes).
+ */
 export const BRAZOS_DEL_TEST = ['estetica_original', 'estetica_tarot'];
+
+/** El control de todo test de estética: siempre la primera fila. */
+const BRAZO_CONTROL = 'estetica_original';
+
+/**
+ * Sufijo de las filas de REFERENCIA (tráfico que no está en el test, mostrado
+ * al lado). Es la única convención que existe: `estetica_original_hilvanapp`.
+ */
+const SUFIJO_REFERENCIA = '_hilvanapp';
+
+/**
+ * Los brazos que compiten en ESTE funnel, a partir de los declarados
+ * (`funnels.experiments`). PURA. Los `estetica_*` que no son de referencia,
+ * sin repetidos, con `estetica_original` primero y el resto en el orden en que
+ * se declararon. Sin ninguno declarado, `BRAZOS_DEL_TEST` (el comportamiento de
+ * antes de generalizar la card).
+ *
+ *   chauhinchazon  ['A','B','pitch_A','pitch_B','estetica_original','estetica_ritual']
+ *                  → ['estetica_original','estetica_ritual']
+ *   almagemela     ['estetica_original','estetica_tarot','estetica_original_hilvanapp']
+ *                  → ['estetica_original','estetica_tarot']
+ */
+export function brazosDelTest(declarados: string[]): string[] {
+  const propios = declarados.filter(
+    (e, i) =>
+      e.startsWith(PREFIJO_ESTETICA) && !e.endsWith(SUFIJO_REFERENCIA) && declarados.indexOf(e) === i,
+  );
+  if (propios.length === 0) return [...BRAZOS_DEL_TEST];
+  return [...propios.filter((e) => e === BRAZO_CONTROL), ...propios.filter((e) => e !== BRAZO_CONTROL)];
+}
+
+/** ¿Es el test de Ritual (chauhinchazon)? Decide los textos de la card. */
+function esTestRitual(brazos: string[]): boolean {
+  return brazos.includes('estetica_ritual');
+}
 
 /** Qué es cada fila, dicho para quien mira el panel y no el código. */
 const ETIQUETA_BRAZO: Record<string, { nombre: string; detalle: string }> = {
@@ -56,16 +103,46 @@ const ETIQUETA_BRAZO: Record<string, { nombre: string; detalle: string }> = {
     nombre: 'Original · anuncios',
     detalle: 'almagemela.hilvanapp.online · referencia, fuera del test',
   },
+  estetica_ritual: {
+    nombre: 'Ritual',
+    detalle: 'mismo quiz y misma venta, con música, sonidos y animaciones',
+  },
 };
 
-/** `original` es el control, en neutro; `tarot` en el dorado de su estética. */
+/**
+ * Lo que cambia en el test de Ritual. El detalle de Original de almagemela
+ * dice "· dominios .online", que en chauhinchazon es falso: el test corre en
+ * /quiz y /latam del dominio de siempre. Almagemela no pasa por acá y ve el
+ * texto de `ETIQUETA_BRAZO` letra por letra.
+ */
+const ETIQUETA_BRAZO_RITUAL: Record<string, { nombre: string; detalle: string }> = {
+  estetica_original: { nombre: 'Original', detalle: 'el quiz y la venta de siempre' },
+};
+
+/** La etiqueta de una fila según el test del funnel. undefined si no se conoce. */
+function etiquetaBrazo(experiment: string, brazos: string[]): { nombre: string; detalle: string } | undefined {
+  return (esTestRitual(brazos) ? ETIQUETA_BRAZO_RITUAL[experiment] : undefined) ?? ETIQUETA_BRAZO[experiment];
+}
+
+/** El `hint` de la card: el de almagemela, igual letra por letra, o el de Ritual. */
+const HINT_TAROT =
+  'La mitad de las visitas del test ve el quiz original y la otra mitad el mismo quiz con la estética tarot: mismas preguntas, mismo chat, mismo checkout. Cada persona ve siempre la misma. La columna que decide es la plata por sesión: normaliza por tráfico (el reparto nunca queda exacto) y ya cuenta upsells y reembolsos. Las compras cuentan en el día en que empezó la sesión. Respeta los filtros de arriba.';
+const HINT_RITUAL =
+  'La mitad de las visitas ve el quiz de siempre y la otra mitad el mismo quiz con la estética Ritual: mismas preguntas, misma venta, mismo checkout; cambia cómo se ve, cómo se mueve y cómo suena. Cada persona ve siempre la misma. La columna que decide es la plata por sesión: normaliza por tráfico y ya cuenta upsells y reembolsos. Las compras cuentan en el día en que empezó la sesión. Respeta los filtros de arriba.';
+
+/**
+ * `original` es el control, en neutro; `tarot` en el dorado de su estética;
+ * `ritual` en el verde del panel (el jade de su estética, y distinto de los
+ * otros dos).
+ */
 const COLOR_BRAZO: Record<string, string> = {
   estetica_original: panelColors.info,
   estetica_tarot: panelColors.warn,
+  estetica_ritual: panelColors.good,
 };
 
-export function esBrazoDelTest(experiment: string): boolean {
-  return BRAZOS_DEL_TEST.includes(experiment);
+export function esBrazoDelTest(experiment: string, brazosTest: string[] = BRAZOS_DEL_TEST): boolean {
+  return brazosTest.includes(experiment);
 }
 
 /**
@@ -81,11 +158,14 @@ export function debeMostrarCardEstetica(experimentsDeclarados: string[]): boolea
  * Las filas de este test, en orden: los dos brazos que compiten y después las
  * de referencia. Fuera `(sin asignar)` y los brazos de otros tests.
  */
-export function brazosEstetica(filas: ExperimentoRow[]): ExperimentoRow[] {
+export function brazosEstetica(
+  filas: ExperimentoRow[],
+  brazosTest: string[] = BRAZOS_DEL_TEST,
+): ExperimentoRow[] {
   const propias = filas.filter((f) => f.experiment.startsWith(PREFIJO_ESTETICA));
   const orden = (e: string) => {
-    const i = BRAZOS_DEL_TEST.indexOf(e);
-    return i === -1 ? BRAZOS_DEL_TEST.length : i;
+    const i = brazosTest.indexOf(e);
+    return i === -1 ? brazosTest.length : i;
   };
   return [...propias].sort((a, b) => orden(a.experiment) - orden(b.experiment));
 }
@@ -106,8 +186,11 @@ export function nombreBrazoEstetica(experiment: string): string {
  * entre los brazos del test (la fila de referencia nunca gana). null con menos
  * de dos brazos con sesiones, o con empate: no hay a quién marcar.
  */
-export function liderEstetica(brazos: ExperimentoRow[]): ExperimentoRow | null {
-  const conSesiones = brazos.filter((b) => esBrazoDelTest(b.experiment) && b.sessions > 0);
+export function liderEstetica(
+  brazos: ExperimentoRow[],
+  brazosTest: string[] = BRAZOS_DEL_TEST,
+): ExperimentoRow | null {
+  const conSesiones = brazos.filter((b) => esBrazoDelTest(b.experiment, brazosTest) && b.sessions > 0);
   if (conSesiones.length < 2) return null;
   const ordenados = [...conSesiones].sort((a, b) => b.revenuePerSession - a.revenuePerSession);
   if (ordenados[0]!.revenuePerSession === ordenados[1]!.revenuePerSession) return null;
@@ -118,25 +201,31 @@ export function liderEstetica(brazos: ExperimentoRow[]): ExperimentoRow | null {
  * true mientras falte un brazo del test o el más chico no llegue a
  * MIN_COMPRAS_POR_BRAZO. La fila de referencia no cuenta.
  */
-export function muestraChicaEstetica(brazos: ExperimentoRow[]): boolean {
-  const delTest = brazos.filter((b) => esBrazoDelTest(b.experiment));
+export function muestraChicaEstetica(
+  brazos: ExperimentoRow[],
+  brazosTest: string[] = BRAZOS_DEL_TEST,
+): boolean {
+  const delTest = brazos.filter((b) => esBrazoDelTest(b.experiment, brazosTest));
   if (delTest.length < 2) return true;
   return Math.min(...delTest.map((b) => b.purchases)) < MIN_COMPRAS_POR_BRAZO;
 }
 
 export function CardTestEstetica({ funnel, filas }: { funnel: Funnel; filas: ExperimentoRow[] }) {
-  const brazos = brazosEstetica(filas);
-  const delTest = brazos.filter((b) => esBrazoDelTest(b.experiment));
-  const hayReferencia = brazos.some((b) => !esBrazoDelTest(b.experiment));
+  // Los brazos que compiten salen de lo que el funnel declara: en almagemela
+  // Original y Tarot (como siempre), en chauhinchazon Original y Ritual.
+  const brazosTest = brazosDelTest(funnel.experiments);
+  const ritual = esTestRitual(brazosTest);
+  const brazos = brazosEstetica(filas, brazosTest);
+  const delTest = brazos.filter((b) => esBrazoDelTest(b.experiment, brazosTest));
+  // El párrafo de referencia habla de los anuncios de almagemela: en el test de
+  // Ritual no hay fila de anuncios y no se muestra.
+  const hayReferencia = !ritual && brazos.some((b) => !esBrazoDelTest(b.experiment, brazosTest));
   const fueraDelTest = filas.find((f) => f.experiment === SIN_EXPERIMENTO)?.sessions ?? 0;
-  const lider = liderEstetica(brazos);
+  const lider = liderEstetica(brazos, brazosTest);
   const moneda = funnel.sellCurrency;
 
   return (
-    <Card
-      title="Test A/B de estética del quiz"
-      hint="La mitad de las visitas del test ve el quiz original y la otra mitad el mismo quiz con la estética tarot: mismas preguntas, mismo chat, mismo checkout. Cada persona ve siempre la misma. La columna que decide es la plata por sesión: normaliza por tráfico (el reparto nunca queda exacto) y ya cuenta upsells y reembolsos. Las compras cuentan en el día en que empezó la sesión. Respeta los filtros de arriba."
-    >
+    <Card title="Test A/B de estética del quiz" hint={ritual ? HINT_RITUAL : HINT_TAROT}>
       {brazos.length === 0 ? (
         <EmptyState
           title="No hay sesiones del test en este rango"
@@ -144,7 +233,7 @@ export function CardTestEstetica({ funnel, filas }: { funnel: Funnel; filas: Exp
         />
       ) : (
         <div className="space-y-5">
-          {muestraChicaEstetica(brazos) && (
+          {muestraChicaEstetica(brazos, brazosTest) && (
             <Banner tone="warn" title="Muestra chica: todavía no alcanza para decidir">
               Hacen falta al menos{' '}
               <span className="font-semibold tabular-nums">{MIN_COMPRAS_POR_BRAZO}</span> compras por
@@ -173,14 +262,14 @@ export function CardTestEstetica({ funnel, filas }: { funnel: Funnel; filas: Exp
                     <span className="flex flex-col leading-tight">
                       <span
                         className={`font-medium ${
-                          esBrazoDelTest(r.experiment) ? 'text-neutral-100' : 'text-neutral-400'
+                          esBrazoDelTest(r.experiment, brazosTest) ? 'text-neutral-100' : 'text-neutral-400'
                         }`}
                       >
                         {nombreBrazoEstetica(r.experiment)}
                       </span>
-                      {ETIQUETA_BRAZO[r.experiment] && (
+                      {etiquetaBrazo(r.experiment, brazosTest) && (
                         <span className="text-[11px] max-panel:text-xs text-neutral-500">
-                          {ETIQUETA_BRAZO[r.experiment]!.detalle}
+                          {etiquetaBrazo(r.experiment, brazosTest)!.detalle}
                         </span>
                       )}
                     </span>
@@ -241,7 +330,7 @@ export function CardTestEstetica({ funnel, filas }: { funnel: Funnel; filas: Exp
                     className={`font-semibold tabular-nums ${
                       lider?.experiment === r.experiment
                         ? 'text-good-300'
-                        : esBrazoDelTest(r.experiment)
+                        : esBrazoDelTest(r.experiment, brazosTest)
                           ? 'text-neutral-50'
                           : 'text-neutral-400'
                     }`}

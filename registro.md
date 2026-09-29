@@ -10,6 +10,74 @@ Lo más nuevo va arriba. Las reglas de cómo se escribe una entrada están en
 
 ---
 
+## 2026-09-28 — Embudo: la card de estética compara los brazos de cada funnel (Original contra Ritual en chauhinchazon) + migración 035
+
+**Qué pasaba.** El funnel de chauhinchazon (AR `/quiz` y LATAM `/latam`) abre
+un test A/B de estética: el quiz y la venta de siempre contra los mismos con la
+estética "Ritual" (música, sonidos, animaciones; mismo copy, mismo checkout).
+Plan: `testfunnel/.kiro/specs/estetica-ritual-ab`. Las sesiones viajan con
+`experiment` = `estetica_original` | `estetica_ritual`. Dos cosas del panel no
+lo soportaban:
+1. Ninguno de los dos funnels declaraba esos valores: `lib/ingest/apply.ts` los
+   guardaría igual pero sumaría un `unknown_experiment:estetica_ritual` a
+   `ingest_errors` en cada lote, y `debeMostrarCardEstetica` no mostraría la card.
+2. `CardTestEstetica` tenía fijo `BRAZOS_DEL_TEST = ['estetica_original',
+   'estetica_tarot']`: `estetica_ritual` caía como fila de "referencia" (gris,
+   nunca gana, no cuenta para la muestra), y el hint, la etiqueta de Original
+   ("· dominios .online") y el párrafo de referencia hablaban de almagemela.
+
+**Por qué se resolvió así.**
+- **Generalizar la card, no duplicarla.** Los brazos que compiten salen de lo
+  que el funnel declara: `brazosDelTest(funnel.experiments)` (pura, exportada)
+  devuelve los `estetica_*` declarados que no son de referencia (referencia =
+  sufijo `_hilvanapp`, la única convención que existe), con Original primero.
+  Una segunda card para el mismo desglose sería dos copias de la misma lógica
+  de ganador y muestra chica.
+- **Parámetro opcional con el default de hoy.** `esBrazoDelTest`,
+  `brazosEstetica`, `liderEstetica` y `muestraChicaEstetica` suman
+  `brazosTest = BRAZOS_DEL_TEST`. Los 11 tests de almagemela no lo pasan y
+  siguen probando exactamente lo mismo; no se tocó ni una línea de ellos. Sin
+  brazos declarados, `brazosDelTest` devuelve `BRAZOS_DEL_TEST`.
+- **Los textos dependen del test del funnel** (si declara `estetica_ritual`):
+  hint propio, Original dice "el quiz y la venta de siempre", sin párrafo de
+  referencia (no hay fila de anuncios). En almagemela el texto es el de antes,
+  letra por letra. Ritual en `panelColors.good` (Original `info`, Tarot `warn`).
+- **La 035 suma, no reemplaza**, igual que la 027: `A`, `B`, `pitch_A` y
+  `pitch_B` se quedan porque son los valores de las sesiones históricas.
+  Idempotente por la guarda `NOT ('estetica_ritual' = ANY(experiments))`. Es
+  copia byte a byte de `_migracion-035-panel.sql` del plan.
+- **No se hizo:** partir el embudo por brazo (`gates.test.ts` explica por qué
+  se sacó esa superficie), test de significancia (el criterio es muestra
+  mínima, `MIN_COMPRAS_POR_BRAZO = 100`, igual que CardPitch), medir cuántas
+  silencian la música (sería un evento nuevo en el vocabulario del ingest; P-06
+  del plan).
+
+**Qué se verificó.**
+- `vitest --run "app/(panel)/embudo"`: 2 archivos, 24 tests, 0 failed
+  (CardTestEstetica 11 → 19). `git diff` del test sin líneas borradas.
+- La 035 contra una base scratch (`panel_estetica_scratch` en el Docker local)
+  con las 34 migraciones previas, sembrando una `ad_accounts` de prueba antes de
+  la 021 (que aborta sin una cuenta activa): `chauhinchazon|{A,B,pitch_A,
+  pitch_B,estetica_original,estetica_ritual}` y
+  `chauhinchazon-latam|{estetica_original,estetica_ritual}`. Segunda corrida:
+  exit 0 y cardinalidades 6 y 2 (no duplica). Scratch borrada.
+- Mirada en el navegador: `next dev` apuntado a la scratch con sesiones
+  sembradas. `/embudo?f=chauhinchazon-latam` muestra Original (400 sesiones, 12
+  compras) y Ritual (380, 15) con Ritual resaltado como líder y el aviso de
+  muestra chica ("el más chico tiene 12"); un `almagemela` sembrado en la
+  scratch muestra hint, etiquetas y párrafo de referencia idénticos a los de
+  antes.
+- Sin verificar: qué declara hoy `almagemela` en la base real (no se consultó
+  producción). Si declara `estetica_original` y `estetica_tarot`, la card se ve
+  igual que antes; si no declarara `estetica_tarot`, Tarot pasaría a fila de
+  referencia.
+
+**Pendiente:** correr la 035 en producción (`npm run db:migrate` en el server
+del panel) **antes** de prender el test en el funnel (runbook §11, paso 2 del
+plan). Lo hace el operador.
+
+---
+
 ## 2026-09-27 (2) — Resumen: cada card de Funnels muestra su resultado (neto − ads)
 
 **Qué pasaba.** El usuario pidió que cada funnel del widget "Funnels" de
