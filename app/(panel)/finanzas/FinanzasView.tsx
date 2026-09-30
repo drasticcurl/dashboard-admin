@@ -38,6 +38,7 @@ import { inputCls, btnCls, btnPrimary, btnGhost } from '../config/kit';
 import { formatearMontoParaInput, parsearMonto } from '@/lib/monto';
 import { CargaDiaria } from './CargaDiaria';
 import { CuentasSection } from './CuentasSection';
+import { DonaGastos } from './DonaGastos';
 import { GraficoSaldo } from './GraficoSaldo';
 import { Modal } from './Modal';
 import { MONEDA_REPORTE } from '@/lib/moneda-reporte';
@@ -747,6 +748,8 @@ export function FinanzasView({
         cuentas={cuentas.length}
         onAbrir={setVista}
       />
+
+      <DonaGastos movimientos={movements} hoy={overview.hoy} />
 
       <div className="grid gap-4 lg:grid-cols-2">
         {/* La reconciliación NO depende de la IA y va primero: es el número, y el
