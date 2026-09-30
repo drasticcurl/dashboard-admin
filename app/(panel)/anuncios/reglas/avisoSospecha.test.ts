@@ -30,6 +30,7 @@ import type { ReglaFila } from './_tipos';
 /** Una regla completa y sin nada sospechoso, para sobreescribirle campos por test. */
 const FILA_LIMPIA: ReglaFila = {
   id: 1,
+  grupo: '00000000-0000-0000-0000-000000000001',
   name: 'Pausar los conjuntos que no venden',
   enabled: true,
   dryRun: true,

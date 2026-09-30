@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import fc from 'fast-check';
 import { nombreDeCopia } from './_nombres';
-import { aplicadoA, problema } from './ReglasView';
+import { agruparReglas, aplicadoA, problema } from './ReglasView';
+import type { ReglaFila } from './_tipos';
 import { formBase } from './_formBase';
 
 /**
@@ -59,10 +60,17 @@ describe('nombreDeCopia', () => {
 });
 
 describe('problema y aplicadoA (task 9.6)', () => {
-  it('problema con accountId vacío devuelve el mensaje que nombra el campo (R8 c4)', () => {
-    expect(problema(formBase({ accountId: '' }))).toBe('Falta la cuenta de anuncios.');
-    // Con cuenta elegida, el mensaje de cuenta no aparece.
-    expect(problema(formBase({ accountId: 'act_123' }))).toBeNull();
+  it('problema sin ninguna cuenta tildada devuelve el mensaje que nombra el campo (R8 c4)', () => {
+    expect(problema(formBase({ accountIds: [] }))).toBe('Falta la cuenta de anuncios.');
+    // Con una o varias cuentas elegidas, el mensaje de cuenta no aparece.
+    expect(problema(formBase({ accountIds: ['act_123'] }))).toBeNull();
+    expect(problema(formBase({ accountIds: ['act_123', 'act_456'] }))).toBeNull();
+  });
+
+  it('el nombre repetido se ataja en CUALQUIERA de las cuentas elegidas (037)', () => {
+    const otras = [{ accountId: 'act_456', name: 'Apagar' }];
+    expect(problema(formBase({ name: 'Apagar', accountIds: ['act_123'] }), otras)).toBeNull();
+    expect(problema(formBase({ name: 'Apagar', accountIds: ['act_123', 'act_456'] }), otras)).toContain('único por cuenta');
   });
 
   // La ventana horaria tenía dos formas de guardarse mal, y las dos terminaban
@@ -84,10 +92,50 @@ describe('problema y aplicadoA (task 9.6)', () => {
       { accountId: 'act_a', name: 'HIlvanapp', timezone: 'Europe/Lisbon' },
       { accountId: 'act_b', name: 'Protocolo reset', timezone: 'America/Argentina/Buenos_Aires' },
     ];
-    const texto = aplicadoA({ accountId: 'act_b', level: 'adset', statusFilter: 'active' }, cuentas);
+    const texto = aplicadoA({ accountIds: ['act_b'], level: 'adset', statusFilter: 'active' }, cuentas);
     expect(texto).toContain('Protocolo reset');
     expect(texto).toContain('America/Argentina/Buenos_Aires');
     expect(texto).not.toContain('cuentas');
     expect(texto).not.toContain('todas');
+    // Una regla general nombra CADA cuenta, no una cantidad.
+    const dos = aplicadoA({ accountIds: ['act_a', 'act_b'], level: 'adset', statusFilter: 'active' }, cuentas);
+    expect(dos).toContain('HIlvanapp');
+    expect(dos).toContain('Protocolo reset');
+    expect(dos).not.toMatch(/\d+ cuentas/);
+  });
+});
+
+describe('agruparReglas (037)', () => {
+  const fila = (over: Partial<ReglaFila>): ReglaFila =>
+    ({
+      id: 1, grupo: 'g1', name: 'R', enabled: false, dryRun: false, accountId: 'act_a',
+      level: 'adset', statusFilter: 'active', nameFilter: null, nameFilterMode: 'contains',
+      action: 'pause', actionValue: null, actionUnit: null, budgetMax: null, budgetMin: null,
+      period: 'today', metricsLevel: 'object', everyMinutes: 15, windowStart: null, windowEnd: null,
+      maxRunsPerDay: null, cooldownMinutes: 60, maxActionsPerObjectPerDay: 4, condiciones: [],
+      lastRunAt: null, lastRunError: null, createdAt: '', updatedAt: '',
+      ...over,
+    }) as ReglaFila;
+  const cuentas = [
+    { accountId: 'act_a', name: 'HIlvanapp', timezone: 'Europe/Lisbon' },
+    { accountId: 'act_b', name: 'Gelxiin', timezone: 'Europe/Lisbon' },
+  ];
+
+  it('junta las filas del mismo grupo en una regla con todas sus cuentas, en el orden de las cuentas', () => {
+    const g = agruparReglas(
+      [
+        fila({ id: 7, accountId: 'act_b', lastRunAt: '2026-09-30T10:00:00Z' }),
+        fila({ id: 3, accountId: 'act_a', enabled: true, lastRunAt: '2026-09-30T09:00:00Z' }),
+        fila({ id: 9, grupo: 'g2', name: 'Otra', accountId: 'act_b' }),
+      ],
+      cuentas,
+    );
+    expect(g).toHaveLength(2);
+    const r = g.find((x) => x.grupo === 'g1')!;
+    expect(r.accountIds).toEqual(['act_a', 'act_b']);
+    expect(r.id).toBe(3);
+    expect(r.enabled).toBe(true);
+    expect(r.lastRunAt).toBe('2026-09-30T10:00:00Z');
+    expect(g.find((x) => x.grupo === 'g2')!.accountIds).toEqual(['act_b']);
   });
 });

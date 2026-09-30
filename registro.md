@@ -10,6 +10,162 @@ Lo más nuevo va arriba. Las reglas de cómo se escribe una entrada están en
 
 ---
 
+## 2026-09-30 (3) — Reglas generales con «Aplicar a cuentas publicitarias» y sin modo sombra (migración 037)
+
+**Pedido.** "Que las reglas sean generales y dentro de cada regla tenga un
+«aplicar a x cuentas publicitarias»". Y sobre las preguntas: "usamos las de
+HIlvanapp" (para unir las reglas duplicadas) y "el simulador, real y eso no
+existe más: todas las reglas prendidas ya corren, no hay más modo sombra".
+
+**Cómo se hizo y por qué así.** Una regla general es un **grupo** de filas de
+`ad_rules` (columna `grupo`, una fila por cuenta, misma configuración). Se
+descartó reescribir el ejecutor para que una fila tenga varias cuentas: la 021
+separó las cuentas porque cada una evalúa en su zona horaria, y
+`max_runs_per_day`, la cadencia y `ad_rule_runs` se cuentan por `rule_id`.
+Tocar eso es tocar `lib/ads/**`, lo que mueve plata. Con el grupo, el ejecutor
+no cambia una línea, y cada cuenta mantiene su historial y sus frenos ("1
+corrida por día" sigue siendo por cuenta).
+
+- `037_reglas_generales.sql`: agrega `grupo uuid` (cada fila existente queda
+  en su propio grupo), único `(grupo, account_id)`, `dry_run = false` en todas
+  las filas con default false, y `ads_rules_force_dry_run = false`. **Una regla
+  que estaba prendida y en sombra pasa a actuar.** En producción, al
+  2026-09-30, es solo "Escalera 3" de Gelxiin.
+- `POST /api/ads/reglas` recibe `accountIds` (acepta `accountId` suelto, como
+  lo manda el CSV). Con `id`, escribe todo el grupo: actualiza la fila de cada
+  cuenta tildada, reusa la de una destildada para una cuenta nueva (así
+  cambiar de cuenta conserva el id) y borra las que sobran. El historial queda
+  por las FK SET NULL. `dryRun` se ignora. Crear sigue naciendo apagada.
+- `DELETE` borra el grupo entero.
+- La validación de coherencia ya no acepta "mandarla a sombra" como forma de
+  bajar el riesgo: solo apagarla.
+- Pantalla: una sola lista (antes era una sección por cuenta), con las cuentas
+  en «Aplicado a». En el formulario, «Aplicar a cuentas publicitarias» es una
+  lista de casillas. Se fueron el badge REAL, el «Pasar a modo real» con
+  confirmación escrita y el switch de simulación global. «Correr ahora
+  (simulado)» quedó como «Ver qué haría ahora»: evalúa cada cuenta sin tocar
+  Meta.
+- El import de CSV crea las reglas sin sombra; cada fila importada es su propia
+  regla general.
+
+Tests: 11 nuevos en `route.test.ts` y `_nombres.test.ts`; 3 existentes se
+ajustaron porque afirmaban el modo sombra. Suite completa 1747/1747, `tsc` y
+`next build` limpios.
+
+**Unión de las reglas duplicadas:** es un paso de datos aparte, después del
+deploy, y se anota acá cuando se corra. Las dos "Apagar" prendidas de
+HIlvanapp tienen filtro de nombre `LATAM`. Unirlas con esa configuración dejaría
+a Gelxiin sin ninguna regla que corte pérdidas, así que quedan fuera hasta que
+el usuario lo confirme.
+
+---
+
+## 2026-09-30 (2) — Anuncios: tildar conjuntos y bajar a anuncios mostraba la mitad
+
+**Qué pasaba.** El usuario: "en la vista de 7 días, marcar los conjuntos e ir a
+los anuncios me muestra la mitad". Se reprodujo contra producción con
+`getMetricasAds` y los 50 conjuntos de la primera página, en 7 días. En
+HIlvanapp se mostraban 25 de 126 anuncios; los otros 101 (€3.194 de gasto) se
+escondían. En Gelxiin se mostraba 1 de 18.
+
+**Por qué.** "Ocultar si el padre está apagado" viene prendido por defecto, y
+todo anuncio de un conjunto pausado llega de Meta con `effective_status =
+ADSET_PAUSED`. En 7 días la tabla de conjuntos muestra los pausados (tienen
+gasto en el período), así que se podían tildar, pero después sus anuncios
+desaparecían. En "hoy" casi no pasa porque aparecen pocos conjuntos pausados.
+
+**Qué se cambió.** `lib/queries/ads.ts`: el filtro de padre apagado no aplica
+cuando el padre es uno de los ids de la cascada (`adsetIds` a nivel anuncio,
+`campaignIds` a nivel conjunto). Si elegiste el conjunto, querés ver sus
+anuncios. Sin cascada, el filtro sigue igual. Solo lo usa la pantalla (vía
+`/api/data/ads` y `page.tsx`); el motor de reglas no lo pasa. Hay 3 tests
+nuevos en `ads.filtros.test.ts` que fallan sin el cambio.
+
+**Otro tope, que no se tocó:** la cascada acepta hasta 50 ids (`MAX_CASCADA`).
+Si se tildan más de 50 conjuntos, el resto se descarta y el chip lo avisa.
+
+---
+
+## 2026-09-30 — Campañas de Chau Hinchazón que siguen en HIlvanapp, y el 28/09 que pisó el sync
+
+**Qué pasaba.** El usuario: "las campañas de Chau Hinchazón no están bien
+atribuidas". Dos causas, las dos contra la base real:
+1. `24/09 a02`, `28/09 a01`, `28/09 a02 - Copia`, `28/09 a03` y `28/09 a04`
+   siguen en HIlvanapp, que desde el 29/09 es de Alma Gemela, pero todas sus
+   ventas son de `chauhinchazon` (`28/09 a01`: 50 ventas el 29/09 y 19 el
+   30/09). Su gasto (€206 el 29/09, €85 el 30/09) se le cobraba a Alma Gemela.
+2. **Error de la entrada anterior:** `~/fijar-hasta-28-09.sh` se apagaba a las
+   03:00 CEST, pero `sync-ads` calcula "ayer" en la zona del dashboard
+   (Argentina) y siguió re-escribiendo el 28/09 hasta la corrida de las 04:07
+   CEST. El 28/09 terminó con los €492 de Chau Hinchazón en Alma Gemela.
+
+**Qué se hizo (producción, en transacción).** Las 5 campañas quedaron en
+`ad_campaign_funnel` → `chauhinchazon`, y su `ad_spend` se re-imputó entero (16
+filas). Acá mover todo el historial es lo correcto: esas campañas siempre fueron
+de Chau Hinchazón. Rollup del 24 al 30/09. Se sacaron la línea del crontab de
+`deploy` y el script. Quedó así:
+Chau Hinchazón €492,47 el 28/09, €326,33 el 29/09; Alma Gemela €611,87 y
+€516,02.
+
+**Si se repite:** un guard así tiene que durar hasta que el log muestre
+`Gasto de Meta, <día siguiente> → …`, no hasta una hora fija. Mejor todavía:
+mapear por campaña cuando se pueda.
+
+`ad_spend_hora` del 30/09 no se corrigió. Las lecturas de antes de las 11 de
+hoy tienen `28/09 a01` dentro de Alma Gemela: el widget por hora de hoy reparte
+algo mal esas horas, pero el total del día cierra.
+
+---
+
+## 2026-09-29 (3) — Las cuentas publicitarias cambian de funnel desde hoy: Gelxiin → Chau Hinchazón, HIlvanapp → Alma Gemela
+
+**Qué pasó.** El usuario: "a partir de hoy la de Gelxiin es la de Chau
+Hinchazón y la otra (HIlvanapp) es la de Alma Gemela; hasta ayer las usaba como
+estaban". Hay que cambiar solo de hoy en adelante: el historial se queda donde
+está.
+
+**Por qué no se hizo desde `/config`.** El POST de `/api/config/ads` arrastra
+TODO el `ad_spend` de la cuenta al funnel nuevo (`UPDATE ad_spend ... WHERE
+account_id = $1`). Así, los €414 de Gelatina (9–18/09 y hoy) se habrían pasado a
+Chau Hinchazón, y meses de Chau Hinchazón en HIlvanapp, a Alma Gemela.
+
+**Qué se corrió en producción (SSH a `funnel-vps`, `psql`, en transacción):**
+- `ad_accounts.funnel_id`: `act_2412127832646347` (Gelxiin) 4 → 1, y
+  `act_2501344510302910` (HIlvanapp) 1 → 5.
+- `ad_spend` con `day >= 2026-09-29` de esas dos cuentas y **sin** fila en
+  `ad_campaign_funnel` → funnel nuevo (11 filas). Las campañas mapeadas (las 10
+  de LATAM y las 43 de Alma Gemela) no se tocaron.
+- `daily_metrics` de Gelatina del 29/09: `ad_spend` en 0 a mano. El rollup solo
+  re-escribe claves con sesiones, ventas o gasto, y Gelatina hoy no tiene
+  ninguna de las tres, así que la fila vieja (€115,58) no se pisaba sola.
+- `ad_spend_hora` del 29/09 (migración 036): las lecturas de las 14 a las 16
+  pasaron con el mismo criterio (lo de 4 → 1; lo de 1 se sumó a 5), y las de
+  Gelatina se borraron.
+
+**El 28/09 queda protegido con un cron temporal.** El sync de las :07 re-escribe
+"hoy y ayer" con `COALESCE(mapeo, funnel de la cuenta)` y su `DO UPDATE` incluye
+`funnel_id`. Sin algo más, el 28/09 de HIlvanapp (€492 de Chau Hinchazón sin
+mapear) pasaba a Alma Gemela en la próxima corrida. Un mapeo por campaña no
+sirve: dos de esas campañas (`28/09 a01` y `28/09 a02 - Copia`) también gastan
+hoy, y hoy son de Alma Gemela. Se instaló `~/fijar-hasta-28-09.sh` en el crontab
+del usuario `deploy`, a las `12 * * * *`: devuelve a su funnel viejo el
+27–28/09 no mapeado de las dos cuentas y rehace el rollup del 27 al 29. Se
+apaga solo desde `2026-09-30 03:00`. **Pendiente: sacar la línea del crontab y
+el script después de esa hora.** Si hay un deploy que reinstala el crontab
+antes, la línea se pierde: volver a correr el script a mano después de la
+última corrida del sync que toque el 28/09.
+
+**Lo que cambia de ahora en adelante.**
+- Las campañas nuevas de HIlvanapp caen en Alma Gemela sin mapear, así que el
+  trabajo manual de "mapear cada tanda de Alma Gemela" (ver 2026-09-25 y 27) ya
+  no hace falta. Si alguna vez se corre una campaña de otro funnel en
+  HIlvanapp, esa es la que hay que mapear.
+- **Ojo con mapear campañas viejas desde la UI.** `/api/config/ads/campanas`
+  re-imputa todo el gasto histórico de la campaña. Mapear hoy una campaña de
+  HIlvanapp que gastó antes del 29/09 le mueve también ese pasado.
+
+---
+
 ## 2026-09-29 (2) — Ganancia por hora (neto − gasto) con gasto horario propio (migración 036) · Funnels 2×1 · sin scroll
 
 **Qué pasaba.** Después del primer deploy, el usuario: (1) Funnels lo quería

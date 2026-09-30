@@ -3,16 +3,17 @@
 /**
  * ReglasView — la pantalla /anuncios/reglas (T19).
  *
- * Lista de reglas con su switch de estado, el banner de los dos interruptores
- * globales (D-A12b), el formulario de crear/editar y el diálogo de confirmación
- * escrita para sacar el modo sombra.
+ * Lista de reglas GENERALES con su switch de estado, el banner del interruptor
+ * global (D-A12b) y el formulario de crear/editar.
  *
- * DÓNDE VIVE EL MODO SOMBRA / REAL
- * En el menú «⋮» de cada fila, no en una columna: el badge SOMBRA repetido en
- * todas las filas era ruido (es el default de toda regla nueva) y el modo se
- * consulta justo cuando se lo va a cambiar. En la tabla sólo queda un badge
- * REAL, y sólo en las reglas que pueden tocar Meta: ese estado sí no puede
- * quedar invisible.
+ * REGLAS GENERALES (migración 037)
+ * Una regla se aplica a una o varias cuentas publicitarias, que se tildan en el
+ * formulario. En la base es un grupo de filas de `ad_rules` (una por cuenta,
+ * misma configuración, mismo `grupo`); acá se agrupan con `agruparReglas` y se
+ * muestran y editan como una sola. El API escribe el grupo entero.
+ *
+ * SIN MODO SOMBRA (037): toda regla prendida actúa en Meta. Lo único que queda
+ * de la simulación es «Ver qué haría ahora», que evalúa sin tocar nada.
  *
  * Los switches y el constructor de condiciones viven acá (D-A19): no se toca
  * `components/ui.tsx`. La referencia es `ConfigView.tsx` (formularios de
@@ -238,11 +239,7 @@ type ItemMenu = {
   peligro?: boolean;
   /** Ámbar, para lo que le da permiso a la regla de tocar Meta. */
   aviso?: boolean;
-  /**
-   * Segunda línea, más chica, debajo del label. Es donde vive la explicación
-   * del modo sombra/real: la columna «Modo» de la tabla se fue, y una etiqueta
-   * de tres palabras no alcanza para decir qué implica cambiarlo.
-   */
+  /** Segunda línea, más chica, debajo del label. */
   detalle?: string;
   title?: string;
 };
@@ -460,7 +457,8 @@ type CondicionDraft = { metric: Condicion['metric']; op: Condicion['op']; value:
 
 type FormEstado = {
   name: string;
-  accountId: string;
+  /** Las cuentas tildadas en «Aplicar a cuentas publicitarias» (037). */
+  accountIds: string[];
   level: NivelAds;
   statusFilter: StatusFilter;
   nameFilter: string;
@@ -480,10 +478,10 @@ type FormEstado = {
   conditions: CondicionDraft[];
 };
 
-function formVacio(accountId = ''): FormEstado {
+function formVacio(accountIds: string[] = []): FormEstado {
   return {
     name: '',
-    accountId,
+    accountIds,
     level: 'adset',
     statusFilter: 'active',
     nameFilter: '',
@@ -504,10 +502,10 @@ function formVacio(accountId = ''): FormEstado {
   };
 }
 
-function formDeRegla(r: ReglaFila): FormEstado {
+function formDeRegla(r: ReglaGeneral): FormEstado {
   return {
     name: r.name,
-    accountId: r.accountId,
+    accountIds: r.accountIds,
     level: r.level,
     statusFilter: r.statusFilter,
     nameFilter: r.nameFilter ?? '',
@@ -698,16 +696,17 @@ export function problemaAlcance(
   f: FormEstado,
   otras: readonly { accountId: string; name: string }[] = [],
 ): string | null {
-  // R8 c4: la cuenta es obligatoria; el botón de guardar queda deshabilitado
-  // hasta que el selector tenga un valor.
-  if (!f.accountId) return 'Falta la cuenta de anuncios.';
+  // R8 c4: al menos una cuenta; el botón de guardar queda deshabilitado hasta
+  // que haya una tildada.
+  if (f.accountIds.length === 0) return 'Falta la cuenta de anuncios.';
   const nombre = f.name.trim();
   if (nombre === '') return 'Falta el nombre de la regla.';
   // El único es (account_id, name) desde la 021. El API contesta 409 con un
   // mensaje claro, pero llegar hasta ahí obliga a rellenar todo de nuevo; y el
   // caso que lo dispara es duplicar una regla y olvidarse de renombrarla.
-  if (otras.some((o) => o.accountId === f.accountId && o.name.trim() === nombre)) {
-    return `Ya existe una regla llamada «${nombre}» en esta cuenta: el nombre es único por cuenta.`;
+  // `otras` NO incluye las filas de la regla que se está editando.
+  if (otras.some((o) => f.accountIds.includes(o.accountId) && o.name.trim() === nombre)) {
+    return `Ya existe una regla llamada «${nombre}» en una de las cuentas elegidas: el nombre es único por cuenta.`;
   }
   return motivoAlcanceInutil(f.action, f.statusFilter);
 }
@@ -837,19 +836,69 @@ export function problemaProgramacion(f: FormEstado): string | null {
 }
 
 /**
- * R8 c6: el alcance de una Regla se describe nombrando ESA cuenta y su zona,
+ * R8 c6: el alcance de una Regla se describe nombrando SUS cuentas y su zona,
  * nunca con una cantidad ("N cuentas") ni con la leyenda de todas las activas.
- * Exportada para los tests (9.6). Si la cuenta no está entre las activas (se
+ * Exportada para los tests (9.6). Si una cuenta no está entre las activas (se
  * desactivó después de que la regla se creara), queda el id como nombre.
  */
 export function aplicadoA(
-  r: { accountId: string; level: NivelAds; statusFilter: StatusFilter },
+  r: { accountIds: readonly string[]; level: NivelAds; statusFilter: StatusFilter },
   cuentas: readonly CuentaAds[],
 ): string {
-  const cuenta = cuentas.find((c) => c.accountId === r.accountId);
-  const nombre = cuenta ? (cuenta.name ?? cuenta.accountId) : r.accountId;
-  const zona = cuenta ? ` · ${cuenta.timezone}` : '';
-  return `${NIVEL_LABEL[r.level]} ${STATUS_LABEL[r.statusFilter]} · ${nombre}${zona}`;
+  const nombres = r.accountIds.map((id) => {
+    const cuenta = cuentas.find((c) => c.accountId === id);
+    return cuenta ? `${cuenta.name ?? cuenta.accountId} · ${cuenta.timezone}` : id;
+  });
+  return `${NIVEL_LABEL[r.level]} ${STATUS_LABEL[r.statusFilter]} · ${nombres.join(', ')}`;
+}
+
+/**
+ * Una regla general tal como la muestra la pantalla: la configuración (que es
+ * la misma en todas sus filas) más las filas de cada cuenta.
+ */
+export type ReglaGeneral = ReglaFila & {
+  /** Las cuentas tildadas, en el orden de `cuentas` (las inactivas al final). */
+  accountIds: string[];
+  /** Una fila de `ad_rules` por cuenta. `id` (el de la regla) es el de la primera. */
+  filas: ReglaFila[];
+};
+
+/**
+ * Junta las filas de `ad_rules` en reglas generales por `grupo` (037). La
+ * configuración sale de la primera fila; el estado es «prendida» si lo está
+ * alguna (el API las escribe todas juntas, así que no deberían diferir), y la
+ * última corrida y su error, de la más reciente de todas.
+ *
+ * Exportada para los tests: el orden (el de `cuentas`, después por nombre) es lo
+ * que la pantalla muestra.
+ */
+export function agruparReglas(reglas: readonly ReglaFila[], cuentas: readonly CuentaAds[]): ReglaGeneral[] {
+  const orden = new Map(cuentas.map((c, i) => [c.accountId, i]));
+  const posicion = (id: string): number => orden.get(id) ?? cuentas.length;
+  const porGrupo = new Map<string, ReglaFila[]>();
+  for (const r of reglas) {
+    const lista = porGrupo.get(r.grupo) ?? [];
+    lista.push(r);
+    porGrupo.set(r.grupo, lista);
+  }
+  const generales: ReglaGeneral[] = [];
+  for (const filasCrudas of Array.from(porGrupo.values())) {
+    const filas = [...filasCrudas].sort(
+      (a, b) => posicion(a.accountId) - posicion(b.accountId) || a.accountId.localeCompare(b.accountId),
+    );
+    const base = filas[0]!;
+    const conCorrida = filas.filter((f) => f.lastRunAt !== null);
+    const ultima = conCorrida.sort((a, b) => (a.lastRunAt! < b.lastRunAt! ? 1 : -1))[0] ?? null;
+    generales.push({
+      ...base,
+      enabled: filas.some((f) => f.enabled),
+      lastRunAt: ultima?.lastRunAt ?? null,
+      lastRunError: filas.find((f) => f.lastRunError)?.lastRunError ?? null,
+      accountIds: filas.map((f) => f.accountId),
+      filas,
+    });
+  }
+  return generales.sort((a, b) => a.name.localeCompare(b.name, 'es') || a.id - b.id);
 }
 
 /** Los nombres de las bandas, textuales del script: el mismo reporte, dos lugares. */
@@ -921,7 +970,7 @@ export function payloadDeForm(f: FormEstado, id?: number): Record<string, unknow
   return {
     id,
     name: f.name.trim(),
-    accountId: f.accountId,
+    accountIds: f.accountIds,
     level: f.level,
     statusFilter: f.statusFilter,
     nameFilter: f.nameFilter.trim() || null,
@@ -959,11 +1008,11 @@ export function payloadDeForm(f: FormEstado, id?: number): Record<string, unknow
  */
 const valorONull = (r: CampoNumerico): number | null => (r.estado === 'ok' ? r.valor : null);
 
-function payloadDeRegla(r: ReglaFila, over: { enabled?: boolean; dryRun?: boolean } = {}): Record<string, unknown> {
+function payloadDeRegla(r: ReglaGeneral, over: { enabled?: boolean } = {}): Record<string, unknown> {
   return {
     id: r.id,
     name: r.name,
-    accountId: r.accountId,
+    accountIds: r.accountIds,
     level: r.level,
     statusFilter: r.statusFilter,
     nameFilter: r.nameFilter,
@@ -982,7 +1031,6 @@ function payloadDeRegla(r: ReglaFila, over: { enabled?: boolean; dryRun?: boolea
     maxActionsPerObjectPerDay: r.maxActionsPerObjectPerDay,
     conditions: r.condiciones,
     enabled: over.enabled ?? r.enabled,
-    dryRun: over.dryRun ?? r.dryRun,
   };
 }
 
@@ -1010,13 +1058,13 @@ export function ReglasView({
   const cuentas = initial.cuentas;
   const [flash, setFlash] = useState<Flash>(null);
   const [busy, setBusy] = useState(false);
-  const [editando, setEditando] = useState<ReglaFila | null>(null);
+  const [editando, setEditando] = useState<ReglaGeneral | null>(null);
   const [nueva, setNueva] = useState(false);
-  // La cuenta que deja preseleccionada el botón "Nueva regla en esta cuenta".
-  const [nuevaEnCuenta, setNuevaEnCuenta] = useState<string | null>(null);
-  const [duplicando, setDuplicando] = useState<ReglaFila | null>(null);
-  const [confirmar, setConfirmar] = useState<{ regla: ReglaFila; resultado: ResultadoCorrida; texto: string } | null>(null);
-  const [corrida, setCorrida] = useState<{ regla: ReglaFila; resultado: ResultadoCorrida } | null>(null);
+  const [duplicando, setDuplicando] = useState<ReglaGeneral | null>(null);
+  const [corrida, setCorrida] = useState<{
+    regla: ReglaGeneral;
+    porCuenta: { accountId: string; resultado: ResultadoCorrida }[];
+  } | null>(null);
   // Import / export de CSV
   const [importando, setImportando] = useState(false);
   const [resultadoImport, setResultadoImport] = useState<RespuestaImport | null>(null);
@@ -1044,12 +1092,12 @@ export function ReglasView({
     setSw(s);
   }
 
-  async function toggleGlobal(campo: 'habilitado' | 'forzarSombra', valor: boolean) {
+  async function toggleGlobal(valor: boolean) {
     setBusy(true);
     try {
-      await api('/api/ads/interruptores', { method: 'POST', body: JSON.stringify({ [campo]: valor }) });
+      await api('/api/ads/interruptores', { method: 'POST', body: JSON.stringify({ habilitado: valor }) });
       await refrescar();
-      show('good', campo === 'forzarSombra' ? (valor ? 'Modo simulación global activado' : 'Modo simulación global apagado') : valor ? 'Reglas habilitadas' : 'Reglas deshabilitadas');
+      show('good', valor ? 'Reglas habilitadas' : 'Reglas deshabilitadas');
     } catch (e) {
       show('bad', (e as Error).message);
     } finally {
@@ -1057,7 +1105,7 @@ export function ReglasView({
     }
   }
 
-  async function actualizarRegla(r: ReglaFila, over: { enabled?: boolean; dryRun?: boolean }) {
+  async function actualizarRegla(r: ReglaGeneral, over: { enabled?: boolean }) {
     setBusy(true);
     try {
       await api('/api/ads/reglas', { method: 'POST', body: JSON.stringify(payloadDeRegla(r, over)) });
@@ -1070,17 +1118,23 @@ export function ReglasView({
     }
   }
 
-  // Sacar el modo sombra es la única acción del panel que le da a un cron
-  // permiso para gastar plata: confirmación escrita con el preview de qué haría
-  // ahora mismo (task §3.2).
-  async function pedirActivarReal(r: ReglaFila) {
+  /**
+   * «Ver qué haría ahora»: evalúa cada cuenta de la regla sin tocar Meta (el
+   * preview corre con `forzarSombra`). Una llamada por cuenta porque cada fila
+   * se evalúa en la zona de SU cuenta.
+   */
+  async function correrAhora(r: ReglaGeneral) {
     setBusy(true);
     try {
-      const res = await api<{ resultado: ResultadoCorrida }>(`/api/ads/reglas?preview=1`, {
-        method: 'POST',
-        body: JSON.stringify({ id: r.id }),
-      });
-      setConfirmar({ regla: r, resultado: res.resultado, texto: '' });
+      const porCuenta: { accountId: string; resultado: ResultadoCorrida }[] = [];
+      for (const fila of r.filas) {
+        const res = await api<{ resultado: ResultadoCorrida }>(`/api/ads/reglas?preview=1`, {
+          method: 'POST',
+          body: JSON.stringify({ id: fila.id }),
+        });
+        porCuenta.push({ accountId: fila.accountId, resultado: res.resultado });
+      }
+      setCorrida({ regla: r, porCuenta });
     } catch (e) {
       show('bad', (e as Error).message);
     } finally {
@@ -1088,23 +1142,9 @@ export function ReglasView({
     }
   }
 
-  async function correrAhora(r: ReglaFila) {
-    setBusy(true);
-    try {
-      const res = await api<{ resultado: ResultadoCorrida }>(`/api/ads/reglas?preview=1`, {
-        method: 'POST',
-        body: JSON.stringify({ id: r.id }),
-      });
-      setCorrida({ regla: r, resultado: res.resultado });
-    } catch (e) {
-      show('bad', (e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function borrar(r: ReglaFila) {
-    if (!window.confirm(`¿Borrar la regla "${r.name}"? Su historial NO se borra.`)) return;
+  async function borrar(r: ReglaGeneral) {
+    const donde = r.accountIds.length > 1 ? ` de sus ${r.accountIds.length} cuentas` : '';
+    if (!window.confirm(`¿Borrar la regla "${r.name}"${donde}? Su historial NO se borra.`)) return;
     setBusy(true);
     try {
       await api(`/api/ads/reglas?id=${r.id}`, { method: 'DELETE' });
@@ -1117,34 +1157,33 @@ export function ReglasView({
     }
   }
 
-  function editar(r: ReglaFila) {
+  function editar(r: ReglaGeneral) {
     setNueva(false);
-    setNuevaEnCuenta(null);
     setDuplicando(null);
     setEditando(r);
   }
 
-  function duplicar(r: ReglaFila) {
+  function duplicar(r: ReglaGeneral) {
     setNueva(false);
-    setNuevaEnCuenta(null);
     setEditando(null);
     // El único es (account_id, name) desde la 021: el nombre que no colisiona
-    // se busca entre los nombres de ESA cuenta (R8 c8), y la copia queda en la
-    // misma cuenta.
-    const nombre = nombreDeCopia(r.name, reglas.filter((x) => x.accountId === r.accountId).map((x) => x.name));
+    // se busca entre los nombres de las reglas de SUS cuentas (R8 c8), y la
+    // copia queda en las mismas cuentas.
+    const nombre = nombreDeCopia(
+      r.name,
+      reglas.filter((x) => r.accountIds.includes(x.accountId)).map((x) => x.name),
+    );
     setDuplicando({ ...r, name: nombre });
   }
 
-  function abrirNuevaEnCuenta(accountId: string) {
+  function abrirNueva() {
     setNueva(true);
-    setNuevaEnCuenta(accountId);
     setEditando(null);
     setDuplicando(null);
   }
 
   function cerrarFormulario() {
     setNueva(false);
-    setNuevaEnCuenta(null);
     setEditando(null);
     setDuplicando(null);
   }
@@ -1179,7 +1218,7 @@ export function ReglasView({
       setImportando(false);
       setResultadoImport(res);
       await refrescar();
-      show('good', `${res.creadas} regla(s) importadas — apagadas y en modo simulación`);
+      show('good', `${res.creadas} regla(s) importadas — apagadas`);
     } catch (e) {
       show('bad', (e as Error).message);
     } finally {
@@ -1194,8 +1233,9 @@ export function ReglasView({
       // probado y conserva el historial (sus FK hacia ad_rules son SET NULL).
       // Secuencial a propósito: veinte DELETE en paralelo se pelean por el pool
       // de conexiones y no se gana nada en una acción que se hace una vez.
+      // Una por regla general: el DELETE borra el grupo entero.
       let n = 0;
-      for (const r of reglas) {
+      for (const r of generales) {
         await api(`/api/ads/reglas?id=${r.id}`, { method: 'DELETE' });
         n += 1;
       }
@@ -1217,7 +1257,7 @@ export function ReglasView({
       await api('/api/ads/reglas', { method: 'POST', body: JSON.stringify(payload) });
       await refrescar();
       cerrarFormulario();
-      show('good', id ? 'Regla guardada' : 'Regla creada — nace apagada y en modo simulación');
+      show('good', id ? 'Regla guardada' : 'Regla creada — nace apagada: prendela con su switch');
     } catch (e) {
       show('bad', (e as Error).message);
     } finally {
@@ -1225,7 +1265,7 @@ export function ReglasView({
     }
   }
 
-  const accionDe = (r: ReglaFila): string => {
+  const accionDe = (r: ReglaGeneral): string => {
     let a = ACCION_LABEL[r.action];
     if (r.action === 'budget_increase' || r.action === 'budget_decrease') {
       a +=
@@ -1242,26 +1282,14 @@ export function ReglasView({
     return `${a} · si ${cond}`;
   };
 
-  const frecuencia = (r: ReglaFila): string =>
+  const frecuencia = (r: ReglaGeneral): string =>
     `${frecuenciaLabel(r.everyMinutes)} · ${PERIODO_LABEL[r.period]}${
       r.windowStart && r.windowEnd ? ` · ${r.windowStart}-${r.windowEnd}` : ''
     }`;
 
-  // ── La lista agrupada por cuenta (R8 c5): una sección por Cuenta_Activa, con
-  //    el nombre y la zona en el encabezado y su botón "Nueva regla en esta
-  //    cuenta" (R8 c7). Las reglas cuya cuenta ya no está activa van al final,
-  //    agrupadas por su id. ───────────────────────────────────────────────────
-  const grupos: { accountId: string; encabezado: string; reglas: ReglaFila[] }[] = [];
-  const idsConGrupo = new Set<string>();
-  for (const c of cuentas) {
-    const encabezado = `${c.name ?? c.accountId} · ${c.timezone}`;
-    const de = reglas.filter((r) => r.accountId === c.accountId);
-    idsConGrupo.add(c.accountId);
-    grupos.push({ accountId: c.accountId, encabezado, reglas: de });
-  }
-  for (const id of Array.from(new Set(reglas.filter((r) => !idsConGrupo.has(r.accountId)).map((r) => r.accountId)))) {
-    grupos.push({ accountId: id, encabezado: id, reglas: reglas.filter((r) => r.accountId === id) });
-  }
+  // ── Una lista de reglas generales (037): cada una dice a qué cuentas se
+  //    aplica en su columna «Aplicado a». ────────────────────────────────────
+  const generales = agruparReglas(reglas, cuentas);
 
   return (
     <div className="space-y-4">
@@ -1278,13 +1306,13 @@ export function ReglasView({
         </Banner>
       )}
 
-      {/* ── Banner global: imposible confundir el mundo simulado con el real ── */}
-      <Banner tone={sw.forzarSombra ? 'info' : 'warn'} title={sw.forzarSombra ? 'Modo simulación global activo' : 'Reglas en modo REAL'}>
+      {/* ── Banner global: el único interruptor que queda (sin modo sombra, 037) ── */}
+      <Banner tone={sw.habilitado ? 'warn' : 'info'} title={sw.habilitado ? 'Reglas en modo REAL' : 'Reglas deshabilitadas'}>
         <div className="space-y-2">
           <p className="text-[13px] leading-snug">
-            {sw.forzarSombra
-              ? 'Ninguna regla está tocando Meta: todas registran lo que habrían hecho. Revisá el historial y apagá este interruptor cuando quieras que actúen de verdad.'
-              : 'Las reglas prendidas que estén en modo real (badge REAL) están cambiando estados y presupuestos en Meta de verdad.'}
+            {sw.habilitado
+              ? 'Las reglas prendidas están cambiando estados y presupuestos en Meta de verdad, en cada cuenta a la que se aplican.'
+              : 'Ninguna regla corre, aunque esté prendida: prendé este interruptor para que actúen.'}
           </p>
           <div className="flex flex-wrap items-center gap-x-6 gap-y-2 pt-1">
             <label className="flex items-center gap-2 text-xs text-neutral-300">
@@ -1292,18 +1320,9 @@ export function ReglasView({
                 checked={sw.habilitado}
                 disabled={busy}
                 label="Reglas habilitadas"
-                onChange={(v) => toggleGlobal('habilitado', v)}
+                onChange={(v) => toggleGlobal(v)}
               />
               Reglas habilitadas
-            </label>
-            <label className="flex items-center gap-2 text-xs text-neutral-300">
-              <Switch
-                checked={sw.forzarSombra}
-                disabled={busy}
-                label="Modo simulación global"
-                onChange={(v) => toggleGlobal('forzarSombra', v)}
-              />
-              Modo simulación global
             </label>
             <span className="text-xs text-neutral-400">
               Worker:{' '}
@@ -1323,13 +1342,13 @@ export function ReglasView({
           items={[
             { label: 'Importar reglas desde CSV…', onSelect: () => setImportando(true) },
             {
-              label: reglas.length === 0 ? 'Exportar a CSV (no hay reglas)' : `Exportar las ${reglas.length} reglas a CSV`,
+              label: reglas.length === 0 ? 'Exportar a CSV (no hay reglas)' : 'Exportar las reglas a CSV',
               onSelect: () => exportarCsv(),
             },
-            ...(reglas.length > 0
+            ...(generales.length > 0
               ? [
                   {
-                    label: `Vaciar las ${reglas.length} reglas…`,
+                    label: `Vaciar las ${generales.length} reglas…`,
                     peligro: true,
                     onSelect: () => setVaciando(true),
                   },
@@ -1341,7 +1360,7 @@ export function ReglasView({
           type="button"
           className={btnPrimary}
           disabled={busy || cuentas.length === 0}
-          onClick={() => abrirNuevaEnCuenta(cuentas[0]?.accountId ?? '')}
+          onClick={abrirNueva}
         >
           Crear regla
         </button>
@@ -1349,8 +1368,8 @@ export function ReglasView({
 
       {/* ── Lista ── */}
       <Card
-        title={`Reglas · ${reglas.length}`}
-        hint="El switch de estado de cada fila, el modo sombra/real en el menú «⋮» de cada regla y los dos interruptores globales de arriba son los controles del módulo: ninguno es una variable de entorno."
+        title={`Reglas · ${generales.length}`}
+        hint="Cada regla se aplica a las cuentas publicitarias que elijas adentro. El switch de estado de cada fila y el interruptor global de arriba son los controles del módulo: ninguno es una variable de entorno."
       >
         {cuentas.length === 0 ? (
           // Sin Cuenta_Activa cargada no se puede crear ninguna regla: el API y
@@ -1366,149 +1385,93 @@ export function ReglasView({
               : sin una cuenta activa no se puede crear ninguna regla.
             </p>
           </div>
+        ) : generales.length === 0 ? (
+          <EmptyState title="Todavía no hay reglas" hint="Creá la primera con «Crear regla»." />
         ) : (
-          <>
-            {reglas.length === 0 && (
-              <EmptyState title="Todavía no hay reglas" hint="Creá la primera con «Nueva regla en esta cuenta»." />
-            )}
-            {grupos.map((g) => (
-              <div key={g.accountId} className="mt-4 first:mt-0">
-                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                  <h3 className="text-xs font-semibold uppercase tracking-wide text-neutral-400">{g.encabezado}</h3>
-                  <button
-                    type="button"
-                    className={btnGhost}
-                    disabled={busy}
-                    onClick={() => abrirNuevaEnCuenta(g.accountId)}
-                  >
-                    Nueva regla en esta cuenta
-                  </button>
-                </div>
-                {g.reglas.length === 0 ? (
-                  <p className="py-2 text-xs text-neutral-500">Sin reglas en esta cuenta.</p>
-                ) : (
-                  <Table
-                    rows={g.reglas}
-                    columns={[
-                      {
-                        key: 'enabled',
-                        header: 'Estado',
-                        render: (r) => (
-                          <Switch checked={r.enabled} disabled={busy} label={`Prender ${r.name}`} onChange={(v) => actualizarRegla(r, { enabled: v })} />
-                        ),
-                      },
-                      {
-                        key: 'nombre',
-                        header: 'Nombre',
-                        render: (r) => (
-                          <span className="font-medium text-neutral-100">
-                            {r.name}
-                            {/*
-                              La columna «Modo» se fue de la tabla (el modo vive
-                              en el menú de los tres puntos), pero el estado
-                              PELIGROSO no puede quedar invisible: una regla en
-                              real puede pausar campañas o mover presupuesto.
-                              Por eso el badge aparece sólo cuando dryRun es
-                              false. «SOMBRA» no se muestra: es el default de
-                              todas las reglas y llenaba la tabla de ruido.
-                            */}
-                            {!r.dryRun && (
-                              <span className="ml-2">
-                                <Badge tone="warn">REAL</Badge>
-                              </span>
-                            )}
-                            {r.condiciones.length === 0 && (
-                              <span className="ml-2">
-                                <Badge tone="bad">sin condiciones: se aplica a todo</Badge>
-                              </span>
-                            )}
-                          </span>
-                        ),
-                      },
-                      { key: 'aplicado', header: 'Aplicado a', render: (r) => <span className="text-neutral-300">{aplicadoA(r, cuentas)}</span> },
-                      {
-                        key: 'accion',
-                        header: 'Acción y condición',
-                        // 2.14: el aviso de valor sospechoso va acá, en la celda
-                        // donde el importe se muestra, y no al lado del nombre —
-                        // ahí ya hay dos badges (REAL y «sin condiciones»). El
-                        // detalle va en el `title`, como los badges del historial.
-                        render: (r) => {
-                          const aviso = avisoDeSospecha(r);
-                          return (
-                            <span className="text-neutral-300">
-                              {accionDe(r)}
-                              {aviso && (
-                                <span className="ml-2" title={aviso.detalle}>
-                                  <Badge tone="warn">{aviso.etiqueta}</Badge>
-                                </span>
-                              )}
-                            </span>
-                          );
+          <Table
+            rows={generales}
+            columns={[
+              {
+                key: 'enabled',
+                header: 'Estado',
+                render: (r) => (
+                  <Switch checked={r.enabled} disabled={busy} label={`Prender ${r.name}`} onChange={(v) => actualizarRegla(r, { enabled: v })} />
+                ),
+              },
+              {
+                key: 'nombre',
+                header: 'Nombre',
+                render: (r) => (
+                  <span className="font-medium text-neutral-100">
+                    {r.name}
+                    {r.condiciones.length === 0 && (
+                      <span className="ml-2">
+                        <Badge tone="bad">sin condiciones: se aplica a todo</Badge>
+                      </span>
+                    )}
+                  </span>
+                ),
+              },
+              { key: 'aplicado', header: 'Aplicado a', render: (r) => <span className="text-neutral-300">{aplicadoA(r, cuentas)}</span> },
+              {
+                key: 'accion',
+                header: 'Acción y condición',
+                // 2.14: el aviso de valor sospechoso va acá, en la celda donde
+                // el importe se muestra. El detalle va en el `title`, como los
+                // badges del historial.
+                render: (r) => {
+                  const aviso = avisoDeSospecha(r);
+                  return (
+                    <span className="text-neutral-300">
+                      {accionDe(r)}
+                      {aviso && (
+                        <span className="ml-2" title={aviso.detalle}>
+                          <Badge tone="warn">{aviso.etiqueta}</Badge>
+                        </span>
+                      )}
+                    </span>
+                  );
+                },
+              },
+              { key: 'frecuencia', header: 'Frecuencia y período', render: (r) => <span className="text-neutral-300">{frecuencia(r)}</span> },
+              {
+                key: 'ultima',
+                header: 'Última corrida',
+                render: (r) =>
+                  r.lastRunError ? (
+                    <Badge tone="bad">{r.lastRunError.slice(0, 32)}</Badge>
+                  ) : r.lastRunAt ? (
+                    <span className="text-neutral-400">{fmtDateTime(r.lastRunAt)}</span>
+                  ) : (
+                    <Badge tone="neutral">nunca</Badge>
+                  ),
+              },
+              {
+                key: 'acciones',
+                header: 'Más',
+                align: 'right',
+                render: (r) => (
+                  <span className="flex justify-end">
+                    <MenuAcciones
+                      etiqueta={`Acciones de ${r.name}`}
+                      disabled={busy}
+                      items={[
+                        { label: 'Editar', onSelect: () => editar(r) },
+                        { label: 'Duplicar', onSelect: () => duplicar(r) },
+                        {
+                          label: 'Ver qué haría ahora',
+                          detalle: 'Evalúa la regla en cada cuenta sin tocar Meta',
+                          onSelect: () => correrAhora(r),
                         },
-                      },
-                      { key: 'frecuencia', header: 'Frecuencia y período', render: (r) => <span className="text-neutral-300">{frecuencia(r)}</span> },
-                      {
-                        key: 'ultima',
-                        header: 'Última corrida',
-                        render: (r) =>
-                          r.lastRunError ? (
-                            <Badge tone="bad">{r.lastRunError.slice(0, 32)}</Badge>
-                          ) : r.lastRunAt ? (
-                            <span className="text-neutral-400">{fmtDateTime(r.lastRunAt)}</span>
-                          ) : (
-                            <Badge tone="neutral">nunca</Badge>
-                          ),
-                      },
-                      {
-                        key: 'acciones',
-                        header: 'Más',
-                        align: 'right',
-                        render: (r) => (
-                          <span className="flex justify-end">
-                            <MenuAcciones
-                              etiqueta={`Acciones de ${r.name}`}
-                              disabled={busy}
-                              // El modo de la regla se lee acá, en el menú, y no
-                              // en una columna: es un dato que se consulta al ir
-                              // a cambiarlo, no en cada barrido de la tabla.
-                              encabezado={
-                                r.dryRun
-                                  ? 'Modo sombra: anota lo que haría, no toca Meta.'
-                                  : sw.forzarSombra
-                                    ? 'Modo real, frenado por el modo simulación global de arriba.'
-                                    : 'Modo real: cuando está prendida, cambia Meta de verdad.'
-                              }
-                              items={[
-                                { label: 'Editar', onSelect: () => editar(r) },
-                                { label: 'Duplicar', onSelect: () => duplicar(r) },
-                                { label: 'Correr ahora (simulado)', onSelect: () => correrAhora(r) },
-                                {
-                                  label: r.dryRun ? 'Pasar a modo real…' : 'Volver a modo sombra',
-                                  detalle: r.dryRun
-                                    ? 'Le da permiso para tocar Meta cuando esté prendida'
-                                    : 'Vuelve a simular: deja de tocar Meta',
-                                  aviso: r.dryRun,
-                                  title:
-                                    'Sacar el modo sombra da permiso a la regla para tocar Meta cuando esté habilitada',
-                                  onSelect: () =>
-                                    r.dryRun ? pedirActivarReal(r) : actualizarRegla(r, { dryRun: true }),
-                                },
-                                { label: 'Exportar esta cuenta a CSV', onSelect: () => exportarCsv(r.accountId) },
-                                { label: 'Borrar', peligro: true, onSelect: () => borrar(r) },
-                              ]}
-                            />
-                          </span>
-                        ),
-                      },
-                    ]}
-                  />
-                )}
-              </div>
-            ))}
-          </>
+                        { label: 'Borrar', peligro: true, onSelect: () => borrar(r) },
+                      ]}
+                    />
+                  </span>
+                ),
+              },
+            ]}
+          />
         )}
-
       </Card>
 
       {/* ── Formulario (popup) ── */}
@@ -1528,19 +1491,20 @@ export function ReglasView({
            * remonta y `useState` vuelve a leer `inicial`.
            *
            * El nombre entra en la key de duplicar porque duplicar dos veces
-           * la misma regla da el mismo id y distinto nombre («(copia 2)»).
+           * la misma regla da el mismo grupo y distinto nombre («(copia 2)»).
            */
           key={
             editando
-              ? `editar-${editando.id}`
+              ? `editar-${editando.grupo}`
               : duplicando
-                ? `duplicar-${duplicando.id}-${duplicando.name}`
-                : `nueva-${nuevaEnCuenta ?? ''}`
+                ? `duplicar-${duplicando.grupo}-${duplicando.name}`
+                : 'nueva'
           }
           cuentas={cuentas}
           maxDailyBudgetEur={sw.maxDailyBudgetEur}
-          inicial={editando ? formDeRegla(editando) : duplicando ? formDeRegla(duplicando) : formVacio(nuevaEnCuenta ?? '')}
+          inicial={editando ? formDeRegla(editando) : duplicando ? formDeRegla(duplicando) : formVacio()}
           editId={editando?.id}
+          editGrupo={editando?.grupo}
           guardando={busy}
           otras={reglas}
           onCancel={cerrarFormulario}
@@ -1548,90 +1512,36 @@ export function ReglasView({
         />
       )}
 
-      {/* ── Diálogo de confirmación escrita (sacar el modo sombra) ── */}
-      {confirmar && (
-        <Modal
-          title="Vas a darle permiso para gastar plata"
-          onClose={() => setConfirmar(null)}
-        >
-          <div className="space-y-3 text-sm text-neutral-200">
-            <p>
-              La regla <strong className="text-neutral-100">«{confirmar.regla.name}»</strong> ejecuta{' '}
-              <strong className="text-neutral-100">{ACCION_LABEL[confirmar.regla.action].toLowerCase()}</strong>.
-            </p>
-            {confirmar.resultado.corrio ? (
-              <p>
-                Ahora mismo alcanza a{' '}
-                <strong className="text-neutral-100">{confirmar.resultado.objetosQueCumplen}</strong> objeto
-                {confirmar.resultado.objetosQueCumplen === 1 ? '' : 's'} (evaluó{' '}
-                {confirmar.resultado.objetosEvaluados}, en modo simulación).
-              </p>
-            ) : (
-              <p>No corrió: {confirmar.resultado.motivoNoCorrio ?? confirmar.resultado.error ?? 'sin datos'}.</p>
-            )}
-            <p className="text-xs text-neutral-400">
-              A partir de ahora, cuando la regla esté habilitada, cambiará estados y presupuestos en Meta de verdad.
-              Escribí el nombre de la regla para confirmar.
-            </p>
-            {/* Las tres llaves: prendida + regla en real + simulación global
-                apagada. Sin este aviso, sacarle el modo sombra a una regla
-                "no hacía nada" y no había forma de saber por qué. */}
-            {(sw.forzarSombra || !confirmar.regla.enabled || !sw.habilitado) && (
-              <Banner tone="info" title="Todavía va a seguir simulando">
-                <ul className="list-inside list-disc space-y-0.5 text-xs">
-                  {sw.forzarSombra && <li>El «Modo simulación global» de arriba está prendido: apagalo para que actúe.</li>}
-                  {!sw.habilitado && <li>El interruptor «Reglas habilitadas» está apagado: ninguna regla corre.</li>}
-                  {!confirmar.regla.enabled && <li>Esta regla está apagada: prendé su switch en la columna Estado.</li>}
-                </ul>
-              </Banner>
-            )}
-            <input
-              className={inputCls}
-              value={confirmar.texto}
-              onChange={(e) => setConfirmar({ ...confirmar, texto: e.target.value })}
-              placeholder={confirmar.regla.name}
-            />
-            <div className="flex gap-2">
-              <button
-                type="button"
-                className={btnDanger}
-                disabled={busy || confirmar.texto.trim() !== confirmar.regla.name}
-                onClick={async () => {
-                  const r = confirmar.regla;
-                  setConfirmar(null);
-                  await actualizarRegla(r, { dryRun: false });
-                }}
-              >
-                Pasar a modo real
-              </button>
-              <button type="button" className={btnGhost} onClick={() => setConfirmar(null)}>
-                Cancelar
-              </button>
-            </div>
-          </div>
-        </Modal>
-      )}
-
-      {/* ── Resultado de "correr ahora" (siempre simulado) ── */}
+      {/* ── Resultado de «Ver qué haría ahora» (no toca Meta) ── */}
       {corrida && (
-        <Modal title={`Corrida simulada de «${corrida.regla.name}»`} onClose={() => setCorrida(null)}>
+        <Modal title={`Qué haría ahora «${corrida.regla.name}»`} onClose={() => setCorrida(null)}>
           <div className="space-y-3 text-sm text-neutral-200">
-            <Banner tone="info">Esto fue una simulación: no se tocó Meta.</Banner>
-            <p>
-              Evaluó {corrida.resultado.objetosEvaluados} objetos · habría ejecutado{' '}
-              {corrida.resultado.simuladas + corrida.resultado.omitidas === 0
-                ? 'ninguna acción'
-                : `${corrida.resultado.simuladas} (más ${corrida.resultado.omitidas} omitidas)`}
-              .
-            </p>
-            {corrida.resultado.acciones.length > 0 && (
-              <ul className="max-h-72 list-inside list-disc space-y-1 overflow-y-auto text-xs text-neutral-300">
-                {corrida.resultado.acciones.map((a, i) => (
-                  <li key={i}>{a.explicacion}</li>
-                ))}
-              </ul>
-            )}
-            {corrida.resultado.error && <p className="text-xs text-bad-300">Error: {corrida.resultado.error}</p>}
+            <Banner tone="info">Esto fue una evaluación: no se tocó Meta.</Banner>
+            {corrida.porCuenta.map(({ accountId, resultado }) => {
+              const cuenta = cuentas.find((c) => c.accountId === accountId);
+              return (
+                <div key={accountId} className="space-y-1">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-neutral-400">
+                    {cuenta?.name ?? accountId}
+                  </p>
+                  <p>
+                    Evaluó {resultado.objetosEvaluados} objetos · haría{' '}
+                    {resultado.simuladas + resultado.omitidas === 0
+                      ? 'ninguna acción'
+                      : `${resultado.simuladas} acción(es) (más ${resultado.omitidas} omitidas)`}
+                    .
+                  </p>
+                  {resultado.acciones.length > 0 && (
+                    <ul className="max-h-48 list-inside list-disc space-y-1 overflow-y-auto text-xs text-neutral-300">
+                      {resultado.acciones.map((a, i) => (
+                        <li key={i}>{a.explicacion}</li>
+                      ))}
+                    </ul>
+                  )}
+                  {resultado.error && <p className="text-xs text-bad-300">Error: {resultado.error}</p>}
+                </div>
+              );
+            })}
             <button type="button" className={btnPrimary} onClick={() => setCorrida(null)}>
               Cerrar
             </button>
@@ -1658,7 +1568,7 @@ export function ReglasView({
               {resultadoImport.borradas > 0
                 ? `Se borraron ${resultadoImport.borradas} reglas viejas y se crearon ${resultadoImport.creadas}. `
                 : ''}
-              Todas quedaron apagadas y en modo simulación: activarlas es un paso aparte, regla por regla.
+              Todas quedaron apagadas: prenderlas es un paso aparte, regla por regla.
             </Banner>
 
             {resultadoImport.omitidas.length > 0 && (
@@ -1711,8 +1621,8 @@ export function ReglasView({
         <Modal title="Vaciar todas las reglas" onClose={() => setVaciando(false)}>
           <div className="space-y-3 text-sm text-neutral-200">
             <p>
-              Se van a borrar las <strong className="text-neutral-100">{reglas.length}</strong> reglas de todas las
-              cuentas.
+              Se van a borrar las <strong className="text-neutral-100">{generales.length}</strong> reglas, en todas
+              sus cuentas.
             </p>
             <p className="text-xs text-neutral-400">
               El historial de corridas y de acciones NO se borra: queda con el nombre de la regla congelado. Si tenés el
@@ -1720,7 +1630,7 @@ export function ReglasView({
             </p>
             <div className="flex gap-2">
               <button type="button" className={btnDanger} disabled={busy} onClick={vaciarTodas}>
-                {busy ? 'Borrando…' : `Sí, borrar las ${reglas.length}`}
+                {busy ? 'Borrando…' : `Sí, borrar las ${generales.length}`}
               </button>
               <button type="button" className={btnGhost} disabled={busy} onClick={() => setVaciando(false)}>
                 Cancelar
@@ -2043,6 +1953,7 @@ function FormularioRegla({
   maxDailyBudgetEur,
   inicial,
   editId,
+  editGrupo,
   guardando,
   otras,
   onCancel,
@@ -2052,9 +1963,11 @@ function FormularioRegla({
   maxDailyBudgetEur: number;
   inicial: FormEstado;
   editId?: number;
+  /** El grupo de la regla que se edita: sus filas no compiten por el nombre. */
+  editGrupo?: string;
   guardando?: boolean;
-  /** Todas las reglas, para avisar del nombre repetido antes del 409. */
-  otras: readonly { id: number; accountId: string; name: string }[];
+  /** Todas las filas de reglas, para avisar del nombre repetido antes del 409. */
+  otras: readonly { grupo: string; accountId: string; name: string }[];
   onCancel: () => void;
   onSave: (payload: Record<string, unknown>, id?: number) => Promise<void>;
 }): JSX.Element {
@@ -2064,7 +1977,7 @@ function FormularioRegla({
   const ep = esPresupuesto(f.action);
   const preview = previewFactor(f);
   // La regla que se está editando no compite consigo misma por el nombre.
-  const otrasReglas = useMemo(() => otras.filter((o) => o.id !== editId), [otras, editId]);
+  const otrasReglas = useMemo(() => otras.filter((o) => o.grupo !== editGrupo), [otras, editGrupo]);
   const prob = problema(f, otrasReglas);
 
   function setCondicion(i: number, p: Partial<CondicionDraft>) {
@@ -2093,7 +2006,21 @@ function FormularioRegla({
   // bandera propia se puede desincronizar de las horas (personalizado con las
   // dos vacías, o cualquiera con horas cargadas) y eso es justo lo que rompía.
   const ventanaPersonalizada = f.windowStart !== '' || f.windowEnd !== '';
-  const zonaCuenta = cuentas.find((c) => c.accountId === f.accountId)?.timezone ?? null;
+  // Cada cuenta evalúa la regla en SU zona: la ventana horaria de las 00 es la
+  // medianoche de cada una.
+  const zonasElegidas = Array.from(
+    new Set(cuentas.filter((c) => f.accountIds.includes(c.accountId)).map((c) => c.timezone)),
+  );
+  const zonaCuenta = zonasElegidas.length === 0 ? null : zonasElegidas.join(' / ');
+
+  function toggleCuenta(accountId: string): void {
+    setF((prev) => ({
+      ...prev,
+      accountIds: prev.accountIds.includes(accountId)
+        ? prev.accountIds.filter((a) => a !== accountId)
+        : [...prev.accountIds, accountId],
+    }));
+  }
 
   // El nombre y la cuenta ya los cubre `problemaAlcance`: sin esto la condición
   // estaba escrita dos veces y una de las dos se iba a quedar atrás.
@@ -2123,8 +2050,8 @@ function FormularioRegla({
       title={editId ? `Actualizar regla #${editId}` : 'Nueva regla'}
       hint={
         editId
-          ? 'Los cambios se aplican en la próxima corrida. El modo sombra/real no se toca acá: está en el menú «⋮» de la fila.'
-          : 'Una regla nueva nace apagada y en modo sombra: prenderla y pasarla a real son dos pasos aparte, desde el menú «⋮» de su fila.'
+          ? 'Los cambios se aplican en la próxima corrida, en todas las cuentas elegidas.'
+          : 'Una regla nueva nace apagada: prenderla es un paso aparte, con el switch de su fila. Prendida, actúa en Meta de verdad.'
       }
       ancho="lg"
       // Un click afuera no puede descartar el formulario a medio llenar.
@@ -2245,20 +2172,27 @@ function FormularioRegla({
       {/* ── Alcance: a qué objetos les aplica ── */}
       {tab === 'alcance' && (
         <div {...panelProps('alcance')} className="mt-4 grid gap-3 sm:grid-cols-2">
-          <label className="flex flex-col gap-1 text-xs text-neutral-500 sm:col-span-2">
-            Cuenta de anuncios
-            <select className={inputCls} value={f.accountId} onChange={(e) => set({ accountId: e.target.value })}>
-              <option value="">— elegí una cuenta —</option>
+          <fieldset className="flex flex-col gap-1 text-xs text-neutral-500 sm:col-span-2">
+            <legend className="mb-1">Aplicar a cuentas publicitarias</legend>
+            <div className="flex flex-wrap gap-x-5 gap-y-2">
               {cuentas.map((c) => (
-                <option key={c.accountId} value={c.accountId}>
-                  {c.name ?? c.accountId} — {c.timezone}
-                </option>
+                <label key={c.accountId} className="flex items-center gap-2 text-neutral-300">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 accent-good-500"
+                    checked={f.accountIds.includes(c.accountId)}
+                    onChange={() => toggleCuenta(c.accountId)}
+                  />
+                  {c.name ?? c.accountId}
+                  <span className="text-neutral-600">{c.timezone}</span>
+                </label>
               ))}
-            </select>
+            </div>
             <span className="text-[11px] max-panel:text-xs text-neutral-600">
-              La ventana horaria y el período de cálculo se evalúan en la zona de esta cuenta.
+              La regla corre por separado en cada cuenta tildada: la ventana horaria y el período se evalúan en la zona
+              de cada una, y sus frenos (corridas por día, cooldown) cuentan por cuenta.
             </span>
-          </label>
+          </fieldset>
 
           <label className="flex flex-col gap-1 text-xs text-neutral-500">
             Aplicar regla a
@@ -2597,7 +2531,7 @@ function FormularioRegla({
                 </select>
               </label>
               <span className="text-[11px] max-panel:text-xs leading-snug text-neutral-600 sm:col-span-2">
-                En la zona de la cuenta ({zonaCuenta ?? 'sin cuenta elegida'}).
+                En la zona de cada cuenta ({zonaCuenta ?? 'sin cuenta elegida'}).
                 {f.windowStart > f.windowEnd && f.windowEnd !== ''
                   ? ' El inicio es posterior al fin, así que la ventana cruza la medianoche.'
                   : ''}
