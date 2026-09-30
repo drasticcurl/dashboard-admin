@@ -20,7 +20,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import { ArrowSquareOut } from '@phosphor-icons/react';
+import { ArrowSquareOut, DownloadSimple } from '@phosphor-icons/react';
 import { Modal } from '../finanzas/Modal';
 
 const FORMATOS = [
@@ -53,6 +53,13 @@ type Estado =
 export function linkAnuncioMeta(accountId: string, adId: string): string {
   const act = accountId.replace(/^act_/, '');
   return `https://adsmanager.facebook.com/adsmanager/manage/ads/edit/standalone?act=${encodeURIComponent(act)}&selected_ad_ids=${encodeURIComponent(adId)}`;
+}
+
+/** El link que baja el video (o la imagen) del anuncio como archivo, vía /api/ads/descarga. */
+export function urlDescarga(adId: string, accountId: string, nombre: string | null): string {
+  const p = new URLSearchParams({ adId, accountId });
+  if (nombre) p.set('nombre', nombre);
+  return `/api/ads/descarga?${p.toString()}`;
 }
 
 export function ModalAnuncio({
@@ -101,7 +108,14 @@ export function ModalAnuncio({
       descripcion="Preview oficial de Meta: así se ve el anuncio en cada ubicación."
       onCerrar={onCerrar}
       pie={
-        <div className="flex justify-end">
+        <div className="flex justify-end gap-2">
+          <a
+            href={urlDescarga(adId, accountId, nombre)}
+            className="tap press inline-flex items-center gap-1.5 rounded-md border border-border-strong px-3 py-1.5 text-xs font-medium text-neutral-200 transition-colors duration-250 hover:bg-overlay/6 hover:text-neutral-50"
+          >
+            <DownloadSimple size={14} weight="bold" aria-hidden />
+            Descargar
+          </a>
           <a
             href={linkAnuncioMeta(accountId, adId)}
             target="_blank"

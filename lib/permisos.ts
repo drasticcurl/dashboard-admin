@@ -280,6 +280,7 @@ export const MAPA_API: Record<string, readonly Seccion[] | 'admin' | 'publica'> 
   '/api/ads/reglas': ['anuncios'],
   '/api/ads/reglas/csv': ['anuncios'],
   '/api/ads/preview': ['anuncios'],
+  '/api/ads/descarga': ['anuncios'],
 
   // ── Finanzas ─────────────────────────────────────────────────────────────
   '/api/finanzas/cuentas': ['finanzas'],

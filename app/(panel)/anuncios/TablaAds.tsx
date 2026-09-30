@@ -50,7 +50,7 @@ import {
   useSortable,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { DotsThree, Eye, PencilSimple } from '@phosphor-icons/react';
+import { DotsThree, DownloadSimple, Eye, PencilSimple } from '@phosphor-icons/react';
 import type { ClaveOrden, MetricasObjeto, NivelAds } from '@/lib/ads/tipos';
 import {
   CLAVES_FIJAS,
@@ -62,7 +62,7 @@ import {
 import { AsaRedimension, ANCHO_MAX, ANCHO_MIN } from './AsaRedimension';
 import { EncabezadoOrdenable, ariaSortDe } from './EncabezadoOrdenable';
 import { MarcaFrescura, PresupuestoCelda, ToggleEstado, etiquetaEffective } from './celdas';
-import { ModalAnuncio } from './ModalAnuncio';
+import { ModalAnuncio, urlDescarga } from './ModalAnuncio';
 import {
   PopoverFila,
   posicionPopover,
@@ -395,6 +395,18 @@ export function TablaAds(props: PropsTablaAds): JSX.Element {
             >
               <Eye size={14} weight="bold" />
             </button>
+          )}
+          {/* Mismo origen (pasa por /api/ads/descarga), así que el navegador lo
+              guarda como archivo en lugar de abrir el video en otra pestaña. */}
+          {fila.level === 'ad' && (
+            <a
+              href={urlDescarga(fila.objectId, fila.accountId, fila.objectName)}
+              aria-label={`Descargar el creativo de ${fila.objectName ?? fila.objectId}`}
+              title="Descargar el video / imagen del anuncio"
+              className="shrink-0 rounded p-0.5 text-neutral-500 hover:text-acento-300 focus:outline-none focus:ring-2 focus:ring-acento-500/50"
+            >
+              <DownloadSimple size={14} weight="bold" />
+            </a>
           )}
           <button
             type="button"
