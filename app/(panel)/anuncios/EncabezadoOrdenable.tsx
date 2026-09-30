@@ -40,7 +40,7 @@ export function EncabezadoOrdenable({
       title={entrada.definicion}
       aria-label={`${entrada.rotulo}: ${entrada.definicion}`}
       onClick={() => onOrden(entrada.clave as ClaveOrden)}
-      className="group inline-flex w-full items-center gap-1 rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-good-500/60"
+      className="group inline-flex w-full items-center gap-1 rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-acento-500/60"
     >
       <span className={activa ? 'text-neutral-100' : 'text-neutral-500 group-hover:text-neutral-300'}>
         {children}
@@ -49,7 +49,7 @@ export function EncabezadoOrdenable({
         Indicador visible de la dirección vigente, sólo en la columna del
         Orden_Tabla (R4 c4).
       */}
-      <span aria-hidden="true" className="text-[10px] max-panel:text-xs leading-none text-neutral-400">
+      <span aria-hidden="true" className="text-[10px] max-panel:text-xs leading-none text-acento-300">
         {activa ? (orden.dir === 'desc' ? '↓' : '↑') : ''}
       </span>
     </button>

@@ -10,6 +10,59 @@ Lo más nuevo va arriba. Las reglas de cómo se escribe una entrada están en
 
 ---
 
+## 2026-09-30 (4) — Rediseño "iris sobre tinta", ganancia por hora con un solo reloj, y el panel en hora de Lisboa
+
+**Pedido.** "Hacemelo más piola en general todas las pantallas, cambiá colores",
+con el orquestador y 4 agentes (plan en `tasks/rediseno-iris/`). Después, sobre
+el widget de ganancia por hora: "así como está está re bugueado… voy ganando
+plata, es imposible que sea así". Y: "que todo el panel use la hora de Lisboa…
+a las 00 sigue el día anterior y no me gusta".
+
+**Rediseño (solo visual).** Paleta nueva en tokens (`tailwind.config.ts`):
+fondo tinta violácea y una escala `acento` (iris) SEPARADA de `good`. Antes el
+verde era a la vez el color de los botones/foco/selección y el de "ganancia":
+un «Guardar» y una celda de ganancia se veían iguales. Ahora el verde queda
+sólo para resultados buenos. Títulos en Bricolage Grotesque (`font-display`,
+nunca en números: no son tabulares). La "costura" punteada (hilván) marca el
+ítem activo del nav, el título de cada pantalla y los pasos del embudo; en el
+login se sacó a pedido del usuario, junto con el logo. Se descartó el tema
+claro: ~840 usos de `neutral` y ~190 de `overlay` están pensados para oscuro.
+No se tocó lógica, textos ni APIs (el diff de `GestorAnuncios.tsx` es una línea
+de clase). Preguntas abiertas que quedaron (tono del KPI «Neto», «No-compradores»,
+color por defecto de funnels nuevos, título doble en Cuentas): §9 del plan.
+
+**Ganancia por hora: el bug.** Mezclaba tres relojes. (1) `ad_spend.day` es el
+día de la CUENTA de Meta (HIlvanapp está en Europe/Lisbon), pero
+`gasto-hora.ts` lo arrancaba a las 00:00 del panel (Buenos Aires): las lecturas
+de 20:00–23:59 caían antes del "inicio", se aplastaban contra él, y cuatro
+horas de gasto de ANOCHE aparecían como una barra roja enorme a las 00. (2) Las
+ventas se filtraban por `orders.day` (zona de la tienda; latam está en Lisboa)
+pero la hora se sacaba en el reloj del panel: ventas de anoche aparecían a "las
+23 de hoy", una hora del futuro ("Mejor hora 23 h" a las 10). Ahora el gasto se
+convierte en tramos de tiempo absoluto con el día cortado en la zona de la
+cuenta (`tramosGastoDelDia`) y se vuelca en las horas del rango del panel
+(`volcarEnHoras`); las ventas se filtran por `purchased_at` en el reloj del
+panel. Consecuencia: el Resultado del widget cuenta el día exacto del panel y
+puede no coincidir con el KPI Resultado, que suma `ad_spend` por día de Meta.
+
+**Hora de Lisboa.** Todo el panel ya leía su reloj de `DASHBOARD_TZ`, así que
+el cambio es de configuración, no de código: `DASHBOARD_TZ=Europe/Lisbon` en el
+`.env.production` de hilvanapp (infinix no se toca: tiene su propio env) y
+`funnels.timezone = Europe/Lisbon` en chauhinchazon y reset, con
+`recompute-days` + rollup. `deploy/cron.panel`: fetch-fx y el rollup nocturno
+pasan de 05:10/05:25 a 01:10/01:25 del servidor (Berlín va siempre 1 h
+adelante de Lisboa) para que la cotización del día llegue a las 00:10 de
+Lisboa. La cuenta de Meta de reset («Protocolo reset») sigue en hora argentina:
+eso se cambia en Meta, no acá.
+
+**Qué se verificó.** `tsc`: el único error de base (`tareas/tablero.test.ts`).
+`vitest`: 1753 pasan, con 3 tests nuevos del caso Lisboa/Buenos Aires en
+`gasto-hora.test.ts`. `npm run build` OK. Contraste de la paleta con
+`tasks/rediseno-iris/_verificacion-contraste.mjs` (15/15). El endpoint de
+overview contra la base local: sin barra inflada en la hora 00 y `ahora` en
+hora de Lisboa. La base local no tiene ventas desde agosto: el widget con
+ventas reales se ve recién en producción.
+
 ## 2026-09-30 (3) — Reglas generales con «Aplicar a cuentas publicitarias» y sin modo sombra (migración 037)
 
 **Pedido.** "Que las reglas sean generales y dentro de cada regla tenga un

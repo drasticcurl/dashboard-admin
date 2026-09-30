@@ -58,7 +58,7 @@ export function FormularioDuplicar({
           step={1}
           value={String(copias)}
           onChange={(e) => onCopias(Math.max(1, Math.min(5, Math.floor(Number(e.target.value) || 1))))}
-          className={`w-16 rounded border bg-overlay/4 px-2 py-1 text-right text-neutral-100 focus:outline-none focus:ring-1 focus:ring-good-500/50 ${
+          className={`w-16 rounded-md border bg-canvas/50 px-2 py-1 shadow-[inset_0_1px_2px_0_rgb(var(--sombra)/0.45)] transition-colors duration-250 text-right text-neutral-100 focus:outline-none focus:ring-1 focus:ring-acento-500/50 ${
             copiasValido ? 'border-border-strong' : 'border-bad-500/60'
           }`}
           aria-label="Cantidad de copias por objeto"
@@ -77,7 +77,7 @@ export function FormularioDuplicar({
           value={presupuesto}
           placeholder="sin presupuesto"
           onChange={(e) => onPresupuesto(e.target.value)}
-          className={`w-28 rounded border bg-overlay/4 px-2 py-1 text-right text-neutral-100 placeholder:text-neutral-600 focus:outline-none focus:ring-1 focus:ring-good-500/50 ${
+          className={`w-28 rounded-md border bg-canvas/50 px-2 py-1 shadow-[inset_0_1px_2px_0_rgb(var(--sombra)/0.45)] transition-colors duration-250 text-right text-neutral-100 placeholder:text-neutral-600 focus:outline-none focus:ring-1 focus:ring-acento-500/50 ${
             presupuestoValido ? 'border-border-strong' : 'border-bad-500/60'
           }`}
           aria-label="Presupuesto diario en EUR"
@@ -100,7 +100,7 @@ export function FormularioDuplicar({
           type="date"
           value={fecha}
           onChange={(e) => onFecha(e.target.value)}
-          className={`rounded border bg-overlay/4 px-2 py-1 text-neutral-100 focus:outline-none focus:ring-1 focus:ring-good-500/50 ${
+          className={`rounded-md border bg-canvas/50 px-2 py-1 shadow-[inset_0_1px_2px_0_rgb(var(--sombra)/0.45)] transition-colors duration-250 text-neutral-100 focus:outline-none focus:ring-1 focus:ring-acento-500/50 ${
             fechaValida ? 'border-border-strong' : 'border-bad-500/60'
           }`}
           aria-label="Fecha de inicio"
@@ -111,7 +111,7 @@ export function FormularioDuplicar({
           value={hora}
           step={60}
           onChange={(e) => onHora(e.target.value || '00:00')}
-          className={`rounded border bg-overlay/4 px-2 py-1 text-neutral-100 focus:outline-none focus:ring-1 focus:ring-good-500/50 ${
+          className={`rounded-md border bg-canvas/50 px-2 py-1 shadow-[inset_0_1px_2px_0_rgb(var(--sombra)/0.45)] transition-colors duration-250 text-neutral-100 focus:outline-none focus:ring-1 focus:ring-acento-500/50 ${
             horaValida ? 'border-border-strong' : 'border-bad-500/60'
           }`}
           aria-label="Hora de inicio"
@@ -123,7 +123,7 @@ export function FormularioDuplicar({
             onFecha(mananaMedianocheLocal(zona));
             onHora('00:00');
           }}
-          className="rounded border border-border-strong px-2 py-1 text-xs text-neutral-300 hover:bg-overlay/6"
+          className="press rounded-md border border-border-strong px-2 py-1 text-xs text-neutral-300 transition-colors duration-250 hover:bg-overlay/6 hover:text-neutral-100"
         >
           mañana 00:00
         </button>

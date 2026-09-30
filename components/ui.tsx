@@ -3,8 +3,14 @@
 /**
  * Kit de UI compartido del panel — tema oscuro, mismo lenguaje visual que el
  * `/admin` de los funnels. La paleta vive en tokens de `tailwind.config.ts`
- * (canvas, surface, surface-raised, border-subtle, border-strong y los tonos
- * good/warn/bad/info), no hardcodeada acá.
+ * (canvas, surface, surface-raised, border-subtle, border-strong, el acento
+ * y los tonos good/warn/bad/info), no hardcodeada acá.
+ *
+ * Dos familias de color que no se mezclan (rediseño iris, D1):
+ *   - `acento` es la INTERFAZ: foco, lo que gira mientras carga, lo activo.
+ *   - `TONE_*` (good/warn/bad/info) es SEMÁNTICA: lo que dice un dato. Por eso
+ *     los tonos de Badge, StatCard, Banner y BarRow siguen siendo esos cuatro:
+ *     un Badge "good" dice "esto está bien", no "esto elegiste".
  *
  * Este archivo es la razón por la que el rediseño corre por olas: lo importan
  * las 8 pantallas sin poder modificarlo. Las firmas de los componentes que ya
@@ -35,6 +41,7 @@ import {
   TrendDown,
   TrendUp,
 } from '@phosphor-icons/react';
+import { panelColors } from '@/tailwind.config';
 
 export type Tone = 'neutral' | 'good' | 'warn' | 'bad' | 'info';
 
@@ -103,6 +110,10 @@ export function Card({
 
       El hint va con `text-pretty` para que no quede una palabra huérfana sola
       en la última línea, que es lo que pasaba con los hints largos de Embudo.
+
+      El título va en `font-display` (D6) y un punto más grande que el cuerpo:
+      antes era Geist 14px medium, o sea el mismo peso visual que una celda de
+      tabla, y "de qué habla esta tarjeta" no se separaba de "qué dice".
     */
     <div
       className={`sheen rounded-xl border border-border-subtle bg-surface shadow-card ${
@@ -113,7 +124,7 @@ export function Card({
         <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2 border-b border-border-subtle px-4 py-3 panel:px-5 panel:py-4">
           <div className="min-w-0 flex-1">
             {title && (
-              <h2 className="text-sm font-medium -tracking-[0.01em] text-neutral-100">
+              <h2 className="font-display text-[15px] font-semibold leading-snug -tracking-[0.01em] text-neutral-50">
                 {title}
               </h2>
             )}
@@ -560,7 +571,7 @@ export function BarRow({
       <div
         role="img"
         aria-label={`${label}: ${fmtPct(pct)} (${fmtInt(count)})`}
-        className="relative h-2.5 flex-1 overflow-hidden rounded-full bg-canvas/70 shadow-[inset_0_1px_2px_0_rgba(4,6,14,0.7),inset_0_0_0_1px_rgba(255,255,255,0.04)]"
+        className="relative h-2.5 flex-1 overflow-hidden rounded-full bg-canvas/70 shadow-[inset_0_1px_2px_0_rgb(var(--sombra)/0.7),inset_0_0_0_1px_rgba(255,255,255,0.04)]"
       >
         <div
           className={`h-full rounded-full shadow-[inset_0_1px_0_0_rgba(255,255,255,0.22)] transition-[width] duration-500 ease-smooth ${TONE_BAR[barTone]}`}
@@ -589,11 +600,14 @@ export function BarRow({
 // ─── Estados ────────────────────────────────────────────────────────────────
 
 export function Spinner(): JSX.Element {
+  // El arco que gira es acento y no `good`: "estoy trabajando" es interfaz,
+  // no un resultado. En verde, un spinner al lado de una cifra parecía
+  // anunciar que la cifra iba a dar bien.
   return (
     <span
       role="status"
       aria-label="Cargando"
-      className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-overlay/14 border-t-good-400"
+      className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-overlay/14 border-t-acento-400"
     />
   );
 }
@@ -867,7 +881,7 @@ function ChartTip({
     /*
       El tooltip flota sobre el gráfico, así que usa `shadow-float` (la sombra
       teñida con más caída) en lugar del `shadow-xl` negro de Tailwind: sobre un
-      fondo azulado, el negro puro se lee como un agujero.
+      fondo violáceo, el negro puro se lee como un agujero.
 
       Cada serie lleva su punto de color además del texto coloreado: cuando dos
       series tienen tonos parecidos, el texto de color solo no alcanza para
@@ -913,7 +927,9 @@ function injectSharedTooltip(
       <Tooltip
         key="chart-frame-tooltip"
         content={<ChartTip />}
-        cursor={{ fill: 'rgba(255, 255, 255, 0.04)' }}
+        // De `panelColors` y no un literal (D5): el cursor es la columna que se
+        // está mirando, y se tiñe del acento con el resto de la paleta.
+        cursor={{ fill: panelColors.cursor }}
       />,
     ],
   });
@@ -989,11 +1005,13 @@ export function Toolbar({
       El h1 creció y se le cerró el tracking: es el único título de la pantalla
       y antes pesaba lo mismo que el título de una tarjeta, así que la jerarquía
       "pantalla > tarjeta > dato" no existía. A 22px con -0.02em de tracking la
-      cabecera tiene presencia sin ocupar más alto de línea.
+      cabecera tiene presencia sin ocupar más alto de línea. En `font-display`
+      (D6), igual que el h1 de EncabezadoPagina: dos h1 de pantalla en dos
+      fuentes distintas se leerían como dos paneles.
     */
     <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
       <div className="flex items-center gap-2.5">
-        <h1 className="text-[1.375rem] font-semibold -tracking-[0.02em] text-neutral-50">
+        <h1 className="font-display text-[1.375rem] font-semibold -tracking-[0.025em] text-neutral-50">
           {title}
         </h1>
         {badge}

@@ -209,6 +209,12 @@ export function GraficoSaldo({
 
   const copy = COPY[vista];
 
+  // D8: el patrimonio es un NIVEL, no un juicio — cuánta plata hay no es "bien"
+  // ni "mal", así que va en el acento. La ganancia del mes SÍ es un juicio y
+  // por eso se queda en good. Debajo del cero es rojo en las dos vistas: un
+  // patrimonio negativo es deuda, y eso sí hay que verlo.
+  const colorArriba = vista === 'diario' ? panelColors.acento : panelColors.good;
+
   return (
     <Card title={copy.titulo} hint={copy.hint}>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
@@ -227,7 +233,7 @@ export function GraficoSaldo({
         <div
           role="group"
           aria-label="Unidad del gráfico de saldo"
-          className="flex shrink-0 items-center gap-0.5 rounded-xl bg-canvas/70 p-1 shadow-[inset_0_1px_2px_0_rgba(4,6,14,0.6),inset_0_0_0_1px_rgba(255,255,255,0.05)]"
+          className="flex shrink-0 items-center gap-0.5 rounded-xl bg-canvas/70 p-1 shadow-[inset_0_1px_2px_0_rgb(var(--sombra)/0.6),inset_0_0_0_1px_rgba(255,255,255,0.05)]"
         >
           {(['diario', 'mensual'] as const).map((v) => (
             <button
@@ -275,13 +281,13 @@ export function GraficoSaldo({
                 ReferenceLine de abajo.
               */}
               <linearGradient id={`fill-${gradId}`} x1="0" y1="0" x2="0" y2="1">
-                <stop offset={0} stopColor={panelColors.good} stopOpacity={0.28} />
-                <stop offset={offset} stopColor={panelColors.good} stopOpacity={0.04} />
+                <stop offset={0} stopColor={colorArriba} stopOpacity={0.28} />
+                <stop offset={offset} stopColor={colorArriba} stopOpacity={0.04} />
                 <stop offset={offset} stopColor={panelColors.bad} stopOpacity={0.04} />
                 <stop offset={1} stopColor={panelColors.bad} stopOpacity={0.28} />
               </linearGradient>
               <linearGradient id={`stroke-${gradId}`} x1="0" y1="0" x2="0" y2="1">
-                <stop offset={offset} stopColor={panelColors.good} />
+                <stop offset={offset} stopColor={colorArriba} />
                 <stop offset={offset} stopColor={panelColors.bad} />
               </linearGradient>
             </defs>

@@ -60,13 +60,23 @@ export function EncabezadoPagina({
     <div className="mb-5 flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-2">
-          <h1 className="text-[22px] font-medium -tracking-[0.02em] text-neutral-50 panel:text-[26px]">
+          {/* `font-display` semibold con el tracking apretado (D6): a 26px el
+              espaciado por defecto de Bricolage se ve suelto, y es el único
+              título de la pantalla, así que puede tener voz propia. */}
+          <h1 className="font-display text-[24px] font-semibold leading-tight -tracking-[0.03em] text-neutral-50 panel:text-[30px]">
             {titulo}
           </h1>
           {chip}
         </div>
+        {/*
+          La costura bajo el título: el segundo de los cuatro lugares de D7.
+          48px y no el ancho del título, a propósito: es una puntada que firma
+          la pantalla, no un subrayado que la mide. Va entre el título y el
+          subtítulo porque cose las dos cosas: "qué pantalla" y "qué contesta".
+        */}
+        <span aria-hidden className="costura mt-2.5 block w-12 panel:mt-3" />
         {subtitulo && (
-          <p className="mt-0.5 text-sm text-neutral-500 panel:mt-1">{subtitulo}</p>
+          <p className="mt-2 text-sm text-neutral-400 panel:mt-2.5">{subtitulo}</p>
         )}
       </div>
 

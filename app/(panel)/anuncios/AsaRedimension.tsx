@@ -70,7 +70,7 @@ export function AsaRedimension({
       aria-label={label}
       title={label}
       style={{ width: ZONA_ASA }}
-      className="group absolute inset-y-0 right-0 flex items-center justify-center cursor-col-resize touch-none rounded-sm bg-transparent outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-good-500"
+      className="group absolute inset-y-0 right-0 flex items-center justify-center cursor-col-resize touch-none rounded-sm bg-transparent outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-acento-500"
       onPointerDown={(e) => {
         e.preventDefault();
         arrastre.current = { x0: e.clientX, ancho0: ancho };
@@ -95,7 +95,7 @@ export function AsaRedimension({
       }}
     >
       {/* La marca visual del asa, más angosta que la zona activa. */}
-      <span className="h-4 w-px rounded bg-overlay/20 transition-colors group-hover:bg-good-500/60 group-focus-visible:bg-good-500/60" />
+      <span className="h-4 w-px rounded bg-overlay/20 transition-colors group-hover:bg-acento-500/60 group-focus-visible:bg-acento-500/60" />
     </button>
   );
 }

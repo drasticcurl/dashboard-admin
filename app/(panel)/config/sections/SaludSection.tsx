@@ -73,7 +73,7 @@ export function SaludSection({
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
         <div>
           <div className="mb-2 flex items-center justify-between">
-            <p className="text-sm font-semibold text-neutral-200">Webhooks</p>
+            <p className="font-display text-sm font-semibold -tracking-[0.01em] text-neutral-100">Webhooks</p>
             <select className={`${inputCls} w-40`} value={wstatus} onChange={(e) => { setWstatus(e.target.value); }}>
               <option value="" className="bg-surface">Todos los estados</option>
               {['ok', 'duplicate', 'bad_signature', 'unmatched_funnel', 'error', 'ignored'].map((s) => (
@@ -85,7 +85,7 @@ export function SaludSection({
         </div>
         <div>
           <div className="mb-2 flex items-center justify-between">
-            <p className="text-sm font-semibold text-neutral-200">Errores de ingesta</p>
+            <p className="font-display text-sm font-semibold -tracking-[0.01em] text-neutral-100">Errores de ingesta</p>
             <select className={`${inputCls} w-40`} value={reason} onChange={(e) => { setReason(e.target.value); }}>
               <option value="" className="bg-surface">Todas las razones</option>
               {['unknown_step', 'step_slug_mismatch', 'invalid_payload', 'unauthorized', 'unknown_event'].map((r) => (

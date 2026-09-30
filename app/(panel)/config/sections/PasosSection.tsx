@@ -193,7 +193,7 @@ export function PasosSection({
       />
 
       <div className="mt-4 border-t border-border-subtle pt-4">
-        <p className="mb-1 text-sm font-semibold text-neutral-200">Importar pasos</p>
+        <p className="mb-1 font-display text-sm font-semibold -tracking-[0.01em] text-neutral-100">Importar pasos</p>
         <p className="mb-2 text-xs text-neutral-500">
           Pegá el catálogo completo como JSON y reemplaza el actual en una transacción — el camino
           cuando el quiz agrega preguntas.

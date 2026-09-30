@@ -266,7 +266,7 @@ export function ResumenView({
             <button
               type="button"
               onClick={() => setRetryTick((x) => x + 1)}
-              className="rounded-md border border-border-strong px-2 py-1 font-semibold text-neutral-200 hover:bg-overlay/6"
+              className="rounded-md border border-border-strong px-2 py-1 font-semibold text-neutral-200 transition-colors hover:bg-overlay/6 focus:outline-none focus-visible:ring-2 focus-visible:ring-acento-500/60"
             >
               Reintentar
             </button>
@@ -317,8 +317,10 @@ export function ResumenView({
         />
       )}
 
-      {/* El pie: cuándo se generó y si el rollup está viejo. */}
-      <p className="text-xs text-neutral-600">
+      {/* El pie: cuándo se generó y si el rollup está viejo. En neutral-500 y
+          no 600: con el canvas nuevo el 600 no llega a 4.5:1 y es un dato que
+          se consulta, no decoración. */}
+      <p className="text-xs text-neutral-500">
         Generado {fmtDateTime(data.generatedAt)}
         {data.staleRollup && data.lastRollupAt && (
           <> · último rollup: {fmtDateTime(data.lastRollupAt)}</>

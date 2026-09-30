@@ -177,7 +177,7 @@ const MODOS = [
 export type ModoPresupuesto = 'diario' | 'total';
 
 const ITEM =
-  'tap flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-sm text-neutral-200 transition-colors duration-250 hover:bg-good-900 hover:text-good-100 disabled:cursor-not-allowed disabled:text-neutral-600 disabled:hover:bg-transparent';
+  'tap flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-sm text-neutral-200 transition-colors duration-250 hover:bg-acento-900 hover:text-acento-100 disabled:cursor-not-allowed disabled:text-neutral-600 disabled:hover:bg-transparent';
 
 /**
  * Lo que el popover necesita saber de la fila. Un subconjunto de
@@ -359,7 +359,7 @@ export function PopoverFila({
                 }
                 className={`flex-1 rounded px-2 py-1.5 text-xs transition-colors duration-250 ${
                   modo === m.clave
-                    ? 'bg-good-900 font-medium text-good-100'
+                    ? 'bg-acento-900 font-medium text-acento-100'
                     : m.disponible
                       ? 'text-neutral-400 hover:text-neutral-100'
                       : 'cursor-not-allowed text-neutral-600'
@@ -372,7 +372,7 @@ export function PopoverFila({
 
           <label className="block">
             <span className="sr-only">Importe del presupuesto</span>
-            <span className="flex items-center gap-1.5 rounded-md border border-border-strong bg-canvas/50 px-2.5 focus-within:border-good-500/60">
+            <span className="flex items-center gap-1.5 rounded-md border border-border-strong bg-canvas/50 px-2.5 focus-within:border-acento-500/60">
               <span aria-hidden className="text-base text-neutral-500">
                 {SIMBOLO_REPORTE}
               </span>
@@ -419,7 +419,7 @@ export function PopoverFila({
             value={nombre}
             onChange={(e) => setNombre(e.target.value)}
             rows={3}
-            className="w-full resize-none rounded-md border border-border-strong bg-canvas/50 px-2.5 py-2 text-sm text-neutral-100 outline-none placeholder:text-neutral-600 focus:border-good-500/60"
+            className="w-full resize-none rounded-md border border-border-strong bg-canvas/50 px-2.5 py-2 text-sm text-neutral-100 outline-none placeholder:text-neutral-600 focus:border-acento-500/60"
             placeholder="Nombre del objeto"
           />
           <Pie
@@ -445,7 +445,7 @@ export function PopoverFila({
             pantalla y sin backdrop no se entiende que el resto está inactivo. */}
         <div
           aria-hidden
-          className="fixed inset-0 z-modal bg-neutral-900/70"
+          className="fixed inset-0 z-modal bg-canvas/75 backdrop-blur-sm"
           onPointerDown={onCerrar}
         />
         <div
@@ -506,7 +506,7 @@ function Pie({
         type="button"
         onClick={onGuardar}
         disabled={!puede}
-        className="tap press rounded-md bg-gradient-to-b from-good-400 to-good-600 px-3 py-1.5 text-xs font-semibold text-canvas shadow-glow-good transition-[filter] duration-250 hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
+        className="tap press rounded-md bg-gradient-to-b from-acento-400 to-acento-500 px-3 py-1.5 text-xs font-semibold text-canvas shadow-glow-acento transition-[filter] duration-250 hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
       >
         Guardar
       </button>

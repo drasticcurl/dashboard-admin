@@ -119,9 +119,9 @@ function formatearMetrica(k: string, v: unknown): string {
 }
 
 const inputCls =
-  'rounded-lg border border-border-strong bg-overlay/4 px-2 py-1.5 text-sm text-neutral-200 focus:border-good-500/50 focus:outline-none focus:ring-1 focus:ring-good-500/50';
+  'rounded-lg border border-border-strong bg-canvas/50 px-2 py-1.5 text-sm text-neutral-200 shadow-[inset_0_1px_2px_0_rgb(var(--sombra)/0.45)] transition-colors duration-250 placeholder:text-neutral-600 hover:border-overlay/16 focus:border-acento-500/60 focus:outline-none focus:ring-1 focus:ring-acento-500/50';
 const chipCls =
-  'rounded-full px-2.5 py-1 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-good-500/50';
+  'press rounded-full px-2.5 py-1 text-xs font-semibold transition-colors duration-250 focus:outline-none focus:ring-2 focus:ring-acento-500/50';
 
 export function HistorialView(): JSX.Element {
   const [filas, setFilas] = useState<FilaHistorial[]>([]);
@@ -229,14 +229,14 @@ export function HistorialView(): JSX.Element {
           <input className={inputCls} value={objeto} onChange={(e) => setObjeto(e.target.value)} placeholder="id de objeto (1201…)" />
           <button
             type="button"
-            className={`${chipCls} ${estado === 'fallido' ? 'bg-bad-500/20 text-bad-200' : 'border border-border-strong text-neutral-300 hover:bg-overlay/6'}`}
+            className={`${chipCls} ${estado === 'fallido' ? 'border border-bad-500/40 bg-bad-500/20 text-bad-200' : 'border border-border-strong text-neutral-300 hover:bg-overlay/6'}`}
             onClick={() => setEstado(estado === 'fallido' ? '' : 'fallido')}
           >
             solo errores
           </button>
           <button
             type="button"
-            className={`${chipCls} ${estado === 'indeterminado' ? 'bg-warn-500/20 text-warn-200' : 'border border-border-strong text-neutral-300 hover:bg-overlay/6'}`}
+            className={`${chipCls} ${estado === 'indeterminado' ? 'border border-warn-500/40 bg-warn-500/20 text-warn-200' : 'border border-border-strong text-neutral-300 hover:bg-overlay/6'}`}
             onClick={() => setEstado(estado === 'indeterminado' ? '' : 'indeterminado')}
           >
             sin confirmar

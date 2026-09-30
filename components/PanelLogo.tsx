@@ -14,11 +14,10 @@
  * D-R11 había sacado la letra P del logo, pero el login nunca se actualizó).
  * Con un solo componente y una prop de tamaño eso no puede volver a pasar.
  *
- * El degradado violeta→esmeralda se fue. Era el rasgo más genérico de la UI:
- * dos acentos peleando entre sí y contra el verde que ya usaban los botones,
- * los focus ring y la tab activa. Ahora es una pastilla de vidrio del acento
- * único del panel, con el reflejo especular arriba y el halo teñido del mismo
- * verde en lugar de una sombra negra.
+ * Es una pastilla de vidrio del acento del panel (iris, rediseño iris), con el
+ * reflejo especular arriba y el halo teñido del mismo iris en lugar de una
+ * sombra negra. Hasta v3 era verde (`good`), y el logo del panel quedaba del
+ * mismo color que una ganancia: la marca es interfaz, no un resultado (D1).
  */
 
 import { ChartLineUp } from '@phosphor-icons/react';
@@ -32,7 +31,7 @@ export function PanelLogo({ size = 'sm' }: { size?: keyof typeof TAMANOS }): JSX
   const { caja, icono } = TAMANOS[size];
   return (
     <span
-      className={`relative flex shrink-0 items-center justify-center bg-gradient-to-b from-good-400 to-good-600 text-canvas shadow-glow-good ${caja}`}
+      className={`relative flex shrink-0 items-center justify-center bg-gradient-to-b from-acento-400 to-acento-600 text-canvas shadow-glow-acento ${caja}`}
     >
       {/*
         Las dos capas que lo hacen ver como un objeto y no como un cuadrado

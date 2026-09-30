@@ -120,9 +120,9 @@ export function RangePicker() {
         aria-expanded={abierto}
         aria-label={`Período del panel: ${etiqueta}`}
         title="Período del panel"
-        className={`${SELECT_HEADER} inline-flex items-center gap-2 ${custom ? 'border-good-700/70' : ''}`}
+        className={`${SELECT_HEADER} inline-flex items-center gap-2 ${custom ? 'border-acento-700/70' : ''}`}
       >
-        <CalendarBlank size={14} weight="bold" className={custom ? 'text-good-400' : 'text-neutral-400'} aria-hidden />
+        <CalendarBlank size={14} weight="bold" className={custom ? 'text-acento-400' : 'text-neutral-400'} aria-hidden />
         <span className="whitespace-nowrap">{etiqueta}</span>
       </button>
       <span className="pointer-events-none absolute right-3 text-neutral-400">
@@ -256,9 +256,9 @@ function PopoverPeriodo({
               role="radio"
               aria-checked={preset === o.value}
               onClick={() => onPreset(o.value)}
-              className={`shrink-0 rounded-lg px-3 py-1.5 text-left text-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-good-500/60 ${
+              className={`shrink-0 rounded-lg px-3 py-1.5 text-left text-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-acento-500/60 ${
                 preset === o.value
-                  ? 'bg-good-900 font-medium text-good-100'
+                  ? 'bg-acento-900 font-medium text-acento-100'
                   : 'text-neutral-300 hover:bg-overlay/4 hover:text-neutral-50'
               }`}
             >
@@ -274,7 +274,7 @@ function PopoverPeriodo({
               type="button"
               onClick={() => moverMes(-1)}
               aria-label="Mes anterior"
-              className="flex h-8 w-8 items-center justify-center rounded-lg text-neutral-400 hover:bg-overlay/4 hover:text-neutral-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-good-500/60"
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-neutral-400 hover:bg-overlay/4 hover:text-neutral-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-acento-500/60"
             >
               <CaretLeft size={14} weight="bold" />
             </button>
@@ -286,7 +286,7 @@ function PopoverPeriodo({
               onClick={() => moverMes(1)}
               disabled={esMesActual}
               aria-label="Mes siguiente"
-              className="flex h-8 w-8 items-center justify-center rounded-lg text-neutral-400 hover:bg-overlay/4 hover:text-neutral-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-good-500/60 disabled:opacity-25 disabled:hover:bg-transparent"
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-neutral-400 hover:bg-overlay/4 hover:text-neutral-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-acento-500/60 disabled:opacity-25 disabled:hover:bg-transparent"
             >
               <CaretRight size={14} weight="bold" />
             </button>
@@ -310,7 +310,7 @@ function PopoverPeriodo({
                 <div
                   key={dia}
                   className={`flex justify-center ${
-                    enRango && !(pDesde === pHasta) ? 'bg-good-900/70' : ''
+                    enRango && !(pDesde === pHasta) ? 'bg-acento-900/70' : ''
                   } ${dia === pDesde ? 'rounded-l-lg' : ''} ${dia === pHasta ? 'rounded-r-lg' : ''}`}
                 >
                   <button
@@ -320,17 +320,17 @@ function PopoverPeriodo({
                     onPointerEnter={() => setSobre(dia)}
                     aria-pressed={esPunta}
                     aria-label={dia}
-                    className={`relative flex h-9 w-9 items-center justify-center rounded-lg font-mono text-xs tabular-nums transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-good-500/60 disabled:cursor-not-allowed disabled:text-neutral-700 ${
+                    className={`relative flex h-9 w-9 items-center justify-center rounded-lg font-mono text-xs tabular-nums transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-acento-500/60 disabled:cursor-not-allowed disabled:text-neutral-700 ${
                       esPunta
-                        ? 'bg-good-500 font-semibold text-neutral-950'
+                        ? 'bg-acento-500 font-semibold text-canvas'
                         : enRango
-                          ? 'text-good-100'
+                          ? 'text-acento-100'
                           : 'text-neutral-300 hover:bg-overlay/6'
                     }`}
                   >
                     {partes(dia).d}
                     {esHoy && !esPunta && (
-                      <span aria-hidden className="absolute bottom-1 h-1 w-1 rounded-full bg-good-400" />
+                      <span aria-hidden className="absolute bottom-1 h-1 w-1 rounded-full bg-acento-400" />
                     )}
                   </button>
                 </div>
@@ -355,7 +355,10 @@ function PopoverPeriodo({
               type="button"
               disabled={!listo}
               onClick={() => listo && onRango(a, b)}
-              className="shrink-0 rounded-lg bg-good-500 px-3 py-1.5 text-xs font-semibold text-neutral-950 transition-colors hover:bg-good-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-good-500/60 disabled:cursor-not-allowed disabled:opacity-35"
+              // La receta del botón primario del panel (§5 del plan iris): la
+              // misma en todas las pantallas, así "Aplicar" y "Guardar" se
+              // reconocen como la misma clase de acción.
+              className="shrink-0 rounded-lg bg-gradient-to-b from-acento-400 to-acento-500 px-3 py-1.5 text-xs font-semibold text-canvas shadow-glow-acento transition-[filter] hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-acento-500/60 disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:brightness-100"
             >
               Aplicar
             </button>

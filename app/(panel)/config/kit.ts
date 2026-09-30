@@ -26,7 +26,7 @@ export type ConfigShell = {
   acá", y esa tiene que aparecer también cuando entrás con el mouse.
 */
 export const inputCls =
-  'min-h-[44px] rounded-lg border border-border-strong bg-canvas/50 px-2.5 py-1.5 text-sm text-neutral-200 panel:min-h-0 shadow-[inset_0_1px_2px_0_rgba(4,6,14,0.45)] transition-colors duration-250 placeholder:text-neutral-600 hover:border-overlay/16 focus:border-good-500/60';
+  'min-h-[44px] rounded-lg border border-border-strong bg-canvas/50 px-2.5 py-1.5 text-sm text-neutral-200 panel:min-h-0 shadow-[inset_0_1px_2px_0_rgba(12,10,28,0.45)] transition-colors duration-250 placeholder:text-neutral-600 hover:border-overlay/16 focus:border-acento-500/60';
 /*
   `tap` (globals.css) le pone 44×44 de mínimo SÓLO debajo de 760px: es el
   mínimo táctil del handoff v3. Va en la clase base compartida y no botón por
@@ -37,6 +37,9 @@ export const inputCls =
 export const btnCls =
   'tap press rounded-lg px-3 py-1.5 text-xs font-semibold transition-[background-color,border-color,color,filter] duration-250 disabled:cursor-not-allowed disabled:opacity-40';
 /* Degradado vertical y texto oscuro: el botón primario es el único relleno
-   sólido de color del panel, así que es el que más se nota si se ve plano. */
-export const btnPrimary = `${btnCls} bg-gradient-to-b from-good-400 to-good-600 text-canvas shadow-glow-good hover:brightness-110`;
+   sólido de color del panel, así que es el que más se nota si se ve plano.
+   Es iris y no verde (D1): el verde quedó para "esto salió bien", y un
+   "Guardar" no es un resultado. Termina en el 500 y no en el 600 porque con
+   texto `canvas` encima el 600 del iris baja de 4.5:1 (§5 del plan). */
+export const btnPrimary = `${btnCls} bg-gradient-to-b from-acento-400 to-acento-500 text-canvas shadow-glow-acento hover:brightness-110`;
 export const btnGhost = `${btnCls} border border-border-strong bg-surface-raised text-neutral-300 shadow-inset-highlight hover:border-overlay/16 hover:bg-surface-overlay hover:text-neutral-100`;

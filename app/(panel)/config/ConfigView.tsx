@@ -189,7 +189,8 @@ export function ConfigView({
         El índice de grupos. Ya estaba agrupado en cuatro (T07 §3) y el handoff v3
         pide lo mismo, así que sólo cambian tres cosas:
          · La etiqueta del grupo a 11px, que es la escala de label del handoff.
-         · El chip activo pasa de `bg-overlay/8` al acento oscuro. Ese
+         · El chip activo pasa de `bg-overlay/8` al acento oscuro (iris, no verde:
+           es "acá estás", no "esto está bien", D1). Ese
            `bg-overlay/8` es EL MISMO relleno que usa el hover de los chips
            inactivos, así que "la sección abierta" y "la sección que tengo debajo
            del mouse" se veían igual — el mismo problema que la fila de Anuncios.
@@ -213,9 +214,9 @@ export function ConfigView({
                     key={s.id}
                     href={hrefDe(s.id)}
                     aria-current={active ? 'page' : undefined}
-                    className={`tap press rounded-md px-3 py-1.5 text-sm transition-colors duration-250 focus:outline-none focus:ring-2 focus:ring-good-500/50 ${
+                    className={`tap press rounded-md px-3 py-1.5 text-sm transition-colors duration-250 focus:outline-none focus:ring-2 focus:ring-acento-500/50 ${
                       active
-                        ? 'bg-good-900 font-medium text-good-100'
+                        ? 'bg-acento-900 font-medium text-acento-100'
                         : 'text-neutral-400 hover:bg-overlay/5 hover:text-neutral-200'
                     }`}
                   >

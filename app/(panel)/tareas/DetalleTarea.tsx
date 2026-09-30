@@ -331,8 +331,11 @@ export function DetalleTarea({
       )}
 
       {/* ── Enlaces ─────────────────────────────────────────────────────── */}
+      {/* Los títulos de sección en display (D6), igual que el del modal: en
+          versalitas grises se leían como etiquetas de campo, no como el
+          arranque de otra parte de la tarjeta. */}
       <section className="mt-6 border-t border-border-subtle pt-4">
-        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-neutral-400">
+        <h3 className="mb-2 font-display text-sm font-semibold -tracking-[0.01em] text-neutral-100">
           Enlaces
         </h3>
         {links.length === 0 && <p className="text-xs text-neutral-600">Sin enlaces.</p>}
@@ -395,7 +398,7 @@ export function DetalleTarea({
 
       {/* ── Comentarios ─────────────────────────────────────────────────── */}
       <section className="mt-6 border-t border-border-subtle pt-4">
-        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-neutral-400">
+        <h3 className="mb-2 font-display text-sm font-semibold -tracking-[0.01em] text-neutral-100">
           Comentarios
         </h3>
         {comentarios.length === 0 && <p className="text-xs text-neutral-600">Sin comentarios.</p>}

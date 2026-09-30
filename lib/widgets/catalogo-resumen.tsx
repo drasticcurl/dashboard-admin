@@ -146,7 +146,9 @@ function Kpi({ size, k }: { size: WidgetSize; k: KpiDatos }): JSX.Element {
 
       {size.h === 2 && k.spark && k.spark.length > 1 && (
         <div className="mt-auto h-16 w-full pt-3">
-          <Sparkline points={k.spark} color={k.sparkColor ?? panelColors.good} />
+          {/* Sin color propio, la serie va en acento y no en `good`: un
+              sparkline por día es volumen, no un veredicto (D8). */}
+          <Sparkline points={k.spark} color={k.sparkColor ?? panelColors.acento} />
         </div>
       )}
     </div>
@@ -218,13 +220,13 @@ function NetoPorDia({ data }: { data: OverviewData }): JSX.Element {
       </div>
       <ChartFrame alto="md">
         <BarChart data={data.byDay} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-          <CartesianGrid stroke="rgba(255,255,255,0.06)" vertical={false} />
+          <CartesianGrid stroke={panelColors.grid} vertical={false} />
           <XAxis
             dataKey="day"
             tickFormatter={(v: string) => `${v.slice(8)}/${v.slice(5, 7)}`}
             tick={{ fontSize: 11, fill: panelColors.axis }}
             tickLine={false}
-            axisLine={{ stroke: 'rgba(255,255,255,0.12)' }}
+            axisLine={{ stroke: panelColors.axisLine }}
             minTickGap={24}
           />
           <YAxis
@@ -234,7 +236,7 @@ function NetoPorDia({ data }: { data: OverviewData }): JSX.Element {
             axisLine={false}
             width={56}
           />
-          <Tooltip content={<StackedTooltip moneda={data.moneda} />} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
+          <Tooltip content={<StackedTooltip moneda={data.moneda} />} cursor={{ fill: panelColors.cursor }} />
           {data.funnels.map((f) => (
             <Bar key={f.slug} dataKey={`perFunnel.${f.slug}`} stackId="net" fill={f.color} name={f.name} />
           ))}
@@ -251,13 +253,13 @@ function SesionesPorDia({ data }: { data: OverviewData }): JSX.Element {
   return (
     <ChartFrame alto="md">
       <BarChart data={data.byDay} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-        <CartesianGrid stroke="rgba(255,255,255,0.06)" vertical={false} />
+        <CartesianGrid stroke={panelColors.grid} vertical={false} />
         <XAxis
           dataKey="day"
           tickFormatter={(v: string) => `${v.slice(8)}/${v.slice(5, 7)}`}
           tick={{ fontSize: 11, fill: panelColors.axis }}
           tickLine={false}
-          axisLine={{ stroke: 'rgba(255,255,255,0.12)' }}
+          axisLine={{ stroke: panelColors.axisLine }}
           minTickGap={24}
         />
         <YAxis
@@ -267,7 +269,8 @@ function SesionesPorDia({ data }: { data: OverviewData }): JSX.Element {
           axisLine={false}
           width={56}
         />
-        <Bar dataKey="sessions" name="Sesiones" fill={panelColors.info} radius={[3, 3, 0, 0]} />
+        {/* Sesiones es el dato principal y sin juicio del gráfico: acento (D8). */}
+        <Bar dataKey="sessions" name="Sesiones" fill={panelColors.acento} radius={[3, 3, 0, 0]} />
       </BarChart>
     </ChartFrame>
   );
@@ -396,7 +399,7 @@ export const catalogoResumen: WidgetCatalogo<OverviewData> = {
           trend: trendPct(d.totals.netEur, d.prev?.netEur),
           tone: 'good',
           spark: byDayNeto(d),
-          sparkColor: panelColors.good,
+          sparkColor: panelColors.acento,
         }}
       />
     ),
@@ -503,7 +506,7 @@ export const catalogoResumen: WidgetCatalogo<OverviewData> = {
           sub: 'neto ÷ órdenes',
           trend: trendPct(d.totals.avgTicketEur, d.prev?.avgTicketEur),
           spark: byDayTicket(d),
-          sparkColor: panelColors.info,
+          sparkColor: panelColors.acento,
         }}
       />
     ),
@@ -529,7 +532,7 @@ export const catalogoResumen: WidgetCatalogo<OverviewData> = {
           sub: `${fmtInt(d.totals.ordersRefunded)} devueltas`,
           trend: trendPct(d.totals.orders, d.prev?.orders),
           spark: byDayOrdenes(d),
-          sparkColor: panelColors.info,
+          sparkColor: panelColors.acento,
         }}
       />
     ),
@@ -553,7 +556,7 @@ export const catalogoResumen: WidgetCatalogo<OverviewData> = {
           sub: 'sesiones únicas',
           trend: trendPct(d.totals.sessions, d.prev?.sessions),
           spark: byDaySesiones(d),
-          sparkColor: panelColors.info,
+          sparkColor: panelColors.acento,
         }}
       />
     ),

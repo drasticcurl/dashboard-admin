@@ -31,7 +31,7 @@ export function FunnelsSection({
     alias: '',
     timezone: 'America/Argentina/Buenos_Aires',
     sellCurrency: 'ARS',
-    // El violeta #8b5cf6 que había acá era el último resto del degradado
+    // El violeta (el violet-500 de Tailwind) que había acá era el último resto del degradado
     // violeta→esmeralda que se sacó del panel, y no era sólo una clase: este
     // valor se PERSISTE en la fila del funnel y de ahí viaja a los gráficos.
     // El default nuevo es el acento del panel. Ojo: los funnels que ya existen
@@ -192,7 +192,7 @@ export function FunnelsSection({
 
       {editFunnel && (
         <div className="mt-4 space-y-3 rounded-xl border border-border-subtle bg-overlay/2 p-4">
-          <p className="text-sm font-semibold text-neutral-200">Editando {editFunnel.slug}</p>
+          <p className="font-display text-sm font-semibold -tracking-[0.01em] text-neutral-100">Editando {editFunnel.slug}</p>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <label className="flex flex-col gap-1 text-xs text-neutral-500">
               Nombre
@@ -235,7 +235,7 @@ export function FunnelsSection({
               <input className={inputCls} value={funnelForm.variants} onChange={(e) => setFunnelForm({ ...funnelForm, variants: e.target.value })} />
             </label>
             <label className="flex items-center gap-2 text-xs text-neutral-400">
-              <input type="checkbox" checked={funnelForm.active} onChange={(e) => setFunnelForm({ ...funnelForm, active: e.target.checked })} className="h-4 w-4 accent-good-500" />
+              <input type="checkbox" checked={funnelForm.active} onChange={(e) => setFunnelForm({ ...funnelForm, active: e.target.checked })} className="h-4 w-4 accent-acento-500" />
               Activo
             </label>
 
@@ -248,7 +248,7 @@ export function FunnelsSection({
       )}
 
       <div className="mt-4 border-t border-border-subtle pt-4">
-        <p className="mb-3 text-sm font-semibold text-neutral-200">Alta de un funnel nuevo</p>
+        <p className="mb-3 font-display text-sm font-semibold -tracking-[0.01em] text-neutral-100">Alta de un funnel nuevo</p>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <label className="flex flex-col gap-1 text-xs text-neutral-500">
             Slug (minúsculas, sin espacios)

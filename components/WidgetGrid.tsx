@@ -43,6 +43,7 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import { ArrowsOut, CaretDown, Check, DotsSixVertical, PencilSimple, Plus, X } from '@phosphor-icons/react';
 import { Banner, EmptyState, Grid } from './ui';
+import { panelColors } from '@/tailwind.config';
 import { hasChanges, parseLayout, reorder, resolveLayout, resize } from '@/lib/widgets/layout';
 import type {
   WidgetCatalogo,
@@ -93,10 +94,10 @@ function spanClases(placement: WidgetPlacement): string {
 }
 
 const BOTON_SECUNDARIO =
-  'tap inline-flex items-center gap-1.5 rounded-lg border border-border-subtle bg-canvas px-3 py-1.5 text-xs font-medium text-neutral-200 transition-colors hover:bg-overlay/4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-good-500/60 disabled:cursor-not-allowed disabled:opacity-40';
+  'tap inline-flex items-center gap-1.5 rounded-lg border border-border-subtle bg-canvas px-3 py-1.5 text-xs font-medium text-neutral-200 transition-colors hover:bg-overlay/4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-acento-500/60 disabled:cursor-not-allowed disabled:opacity-40';
 
 const BOTON_CONTROL =
-  'flex h-7 w-7 items-center justify-center rounded-lg border border-border-subtle bg-surface text-neutral-400 transition-colors hover:bg-overlay/4 hover:text-neutral-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-good-500/60';
+  'flex h-7 w-7 items-center justify-center rounded-lg border border-border-subtle bg-surface text-neutral-400 transition-colors hover:bg-overlay/4 hover:text-neutral-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-acento-500/60';
 
 type ControlesProps<T> = {
   def: WidgetDef<T>;
@@ -125,7 +126,7 @@ function ControlesWidget<T>({
         {...listenersArrastre}
         aria-label={`Arrastrar ${def.label} para reordenar`}
         title="Arrastrar para reordenar (o Tab + flechas)"
-        className={`${BOTON_CONTROL} touch-none cursor-grab active:cursor-grabbing`}
+        className={`${BOTON_CONTROL} touch-none cursor-grab hover:text-acento-300 active:cursor-grabbing active:border-acento-700 active:text-acento-200`}
       >
         <DotsSixVertical size={14} weight="bold" />
       </button>
@@ -197,7 +198,7 @@ function MenuTamaños({
                     setAbierto(false);
                   }}
                   className={`flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-xs transition-colors hover:bg-overlay/4 focus-visible:outline-none focus-visible:bg-overlay/4 ${
-                    esActual ? 'text-good-300' : 'text-neutral-200'
+                    esActual ? 'text-acento-300' : 'text-neutral-200'
                   }`}
                 >
                   {tamañoLabel(s)}
@@ -241,8 +242,16 @@ function TarjetaWidget<T>({
   return (
     <div
       onPointerMove={seguirPuntero}
-      className={`group/tarjeta relative flex h-full flex-col rounded-2xl border border-border-subtle bg-surface shadow-inset-highlight transition-[opacity,border-color] duration-300 hover:border-border-strong ${
-        arrastrando ? 'opacity-80' : ''
+      // En edición la tarjeta lleva un filo del acento oscuro: sin él, el único
+      // aviso de "esto se puede mover" eran los tres botones chicos del header.
+      // La que se está arrastrando sube un paso más (borde del tono + sombra
+      // flotante), que es lo que la separa de la que tiene debajo.
+      className={`group/tarjeta relative flex h-full flex-col rounded-2xl border bg-surface shadow-inset-highlight transition-[opacity,border-color,box-shadow] duration-300 ${
+        arrastrando
+          ? 'border-acento-700 opacity-90 shadow-float'
+          : controles
+            ? 'border-acento-900 hover:border-acento-800'
+            : 'border-border-subtle hover:border-border-strong'
       }`}
     >
       {/* El brillo que sigue al mouse. Capa aparte con su propio
@@ -254,13 +263,17 @@ function TarjetaWidget<T>({
         aria-hidden="true"
         className="pointer-events-none absolute inset-0 overflow-hidden rounded-2xl opacity-0 transition-opacity duration-500 group-hover/tarjeta:opacity-100"
         style={{
-          background:
-            'radial-gradient(420px circle at var(--mx, 50%) var(--my, 0%), rgba(62, 215, 160, 0.055), transparent 60%)',
+          // El tinte sale del acento de `panelColors` y no de un rgba escrito a
+          // mano: el literal de antes era el verde viejo, y una luz verde sobre
+          // cada tarjeta decía "bien" al pasar el mouse por un número en rojo.
+          background: `radial-gradient(420px circle at var(--mx, 50%) var(--my, 0%), color-mix(in srgb, ${panelColors.acento} 6%, transparent), transparent 60%)`,
         }}
       />
       <div className="relative flex items-start justify-between gap-3 border-b border-border-subtle px-4 py-3">
         <div className="min-w-0">
-          <h3 className="truncate text-sm font-semibold text-neutral-100">{def.label}</h3>
+          <h3 className="truncate font-display text-[15px] font-semibold leading-snug -tracking-[0.01em] text-neutral-50">
+            {def.label}
+          </h3>
           {def.hint && <p className="mt-0.5 text-xs text-neutral-500">{def.hint}</p>}
         </div>
         {controles && <div className="flex shrink-0 items-center gap-1.5">{controles}</div>}
@@ -350,13 +363,13 @@ function ListaWidgets<T>({
                     type="button"
                     disabled={yaEsta}
                     onClick={() => onAgregar(def.id)}
-                    className={`rounded-xl border border-border-subtle bg-canvas px-3 py-2 text-left transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-good-500/60 disabled:cursor-default disabled:opacity-45 ${
+                    className={`rounded-xl border border-border-subtle bg-canvas px-3 py-2 text-left transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-acento-500/60 disabled:cursor-default disabled:opacity-45 ${
                       yaEsta ? '' : 'hover:border-border-strong hover:bg-overlay/3'
                     }`}
                   >
                     <span className="flex items-center justify-between gap-2">
                       <span className="text-sm font-medium text-neutral-100">{def.label}</span>
-                      <span className={`text-[11px] max-panel:text-xs font-semibold ${yaEsta ? 'text-neutral-500' : 'text-good-400'}`}>
+                      <span className={`text-[11px] max-panel:text-xs font-semibold ${yaEsta ? 'text-neutral-500' : 'text-acento-400'}`}>
                         {yaEsta ? 'En pantalla' : '+ Agregar'}
                       </span>
                     </span>
@@ -572,7 +585,7 @@ export function WidgetGrid<T>({
                 type="button"
                 onClick={guardarLayout}
                 disabled={!dirty || estado === 'saving'}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-good-500 px-3 py-1.5 text-xs font-semibold text-neutral-950 transition-colors hover:bg-good-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-good-500/60 disabled:cursor-not-allowed disabled:opacity-40"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-b from-acento-400 to-acento-500 px-3 py-1.5 text-xs font-semibold text-canvas shadow-glow-acento transition-[filter] hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-acento-500/60 disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none disabled:hover:brightness-100"
               >
                 {estado === 'saving' ? 'Guardando…' : 'Guardar'}
               </button>

@@ -131,9 +131,11 @@ const STATUS_TONE: Record<string, Tone> = {
 
 // Colores del mix por tier: TODOS de la paleta de tailwind.config.ts, ahora sí.
 // `upsell2` y `downsell` eran los dos literales que contradecían este comentario
-// (#38bdf8 y #fb7185); viven en panelColors como infoLight y badLight.
+// (celeste y rosa escritos a mano); viven en panelColors como infoLight y
+// badLight. `front` va en acento y no en `good`: es la porción principal del
+// mix, no "la que va bien" (D8).
 const TIER_COLOR: Record<string, string> = {
-  front: panelColors.good,
+  front: panelColors.acento,
   bump: panelColors.info,
   upsell: panelColors.warn,
   upsell2: panelColors.infoLight,
@@ -236,14 +238,14 @@ function sparkNeto(sales: SalesData, showEur: boolean): ReactNode {
       <AreaChart data={rows} margin={{ top: 4, right: 0, left: 0, bottom: 0 }}>
         <defs>
           <linearGradient id="spark-ventas-neto" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={panelColors.good} stopOpacity={0.25} />
-            <stop offset="100%" stopColor={panelColors.good} stopOpacity={0} />
+            <stop offset="0%" stopColor={panelColors.acento} stopOpacity={0.25} />
+            <stop offset="100%" stopColor={panelColors.acento} stopOpacity={0} />
           </linearGradient>
         </defs>
         <Area
           type="monotone"
           dataKey="net"
-          stroke={panelColors.good}
+          stroke={panelColors.acento}
           strokeWidth={1.5}
           fill="url(#spark-ventas-neto)"
           isAnimationActive={false}
@@ -280,7 +282,7 @@ function TipDia({
   return (
     <div className="rounded-lg border border-border-strong bg-surface-raised px-3 py-2 text-xs shadow-float">
       <p className="mb-1 font-semibold text-neutral-100">{d.day}</p>
-      <p className="font-mono tabular-nums text-good-400">Neto: {fmtMoney(d.net, currency)}</p>
+      <p className="font-mono tabular-nums text-acento-400">Neto: {fmtMoney(d.net, currency)}</p>
       <p className="font-mono tabular-nums text-bad-400">
         Devuelto: {fmtMoney(Math.abs(d.refunded), currency)}
       </p>
@@ -291,13 +293,13 @@ function TipDia({
 
 const EJES_DIA = (
   <>
-    <CartesianGrid stroke="rgba(255,255,255,0.06)" vertical={false} />
+    <CartesianGrid stroke={panelColors.grid} vertical={false} />
     <XAxis
       dataKey="day"
       tickFormatter={(v: string) => `${v.slice(8)}/${v.slice(5, 7)}`}
       tick={{ fontSize: 11, fill: panelColors.axis }}
       tickLine={false}
-      axisLine={{ stroke: 'rgba(255,255,255,0.12)' }}
+      axisLine={{ stroke: panelColors.axisLine }}
       minTickGap={24}
     />
     <YAxis
@@ -332,11 +334,13 @@ function TipDevuelto({
   );
 }
 
+/** El neto por día es volumen de ventas, no ganancia: va en acento y lo
+ *  único con juicio del gráfico es el rojo de lo devuelto (D8). */
 function Leyenda(): JSX.Element {
   return (
     <div className="mb-2 flex items-center gap-4 text-xs text-neutral-500">
       <span className="flex items-center gap-1.5">
-        <span className="h-2 w-2 rounded-full" style={{ backgroundColor: panelColors.good }} />
+        <span className="h-2 w-2 rounded-full" style={{ backgroundColor: panelColors.acento }} />
         Neto
       </span>
       <span className="flex items-center gap-1.5">
@@ -381,7 +385,7 @@ function MaskedEmail({ email }: { email: string | null }): JSX.Element {
       type="button"
       onClick={() => setOpen((o) => !o)}
       aria-label={open ? 'Ocultar email completo' : 'Mostrar email completo'}
-      className="rounded-sm font-mono tabular-nums text-neutral-300 underline decoration-dotted underline-offset-2 transition-colors hover:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-good-500/50"
+      className="rounded-sm font-mono tabular-nums text-neutral-300 underline decoration-dotted underline-offset-2 transition-colors hover:text-neutral-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-acento-500/50"
     >
       {open ? email : masked}
     </button>
@@ -672,7 +676,7 @@ export const catalogoVentas: WidgetCatalogo<VentasWidgetData> = {
     sub: (d) => (
       <>
         de {fmtInt(d.sales.totals.ordersApproved)} aprobadas —{' '}
-        <Link href="/config" className="underline underline-offset-2">
+        <Link href="/config" className="rounded-sm underline underline-offset-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-acento-500/60">
           cargá el % de la pasarela
         </Link>
       </>
@@ -688,7 +692,7 @@ export const catalogoVentas: WidgetCatalogo<VentasWidgetData> = {
     sub: (d) => (
       <>
         de {fmtInt(d.sales.totals.ordersApproved)} aprobadas —{' '}
-        <Link href="/config" className="underline underline-offset-2">
+        <Link href="/config" className="rounded-sm underline underline-offset-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-acento-500/60">
           cargá el costo de cada producto
         </Link>
       </>
@@ -723,8 +727,8 @@ export const catalogoVentas: WidgetCatalogo<VentasWidgetData> = {
             <ChartFrame alto="lg">
               <BarChart data={rows} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                 {EJES_DIA}
-                <Tooltip content={<TipDia currency={cur} />} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
-                <Bar dataKey="net" fill={panelColors.good} radius={[3, 3, 0, 0]} />
+                <Tooltip content={<TipDia currency={cur} />} cursor={{ fill: panelColors.cursor }} />
+                <Bar dataKey="net" fill={panelColors.acento} radius={[3, 3, 0, 0]} />
                 <Bar dataKey="refunded" fill={panelColors.bad} radius={[3, 3, 0, 0]} />
               </BarChart>
             </ChartFrame>
@@ -752,7 +756,7 @@ export const catalogoVentas: WidgetCatalogo<VentasWidgetData> = {
           <ChartFrame alto="lg">
             <BarChart data={rows} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
               {EJES_DIA}
-              <Tooltip content={<TipDevuelto currency={cur} />} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
+              <Tooltip content={<TipDevuelto currency={cur} />} cursor={{ fill: panelColors.cursor }} />
               <Bar dataKey="refunded" fill={panelColors.bad} radius={[3, 3, 0, 0]} />
             </BarChart>
           </ChartFrame>

@@ -57,9 +57,9 @@ export function SwitchMoneda(): JSX.Element {
             type="button"
             onClick={() => elegir(m)}
             aria-pressed={activa}
-            className={`press min-w-[44px] justify-center rounded-md px-2.5 py-1 font-mono text-[13px] font-medium transition-colors duration-250 focus:outline-none focus-visible:ring-2 focus-visible:ring-good-500/50 panel:min-w-0 ${
+            className={`press min-w-[44px] justify-center rounded-md px-2.5 py-1 font-mono text-[13px] font-medium transition-colors duration-250 focus:outline-none focus-visible:ring-2 focus-visible:ring-acento-500/50 panel:min-w-0 ${
               activa
-                ? 'bg-good-900 text-good-100'
+                ? 'bg-acento-900 text-acento-100'
                 : 'text-neutral-400 hover:bg-overlay/6 hover:text-neutral-200'
             }`}
           >

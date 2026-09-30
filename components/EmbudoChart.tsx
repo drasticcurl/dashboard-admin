@@ -20,6 +20,12 @@
  *     borde punteado y con su etiqueta.
  *   - El porcentaje va DENTRO del tramo y el nombre DEBAJO, alineados en la
  *     misma grilla de columnas.
+ *
+ * Rediseño iris: los conectores entre etapas son la costura (D7-3), el
+ * tercero de los cuatro lugares donde aparece la firma del panel. Un tramo de
+ * hilván por conector y nada más: sin flechas ni íconos encima, porque la
+ * puntada ya dice "de acá se pasa a acá" y todo lo que se le sume la vuelve
+ * decoración.
  */
 
 import type { EmbudoEtapa } from '@/lib/widgets/tipos';
@@ -148,7 +154,11 @@ export function EmbudoChart({ etapas }: { etapas: EmbudoEtapa[] }): JSX.Element 
                   points={`${x0},${yTopIzq} ${x1},${yTopDer} ${x1},${yTopDer + hDer} ${x0},${yTopIzq + hIzq}`}
                   fill={RELLENO[sev]}
                   fillOpacity={0.85}
-                  stroke={e.inconsistente ? panelColors.warn : 'rgba(255,255,255,0.18)'}
+                  // El filo claro entre tramos sale de `inkOnDark` con opacidad y
+                  // no de un blanco escrito a mano: un blanco puro sobre el
+                  // canvas violáceo queda de otra familia (D5).
+                  stroke={e.inconsistente ? panelColors.warn : panelColors.inkOnDark}
+                  strokeOpacity={e.inconsistente ? 1 : 0.18}
                   strokeWidth={e.inconsistente ? 3 : 1}
                   strokeDasharray={e.fuente === 'hito' ? '6 4' : undefined}
                 />
@@ -171,13 +181,28 @@ export function EmbudoChart({ etapas }: { etapas: EmbudoEtapa[] }): JSX.Element 
           })}
         </svg>
 
-        <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${n}, minmax(0, 1fr))` }}>
+        {/*
+          La fila de nombres, cosida. Cada columna desde la segunda lleva el
+          conector que la une con la anterior: un tramo de `.costura` que va del
+          centro de la etapa previa al centro de esta, con 10px de aire en cada
+          punta para que cada conector se lea como uno y no como una sola línea
+          punteada corrida. El ancho es la columna más el `gap-1` (4px) menos
+          ese aire. Reemplaza al `border-t` de antes: es la misma línea, pero
+          ahora dice "de acá se pasa a acá" en vez de sólo separar.
+        */}
+        <div className="mt-1 grid gap-1" style={{ gridTemplateColumns: `repeat(${n}, minmax(0, 1fr))` }}>
           {etapas.map((e, i) => (
             <div
               key={e.stageOrder}
-              className="min-w-0 border-t border-border-subtle pt-2 text-center"
+              className="relative min-w-0 pt-3 text-center"
               title={e.inconsistente ? TITULO_INCONSISTENTE : undefined}
             >
+              {i > 0 && (
+                <span
+                  aria-hidden
+                  className="costura absolute right-[calc(50%+10px)] top-0 w-[calc(100%-16px)]"
+                />
+              )}
               <p className="truncate text-[11px] max-panel:text-xs font-medium text-neutral-300" title={e.label}>
                 {e.inconsistente && <span className="text-warn-400">⚠ </span>}
                 {e.label}
@@ -215,7 +240,14 @@ export function EmbudoChart({ etapas }: { etapas: EmbudoEtapa[] }): JSX.Element 
         siguiente, igual que el horizontal, así las piezas encadenan y la lista
         se lee como un embudo que baja y no como ocho barras sueltas.
       */}
-      <ul className="flex flex-col gap-1 rounded-xl border border-border-subtle bg-overlay/2 p-2 panel:hidden">
+      {/*
+        Acá el conector es la `.costura-v`: una puntada de 6px en el hueco de
+        10px entre dos trapecios, alineada con su centro (`w-14` → 28px, menos
+        1px del ancho de la costura). Es el hilván uniendo dos piezas, que es
+        literalmente lo que un hilván hace. El `h-1.5` le gana al `height:100%`
+        de la clase y deja 2px de aire arriba y abajo.
+      */}
+      <ul className="flex flex-col gap-2.5 rounded-xl border border-border-subtle bg-overlay/2 p-2 panel:hidden">
         {etapas.map((e, i) => {
           const aIzq = etapas[i]!.anchoDibujo;
           const aDer = i + 1 < n ? etapas[i + 1]!.anchoDibujo : aIzq;
@@ -226,9 +258,12 @@ export function EmbudoChart({ etapas }: { etapas: EmbudoEtapa[] }): JSX.Element 
           return (
             <li
               key={e.stageOrder}
-              className="flex min-h-[54px] items-center gap-3"
+              className="relative flex min-h-[54px] items-center gap-3"
               title={e.inconsistente ? TITULO_INCONSISTENTE : undefined}
             >
+              {i > 0 && (
+                <span aria-hidden className="costura-v absolute -top-2 left-[27px] h-1.5" />
+              )}
               <span
                 aria-hidden
                 className="h-[54px] w-14 shrink-0 rounded-sm"

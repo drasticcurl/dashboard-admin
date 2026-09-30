@@ -5,24 +5,26 @@ import type { Config } from 'tailwindcss';
  * nombres dicen QUÉ es, no de qué color es: `surface` sobrevive a un cambio de
  * paleta, `gris-oscuro` no.
  *
- * ── Rediseño "vidrio líquido" ──────────────────────────────────────────────
+ * ── Rediseño "vidrio líquido" (v3) y rediseño "iris sobre tinta" ───────────
  *
- * Este archivo es la palanca del rediseño: cambiar un token acá repinta las 8
+ * Este archivo es la palanca del rediseño: cambiar un token acá repinta las 9
  * pantallas sin tocar un solo call site. Tres decisiones concentran casi todo
  * el cambio visual, y las tres viven en este archivo:
  *
- *   1. UN acento, no dos. Antes había un degradado violeta→esmeralda en el
- *      logo y en el glow del layout, y al mismo tiempo `good` (verde) en los
- *      botones, los focus ring y la tab activa. Dos identidades peleando. El
- *      violeta se fue: el acento del panel es `good`, que es el que ya usaban
- *      los controles. Los otros tres tonos (warn/bad/info) NO son acentos,
- *      son semántica —verde bien, rojo mal— y por eso sobreviven.
+ *   1. El acento NO es `good`. Hasta v3 el acento del panel era el verde de
+ *      `good`, y eso hacía que un botón «Guardar» y una celda de ganancia
+ *      fueran del MISMO color: en un panel de plata, el ojo no podía separar
+ *      "tocá esto" de "esto salió bien", que es la lectura principal. Ahora la
+ *      interfaz (botones, foco, selección, activo, logo) va en `acento`, un
+ *      iris violáceo, y `good`/`warn`/`bad`/`info` quedan SOLO como semántica
+ *      —verde bien, rojo mal—. Un verde en pantalla vuelve a querer decir algo.
  *
  *   2. Los grises del texto se retiñeron. `neutral` de Tailwind es un gris
- *      PURO (#737373) y el canvas del panel tiene tinte azul: mezclar los dos
- *      es mezclar familias de gris, que es lo que hacía ver la UI "sucia".
- *      Acá `neutral` se sobreescribe con un grafito frío del mismo hue que el
- *      canvas. Son ~500 usos de `text-neutral-*` que se corrigen solos.
+ *      PURO (#737373) y el canvas del panel tiene tinte de tinta violácea:
+ *      mezclar los dos es mezclar familias de gris, que es lo que hacía ver la
+ *      UI "sucia". Acá `neutral` se sobreescribe con un grafito del MISMO hue
+ *      que el canvas (retinteado de azul a violeta en el rediseño iris, junto
+ *      con el canvas). Son ~800 usos de `neutral-*` que se corrigen solos.
  *      Los tonos apagados (400/500) quedaron MÁS claros que los de Tailwind,
  *      no más oscuros: `text-neutral-500` sobre `surface` pasa de ~4.0:1 a
  *      ~4.6:1 de contraste. El rediseño no se paga con accesibilidad.
@@ -43,38 +45,52 @@ export const panelColors = {
   /**
    * El fondo del panel. Casi negro pero NO #000: negro puro sobre un panel
    * de datos aplasta el contraste de las tarjetas y hace ver los bordes como
-   * suciedad. Este lleva un tinte azul mínimo que es el hue del que salen
-   * todos los grises y todas las sombras.
+   * suciedad. Este lleva un tinte de tinta violácea, el hue del que salen
+   * todos los grises y todas las sombras: es el que hace que el iris del
+   * acento se sienta de la casa y no pegado encima.
    */
-  canvas: '#08090d',
-  surface: '#111219',
-  surfaceRaised: '#191b24',
+  canvas: '#0c0b14',
+  surface: '#15141f',
+  surfaceRaised: '#1d1c2b',
   /** Un peldaño más arriba, para popovers y modales sobre `surfaceRaised`. */
-  surfaceOverlay: '#21242f',
+  surfaceOverlay: '#252437',
   /** El color de los ticks de eje y textos suaves de los gráficos. */
-  axis: '#8c8f9c',
+  axis: '#9894ab',
   /** Texto sobre relleno claro (etiquetas dentro de una barra). */
-  ink: '#0e1015',
+  ink: '#0c0b14',
   /** Texto sobre el canvas, en SVG donde no llegan las clases. */
-  inkOnDark: '#d7dae2',
+  inkOnDark: '#d8d6e4',
   /** El relleno "sin severidad" del embudo: neutral-700. */
-  muted: '#3c414e',
-  good: '#22c58a',
-  warn: '#e8a33d',
-  bad: '#ec5a63',
-  info: '#4a9ae8',
+  muted: '#3e3b4f',
+  good: '#34d39a',
+  warn: '#f0b04a',
+  bad: '#ff6b72',
+  info: '#5cb8ff',
   /**
    * Los tonos -400 como valores JS. Existen porque el mix por tier de Ventas
    * necesita CINCO series distinguibles y sólo hay cuatro tonos semánticos:
    * antes los dos que faltaban eran literales (#38bdf8, #fb7185) escritos a
    * mano justo debajo de un comentario que juraba que no había literales.
    */
-  infoLight: '#6cb0ee',
-  badLight: '#f47178',
+  infoLight: '#7cc5ff',
+  badLight: '#ff8388',
+  /**
+   * El acento como valor JS, para la serie principal "sin juicio" de un
+   * gráfico (ventas, gasto, leads): D8. Pintarla de `good` hacía que un
+   * gráfico de ventas se leyera como "todo bien" aunque se estuviera
+   * perdiendo plata. `acentoLight` es la serie secundaria del mismo tono.
+   */
+  acento: '#8b7bff',
+  acentoLight: '#b0a6ff',
   /** Cromo de los gráficos: hoy duplicado como literal en 5 archivos. */
   grid: 'rgba(255, 255, 255, 0.05)',
   axisLine: 'rgba(255, 255, 255, 0.10)',
-  cursor: 'rgba(255, 255, 255, 0.04)',
+  /**
+   * La columna bajo el mouse, teñida del acento y no blanca: es "lo que estás
+   * mirando", o sea interfaz, y un blanco translúcido sobre el canvas violáceo
+   * se lee gris lavado.
+   */
+  cursor: 'rgba(139, 123, 255, 0.08)',
 };
 
 export default {
@@ -124,64 +140,87 @@ export default {
          * pertenezcan a la misma familia.
          */
         neutral: {
-          50: '#f7f8fa',
-          100: '#eceef3',
-          200: '#d7dae2',
-          300: '#b4b9c5',
-          400: '#8e93a3',
-          500: '#787e8e',
-          600: '#565c6b',
-          700: '#3c414e',
-          800: '#282c37',
-          900: '#191c24',
-          950: '#0e1015',
+          50: '#f7f7fb',
+          100: '#ecebf3',
+          200: '#d8d6e4',
+          300: '#b6b3c7',
+          400: '#9894ab',
+          500: '#827e98',
+          600: '#5c5870',
+          700: '#3e3b4f',
+          800: '#2a2839',
+          900: '#1b1a26',
+          950: '#0f0e17',
         },
         /**
-         * El acento. Los tonos 100 y 700..900 los agregó el rediseño v3: son
-         * los rellenos OSCUROS del acento, que antes no existían.
+         * El acento de la INTERFAZ: iris. Botones primarios, foco, lo
+         * seleccionado/activo, checkboxes, links, el logo (decisión 1).
          *
-         * Hacían falta porque hasta v3 "esto está seleccionado" se pintaba con
-         * un blanco translúcido (`bg-overlay/8`) que es el MISMO relleno que usa
-         * el hover. En una tabla de 14 columnas donde la fila abierta tiene un
-         * popover encima, "la fila con la que estoy trabajando" y "la fila
-         * debajo del mouse" no pueden verse igual. Con `bg-good-900` el estado
-         * activo es del color del acento y el hover sigue siendo neutro.
+         * Se llama `acento` y no `accent` a propósito: `accent-*` ya es la
+         * utilidad de `accent-color` de Tailwind, y el checkbox del acento se
+         * escribiría `accent-accent-500`, que no se puede leer.
          *
-         * Los valores son los del handoff (accent-100/700/800/900). 900 es tan
-         * oscuro (#0b2c21) que funciona como fondo de fila sin tapar el texto:
-         * `text-good-100` sobre `bg-good-900` da ~11:1.
+         * Los pasos significan lo MISMO que en `good` (100/200 texto sobre el
+         * relleno oscuro, 300/400 texto sobre surface, 500 base, 600 base
+         * oscura, 700 borde, 800 relleno medio, 900 relleno de fila activa): así
+         * migrar `bg-good-900` → `bg-acento-900` es cambiar una palabra, no
+         * re-decidir contraste en cada call site. Los contrastes están medidos
+         * una sola vez en tasks/rediseno-iris/_verificacion-contraste.mjs.
+         *
+         * 900 existe por lo mismo que existía en `good`: "la fila con la que
+         * estoy trabajando" no puede verse igual que "la fila debajo del mouse"
+         * (`bg-overlay/4`). El activo lleva color; el hover sigue neutro.
+         */
+        acento: {
+          100: '#e6e2ff',
+          200: '#cbc4ff',
+          300: panelColors.acentoLight,
+          400: '#9d8fff',
+          500: panelColors.acento,
+          600: '#6f5ef0',
+          700: '#5242c4',
+          800: '#352a85',
+          900: '#1e1848',
+        },
+        /**
+         * "Esto está bien": ganancia, tendencia a favor, activo/entregando, una
+         * acción que salió bien. NO es un color de interfaz desde el rediseño
+         * iris; si un verde aparece en un botón o en un foco, es un bug de D1.
+         *
+         * Conserva sus 100 y 700..900 (los rellenos oscuros) porque los estados
+         * semánticos también los usan: la pastilla "Activo", la fila de un "Sí".
          */
         good: {
-          100: '#cdf5e3',
-          200: '#a8f2d7',
-          300: '#6fe7bd',
-          400: '#3ed7a0',
+          100: '#d3f8ea',
+          200: '#a9f0d6',
+          300: '#74e4bd',
+          400: '#4fdba9',
           500: panelColors.good,
-          600: '#16a372',
-          700: '#157a57',
-          800: '#10513b',
-          900: '#0b2c21',
+          600: '#1fa877',
+          700: '#17805b',
+          800: '#10553d',
+          900: '#0a2e22',
         },
         warn: {
-          200: '#fbe0b4',
-          300: '#f8cc86',
-          400: '#f2b757',
+          200: '#fbe3b8',
+          300: '#f7cf8a',
+          400: '#f3bf66',
           500: panelColors.warn,
-          600: '#c2822a',
+          600: '#c98b2a',
         },
         bad: {
-          200: '#fcc3c6',
-          300: '#f9979c',
-          400: '#f47178',
+          200: '#ffc8cb',
+          300: '#ff9ea3',
+          400: panelColors.badLight,
           500: panelColors.bad,
-          600: '#c93f47',
+          600: '#d94a52',
         },
         info: {
-          200: '#c6e1fa',
-          300: '#9bcaf5',
-          400: '#6cb0ee',
+          200: '#cbe7ff',
+          300: '#9fd3ff',
+          400: panelColors.infoLight,
           500: panelColors.info,
-          600: '#2f7cc4',
+          600: '#3592db',
         },
       },
       /**
@@ -249,6 +288,15 @@ export default {
       fontFamily: {
         sans: ['var(--font-geist-sans)', 'system-ui', 'sans-serif'],
         mono: ['var(--font-geist-mono)', 'ui-monospace', 'SFMono-Regular', 'monospace'],
+        /**
+         * Bricolage Grotesque, SOLO para títulos (D6): h1 de pantalla, título de
+         * tarjeta, de sección, de modal, el nombre del panel. Nunca en números,
+         * tablas ni botones: sus cifras no son tabulares y una columna de
+         * importes en Bricolage baila de fila en fila. El fallback es Geist y
+         * no el sistema, así el primer frame (antes del swap) ya tiene la
+         * métrica del resto del panel y el título no salta de ancho.
+         */
+        display: ['var(--font-display)', 'var(--font-geist-sans)', 'system-ui', 'sans-serif'],
       },
       /**
        * Radios corridos hacia arriba (decisión 3). Los nombres son los de
@@ -266,8 +314,9 @@ export default {
       },
       /**
        * Sombras TEÑIDAS con el hue del canvas, no negro puro. Una sombra
-       * `rgba(0,0,0,.6)` sobre un fondo azulado se lee como un agujero gris;
-       * teñida se lee como profundidad.
+       * `rgba(0,0,0,.6)` sobre un fondo violáceo se lee como un agujero gris;
+       * teñida se lee como profundidad. El hue es `12 10 28`, el mismo que
+       * `--sombra` en globals.css: si cambia uno, cambia el otro.
        *
        * Todas arrancan con el mismo highlight interno de 1px arriba: es el
        * reflejo especular del borde superior, la pieza que hace que una
@@ -277,15 +326,15 @@ export default {
       boxShadow: {
         'inset-highlight': 'inset 0 1px 0 0 rgba(255, 255, 255, 0.05)',
         card:
-          'inset 0 1px 0 0 rgba(255, 255, 255, 0.05), 0 1px 2px -1px rgba(4, 6, 14, 0.7), 0 10px 28px -14px rgba(4, 6, 14, 0.75)',
+          'inset 0 1px 0 0 rgba(255, 255, 255, 0.05), 0 1px 2px -1px rgba(12, 10, 28, 0.7), 0 10px 28px -14px rgba(12, 10, 28, 0.75)',
         'card-hover':
-          'inset 0 1px 0 0 rgba(255, 255, 255, 0.08), 0 2px 4px -2px rgba(4, 6, 14, 0.7), 0 18px 44px -18px rgba(4, 6, 14, 0.85)',
+          'inset 0 1px 0 0 rgba(255, 255, 255, 0.08), 0 2px 4px -2px rgba(12, 10, 28, 0.7), 0 18px 44px -18px rgba(12, 10, 28, 0.85)',
         /** Vidrio: highlight arriba + refracción en el borde + sombra teñida. */
         glass:
-          'inset 0 1px 0 0 rgba(255, 255, 255, 0.07), inset 0 0 0 1px rgba(255, 255, 255, 0.04), 0 12px 32px -16px rgba(4, 6, 14, 0.8)',
+          'inset 0 1px 0 0 rgba(255, 255, 255, 0.07), inset 0 0 0 1px rgba(255, 255, 255, 0.04), 0 12px 32px -16px rgba(12, 10, 28, 0.8)',
         /** Popovers y modales: la misma luz, más caída. */
         float:
-          'inset 0 1px 0 0 rgba(255, 255, 255, 0.06), 0 24px 60px -20px rgba(4, 6, 14, 0.9)',
+          'inset 0 1px 0 0 rgba(255, 255, 255, 0.06), 0 24px 60px -20px rgba(12, 10, 28, 0.9)',
         /**
          * El popover anclado a una fila y la hoja de mobile (shadow-lg del
          * handoff v3). Se diferencia de `float` en el anillo de 1px: `float`
@@ -297,9 +346,18 @@ export default {
           '0 0 0 1px rgba(255, 255, 255, 0.14), 0 16px 40px rgba(0, 0, 0, 0.7)',
         /** La pastilla activa de un control segmentado (Nav, toggles). */
         lozenge:
-          'inset 0 1px 0 0 rgba(255, 255, 255, 0.11), 0 1px 2px 0 rgba(4, 6, 14, 0.6), 0 4px 12px -6px rgba(4, 6, 14, 0.7)',
-        /** Halo del acento, para el logo y el estado activo. */
-        'glow-good': '0 6px 20px -6px rgba(34, 197, 138, 0.45)',
+          'inset 0 1px 0 0 rgba(255, 255, 255, 0.11), 0 1px 2px 0 rgba(12, 10, 28, 0.6), 0 4px 12px -6px rgba(12, 10, 28, 0.7)',
+        /**
+         * Halo del acento: el logo y el botón primario. Es luz del iris sobre
+         * la tinta, así que el botón parece encendido y no apoyado.
+         */
+        'glow-acento': '0 6px 20px -6px rgba(139, 123, 255, 0.45)',
+        /**
+         * Halo de `good`, para lo que es un BUEN RESULTADO y quiere brillar (no
+         * para interfaz: eso es `glow-acento`). Mismo alfa de siempre, con el
+         * verde recalibrado de la paleta iris.
+         */
+        'glow-good': '0 6px 20px -6px rgba(52, 211, 154, 0.45)',
       },
       transitionTimingFunction: {
         /**

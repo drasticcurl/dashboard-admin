@@ -59,9 +59,9 @@ export function DialogoConfirmacion({
        viewport: es el «también pasa cuando le doy a editar a un anuncio» del
        reporte. Ver components/Portal.tsx. */
     <Portal>
-    <div className="fixed inset-0 z-modal flex items-center justify-center bg-canvas/80 p-4 backdrop-blur-sm" role="dialog" aria-modal="true">
-      <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-border-strong bg-surface p-5 shadow-float">
-        <h3 className="text-sm font-semibold text-neutral-100">Confirmar acción</h3>
+    <div className="fixed inset-0 z-modal flex items-center justify-center bg-canvas/75 p-4 backdrop-blur-sm" role="dialog" aria-modal="true">
+      <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-border-strong bg-surface-overlay p-5 shadow-popover">
+        <h3 className="font-display text-base font-semibold -tracking-[0.01em] text-neutral-50">Confirmar acción</h3>
 
         <div className="mt-3">
           <Previsualizacion previa={previa} />
@@ -79,7 +79,7 @@ export function DialogoConfirmacion({
             checked={confirmado}
             disabled={ejecutando}
             onChange={(e) => setConfirmado(e.target.checked)}
-            className="h-4 w-4 accent-good-500"
+            className="h-4 w-4 accent-acento-500"
           />
           Confirmo explícitamente que quiero ejecutar esta acción.
         </label>
@@ -101,7 +101,7 @@ export function DialogoConfirmacion({
             type="button"
             onClick={onCancelar}
             disabled={ejecutando}
-            className="rounded-md border border-border-strong px-3 py-1.5 text-sm text-neutral-300 hover:bg-overlay/6 disabled:cursor-not-allowed disabled:opacity-40"
+            className="press rounded-md border border-border-strong px-3 py-1.5 text-sm text-neutral-300 transition-colors duration-250 hover:bg-overlay/6 hover:text-neutral-100 disabled:cursor-not-allowed disabled:opacity-40"
           >
             Cancelar
           </button>
@@ -110,7 +110,7 @@ export function DialogoConfirmacion({
             onClick={onConfirmar}
             disabled={!puedeEjecutar}
             aria-describedby={bloqueo ? idBloqueo : undefined}
-            className="rounded-md bg-good-500 px-3 py-1.5 text-sm font-semibold text-neutral-950 hover:bg-good-400 disabled:cursor-not-allowed disabled:opacity-40"
+            className="press rounded-md bg-gradient-to-b from-acento-400 to-acento-500 px-3 py-1.5 text-sm font-semibold text-canvas shadow-glow-acento transition-[filter] duration-250 hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
           >
             {ejecutando ? 'Ejecutando…' : 'Ejecutar'}
           </button>

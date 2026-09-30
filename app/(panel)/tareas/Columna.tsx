@@ -38,8 +38,8 @@ export function Columna({
 
   return (
     /*
-      `bg-surface/60` y no `bg-canvas/40`: canvas ES el fondo de la página
-      (#08090d), así que `bg-canvas/40` sobre el canvas es EXACTAMENTE el mismo
+      `bg-surface/60` y no `bg-canvas/40`: canvas ES el fondo de la página,
+      así que `bg-canvas/40` sobre el canvas es EXACTAMENTE el mismo
       color — la columna quedaba sin relleno y en PC, con las 4 al lado, no se
       veía dónde empezaba y terminaba cada una. Tiene que ser translúcida y no
       `bg-surface` a secas: la columna es el hueco y las tarjetas de adentro son
@@ -51,10 +51,13 @@ export function Columna({
       className="flex flex-1 flex-col rounded-xl border border-border-subtle bg-surface/60 p-3"
     >
       <header className="mb-3 flex items-center justify-between gap-2 px-1">
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-neutral-400">
+        {/* Display chico (D6) y no el eyebrow en mayúsculas: el nombre de la
+            columna es el título de una sección, y en versalitas grises pesaba
+            lo mismo que el contador de al lado. */}
+        <h2 className="font-display text-sm font-semibold -tracking-[0.01em] text-neutral-100">
           {titulo}
         </h2>
-        <span className="rounded-full bg-overlay/7 px-2 py-0.5 text-[11px] max-panel:text-xs font-medium text-neutral-400">
+        <span className="rounded-full bg-overlay/7 px-2 py-0.5 font-mono text-[11px] max-panel:text-xs font-medium tabular-nums text-neutral-400">
           {tareas.length}
         </span>
       </header>
@@ -78,7 +81,8 @@ export function Columna({
       <div
         ref={setNodeRef}
         className={`flex min-h-[8rem] flex-1 flex-col gap-2 rounded-xl p-1 transition-[background-color,box-shadow] duration-150 panel:min-h-[20rem] ${
-          isOver ? 'bg-good-500/[0.06] shadow-inset-highlight ring-1 ring-inset ring-good-500/30' : ''
+          // Acento (D1): "vas a soltar acá" es interfaz, no un buen resultado.
+          isOver ? 'bg-acento-500/[0.06] shadow-inset-highlight ring-1 ring-inset ring-acento-500/30' : ''
         }`}
       >
         <SortableContext items={tareas.map((t) => t.id)} strategy={verticalListSortingStrategy}>

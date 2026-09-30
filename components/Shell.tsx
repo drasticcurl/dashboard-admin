@@ -89,8 +89,9 @@ export function Shell({
 }: {
   funnels: Funnel[];
   /**
-   * true = falta cargar el saldo de hoy en alguna cuenta. Pone un punto verde
-   * de 7px en Finanzas, y otro en el botón hamburguesa (donde el de Finanzas no
+   * true = falta cargar el saldo de hoy en alguna cuenta. Pone un punto del
+   * acento de 7px en Finanzas (es un "tocá acá", no un buen resultado: en verde
+   * se leía como "Finanzas está bien", que es justo lo contrario), y otro en el botón hamburguesa (donde el de Finanzas no
    * se ve, porque el menú está cerrado).
    *
    * El punto está además del aviso flotante (`AvisoSaldo`) y no en su lugar,
@@ -167,10 +168,15 @@ export function Shell({
       >
         <Link
           href="/resumen"
-          className="flex shrink-0 items-center gap-2.5 px-4 py-4 text-sm font-medium tracking-tight text-neutral-100 transition-colors hover:text-neutral-50"
+          className="flex shrink-0 items-center gap-2.5 px-4 py-4 text-neutral-100 transition-colors hover:text-neutral-50"
         >
           <PanelLogo />
-          <span className="truncate">{PANEL_TITLE}</span>
+          {/* El nombre del panel es de las pocas cosas en `font-display` (D6):
+              es la marca, y un punto más grande que los ítems para que el
+              sidebar tenga una cabeza y no sea una lista más. */}
+          <span className="truncate font-display text-[15px] font-semibold -tracking-[0.015em]">
+            {PANEL_TITLE}
+          </span>
         </Link>
 
         {/* `overflow-y-auto` y no un alto fijo: con nueve items y un usuario de
@@ -200,7 +206,7 @@ export function Shell({
         <>
           <div
             aria-hidden
-            className="fixed inset-0 z-modal bg-neutral-900/70 panel:hidden"
+            className="fixed inset-0 z-modal bg-canvas/75 backdrop-blur-sm panel:hidden"
             onClick={() => setDrawerAbierto(false)}
           />
           <div
@@ -210,9 +216,11 @@ export function Shell({
             className="fixed inset-y-0 left-0 z-modal flex w-[min(84%,300px)] flex-col border-r border-divider bg-surface shadow-popover panel:hidden"
           >
             <div className="flex shrink-0 items-center justify-between gap-2 border-b border-divider px-3 py-3">
-              <span className="flex min-w-0 items-center gap-2.5 text-sm font-medium text-neutral-100">
+              <span className="flex min-w-0 items-center gap-2.5 text-neutral-100">
                 <PanelLogo />
-                <span className="truncate">{PANEL_TITLE}</span>
+                <span className="truncate font-display text-[15px] font-semibold -tracking-[0.015em]">
+                  {PANEL_TITLE}
+                </span>
               </span>
               <button
                 type="button"
@@ -277,7 +285,7 @@ export function Shell({
               <>
                 <span
                   aria-hidden
-                  className="absolute right-2 top-2 h-[7px] w-[7px] rounded-full bg-good-500"
+                  className="absolute right-2 top-2 h-[7px] w-[7px] rounded-full bg-acento-500"
                 />
                 <span className="sr-only"> (falta cargar el saldo de hoy)</span>
               </>
@@ -322,7 +330,7 @@ export function Shell({
               conPeriodo={conf?.periodo ?? false}
               chip={
                 conf?.funnel && funnelActivo ? (
-                  <span className="rounded-md bg-good-900 px-2 py-0.5 text-xs font-medium text-good-200">
+                  <span className="rounded-md bg-acento-900 px-2 py-0.5 text-xs font-medium text-acento-200">
                     {funnelActivo}
                   </span>
                 ) : null
@@ -348,8 +356,11 @@ export function Shell({
  * al tener el mismo tratamiento visual que los ítems de navegación, «Salir»
  * competía con ellos —parecía una décima sección en vez de la salida—.
  *
- * Ahora «Salir» es un link de texto en verde: se ve que es una acción y no un
- * lugar al que se va.
+ * Ahora «Salir» es un link de texto en el acento: se ve que es una acción y no
+ * un lugar al que se va.
+ *
+ * El avatar va en `acento-800`: es "vos", o sea interfaz. En verde parecía un
+ * estado ("usuario activo / ok") que nadie estaba informando.
  */
 function PieUsuario({ nombre, salir }: { nombre?: string; salir: ReactNode }): JSX.Element {
   const inicial = nombre?.trim()?.[0]?.toUpperCase() ?? '?';
@@ -357,7 +368,7 @@ function PieUsuario({ nombre, salir }: { nombre?: string; salir: ReactNode }): J
     <div className="flex items-center gap-2">
       <span
         aria-hidden
-        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-good-800 text-xs font-medium text-good-100"
+        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-acento-800 text-xs font-medium text-acento-100"
       >
         {inicial}
       </span>
@@ -375,13 +386,15 @@ function PieUsuario({ nombre, salir }: { nombre?: string; salir: ReactNode }): J
  * Un item de navegación.
  *
  * El estado activo se marca con TRES señales a la vez y no sólo con el color de
- * la letra: fondo `accent-900`, texto `accent-100` y una barra interna de 2px a
- * la izquierda. Con nueve items del mismo largo, un cambio de color de letra no
+ * la letra: fondo `acento-900`, texto `acento-100` y la costura vertical a la
+ * izquierda. Con nueve items del mismo largo, un cambio de color de letra no
  * alcanza para responder "dónde estoy" de un vistazo.
  *
- * La barra va como pseudo-elemento (`before:`) y no como un borde: un
- * `border-left` corre el contenido 2px cuando aparece, así que el rótulo de la
- * sección activa quedaría desalineado con los otros ocho.
+ * La costura (`.costura-v`, globals.css) reemplaza a la barra lisa de 2px que
+ * había hasta v3, y es el primero de los cuatro lugares donde D7 la permite:
+ * el hilván marca "por acá vas". Va como elemento `absolute` y no como un
+ * borde: un `border-left` corre el contenido 2px cuando aparece, así que el
+ * rótulo de la sección activa quedaría desalineado con los otros ocho.
  */
 function ItemNav({
   tab,
@@ -406,22 +419,25 @@ function ItemNav({
         alto ? 'min-h-[48px]' : 'py-2'
       } ${
         activo
-          ? 'bg-good-900 font-medium text-good-100 before:absolute before:inset-y-1.5 before:left-0 before:w-0.5 before:rounded-full before:bg-good-500 before:content-[""]'
+          ? 'bg-acento-900 font-medium text-acento-100'
           : 'text-neutral-400 hover:bg-overlay/7 hover:text-neutral-100'
       }`}
     >
+      {/* `h-auto` pisa el `height: 100%` de la receta para que manden los
+          `inset-y`: la puntada queda dentro del ítem y no pegada a sus cantos. */}
+      {activo && <span aria-hidden className="costura-v absolute inset-y-2 left-0 h-auto" />}
       <Icono
         size={17}
         weight="bold"
         aria-hidden
-        className={`shrink-0 ${activo ? 'text-good-400' : ''}`}
+        className={`shrink-0 ${activo ? 'text-acento-400' : ''}`}
       />
       <span className="truncate">{tab.label}</span>
       {pendiente && (
         <>
           <span
             aria-hidden
-            className="ml-auto h-[7px] w-[7px] shrink-0 rounded-full bg-good-500"
+            className="ml-auto h-[7px] w-[7px] shrink-0 rounded-full bg-acento-500"
           />
           <span className="sr-only"> (falta cargar el saldo de hoy)</span>
         </>

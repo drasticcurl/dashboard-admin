@@ -362,7 +362,7 @@ export function TablaAds(props: PropsTablaAds): JSX.Element {
           checked={seleccionados.has(fila.objectId)}
           onChange={() => props.onSeleccion(fila.objectId)}
           aria-label={`Seleccionar ${NIVEL_LABEL[fila.level].toLowerCase()} ${fila.objectName ?? fila.objectId}`}
-          className="h-4 w-4 rounded border-overlay/20 bg-overlay/4 accent-good-500"
+          className="h-4 w-4 rounded border-overlay/20 bg-overlay/4 accent-acento-500"
         />
       );
     }
@@ -373,7 +373,7 @@ export function TablaAds(props: PropsTablaAds): JSX.Element {
             type="button"
             onClick={() => props.onBajarNivel(fila)}
             disabled={fila.level === 'ad'}
-            className="max-w-full truncate text-left text-neutral-200 underline-offset-2 hover:underline focus:outline-none focus:ring-2 focus:ring-good-500/50 disabled:cursor-default disabled:no-underline"
+            className="max-w-full truncate text-left text-neutral-200 underline-offset-2 hover:underline focus:outline-none focus:ring-2 focus:ring-acento-500/50 disabled:cursor-default disabled:no-underline"
             title={fila.objectName ?? undefined}
           >
             {fila.objectName ?? '(sin nombre)'}
@@ -383,7 +383,7 @@ export function TablaAds(props: PropsTablaAds): JSX.Element {
             onClick={() => props.onRenombrarFila(fila)}
             aria-label={`Renombrar ${fila.objectName ?? fila.objectId}`}
             title="Renombrar este objeto"
-            className="shrink-0 rounded p-0.5 text-neutral-500 hover:text-neutral-200 focus:outline-none focus:ring-2 focus:ring-good-500/50"
+            className="shrink-0 rounded p-0.5 text-neutral-500 hover:text-neutral-200 focus:outline-none focus:ring-2 focus:ring-acento-500/50"
           >
             <PencilSimple size={12} />
           </button>
@@ -435,7 +435,7 @@ export function TablaAds(props: PropsTablaAds): JSX.Element {
           aria-haspopup="dialog"
           aria-expanded={popover?.filaId === fila.objectId && popover.vista === 'presupuesto'}
           title="Editar presupuesto"
-          className="tap group flex items-center gap-1.5 rounded px-1 text-neutral-200 transition-colors duration-250 hover:text-neutral-50 focus:outline-none focus:ring-2 focus:ring-good-500/50"
+          className="tap group flex items-center gap-1.5 rounded px-1 text-neutral-200 transition-colors duration-250 hover:text-neutral-50 focus:outline-none focus:ring-2 focus:ring-acento-500/50"
         >
           <span className="tabular-nums">
             {fila.dailyBudgetEur === null ? '—' : money(fila.dailyBudgetEur)}
@@ -450,7 +450,7 @@ export function TablaAds(props: PropsTablaAds): JSX.Element {
           <PencilSimple
             size={12}
             aria-hidden
-            className="shrink-0 text-neutral-500 transition-colors duration-250 group-hover:text-good-400"
+            className="shrink-0 text-neutral-500 transition-colors duration-250 group-hover:text-acento-400"
           />
         </button>
       );
@@ -560,7 +560,7 @@ export function TablaAds(props: PropsTablaAds): JSX.Element {
                 key={fila.objectId}
                 className={`rounded-lg border p-3 transition-colors duration-250 ${
                   abierta
-                    ? 'border-good-700 bg-good-900'
+                    ? 'border-acento-700 bg-acento-900'
                     : 'border-border-subtle bg-overlay/2'
                 }`}
               >
@@ -635,7 +635,7 @@ export function TablaAds(props: PropsTablaAds): JSX.Element {
             <col style={{ width: ANCHO_ACCIONES }} />
           </colgroup>
           <thead>
-            <tr className={`border-b ${BORDE_ENCABEZADO}`}>
+            <tr className={`border-b ${BORDE_ENCABEZADO} bg-surface-raised`}>
               <DndContext sensors={sensores} collisionDetection={closestCenter} onDragEnd={alArrastrar}>
                 <SortableContext items={clavesNoFijas} strategy={horizontalListSortingStrategy}>
                   {columnasVisibles.map((c, i) => {
@@ -647,8 +647,12 @@ export function TablaAds(props: PropsTablaAds): JSX.Element {
                     // verticales por fila (R6 c4), con N = columnas + 1.
                     const esUltima = false;
                     const leftFija = c.clave === 'nombre' && !esMobile ? (anchosEfectivos.get('seleccion') ?? 48) : 0;
-                    const stickyClase = esFija ? 'sticky z-20 bg-surface' : '';
-                    const clases = `relative px-3 py-2 align-middle text-xs font-semibold uppercase tracking-wide ${stickyClase} ${
+                    // Encabezado un escalón más arriba que el cuerpo (surface-raised)
+                    // y en caja normal, como la tabla compartida: en la tabla más
+                    // densa del panel las versalitas gritaban más que los datos.
+                    // La fija copia el fondo del encabezado o queda un parche.
+                    const stickyClase = esFija ? 'sticky z-20 bg-surface-raised' : '';
+                    const clases = `relative px-3 py-2 align-middle text-xs font-medium text-neutral-400 ${stickyClase} ${
                       grilla && !esUltima ? `border-r ${BORDE_CELDA}` : ''
                     }`;
                     const estilo: React.CSSProperties = esFija ? { position: 'sticky', left: leftFija } : {};
@@ -664,7 +668,7 @@ export function TablaAds(props: PropsTablaAds): JSX.Element {
                               }}
                               onChange={() => props.onSeleccionTodas()}
                               aria-label="Seleccionar todas las filas de la página"
-                              className="h-4 w-4 rounded border-overlay/20 bg-overlay/4 accent-good-500"
+                              className="h-4 w-4 rounded border-overlay/20 bg-overlay/4 accent-acento-500"
                             />
                           )
                         : e
@@ -748,7 +752,7 @@ export function TablaAds(props: PropsTablaAds): JSX.Element {
                       para que pasar el mouse no la apague.
                     */
                     className={`border-b ${BORDE_CELDA} last:border-0 ${
-                      abierta ? 'bg-good-900' : 'hover:bg-overlay/2'
+                      abierta ? 'bg-acento-900' : 'hover:bg-overlay/2'
                     }`}
                   >
                     {columnasVisibles.map((c, j) => {
@@ -764,8 +768,8 @@ export function TablaAds(props: PropsTablaAds): JSX.Element {
                                el contenido por debajo al scrollear. Cuando la fila
                                está abierta, ese fondo tiene que ser el del acento
                                y no `bg-surface`, o la primera columna queda como
-                               un parche gris en medio de la fila verde. */
-                            esFija ? (abierta ? 'sticky z-20 bg-good-900' : 'sticky z-20 bg-surface') : ''
+                               un parche gris en medio de la fila iris. */
+                            esFija ? (abierta ? 'sticky z-20 bg-acento-900' : 'sticky z-20 bg-surface') : ''
                           } ${c.clave !== 'seleccion' && c.clave !== 'nombre' && c.clave !== 'estado' && c.clave !== 'presupuesto' ? 'font-mono text-right tabular-nums' : ''} ${
                             grilla && !esUltima ? `border-r ${BORDE_CELDA}` : ''
                           }`}
@@ -782,9 +786,9 @@ export function TablaAds(props: PropsTablaAds): JSX.Element {
                         aria-expanded={abierta}
                         aria-label={`Acciones de ${fila.objectName ?? fila.objectId}`}
                         title="Presupuesto, renombrar, duplicar, pausar"
-                        className={`press flex h-7 w-7 items-center justify-center rounded-md transition-colors duration-250 focus:outline-none focus:ring-2 focus:ring-good-500/50 ${
+                        className={`press flex h-7 w-7 items-center justify-center rounded-md transition-colors duration-250 focus:outline-none focus:ring-2 focus:ring-acento-500/50 ${
                           abierta
-                            ? 'bg-good-800 text-good-100'
+                            ? 'bg-acento-800 text-acento-100'
                             : 'text-neutral-500 hover:bg-overlay/8 hover:text-neutral-100'
                         }`}
                       >

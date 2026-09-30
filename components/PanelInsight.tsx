@@ -113,9 +113,9 @@ export function PanelInsight({
           onClick={analizar}
           disabled={generando}
           aria-busy={generando}
-          className="tap inline-flex items-center gap-1.5 rounded-md border border-border-strong px-2.5 py-1 text-xs font-semibold text-neutral-200 transition-colors hover:bg-overlay/6 disabled:cursor-not-allowed disabled:opacity-50"
+          className="tap inline-flex items-center gap-1.5 rounded-md border border-acento-800 bg-acento-900/50 px-2.5 py-1 text-xs font-semibold text-acento-100 transition-colors hover:bg-acento-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-acento-500/60 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {generando ? <Spinner /> : <Sparkle size={13} weight="bold" aria-hidden />}
+          {generando ? <Spinner /> : <Sparkle size={13} weight="bold" aria-hidden className="text-acento-300" />}
           {generando ? 'Analizando…' : actual ? 'Volver a analizar' : 'Analizar'}
         </button>
       </div>
@@ -129,7 +129,16 @@ export function PanelInsight({
       {/* aria-live: el resultado aparece sin que el foco se mueva, así que un
           lector de pantalla no lo anunciaría solo. `polite` y no `assertive`
           porque no interrumpe nada urgente. */}
-      <div aria-live="polite" className="flex flex-1 flex-col gap-2">
+      {/* Con análisis, la lista va en su propia superficie con el filo del
+          acento: es lo único del panel que no sale de una query sino de un
+          modelo, y tiene que leerse distinto de un aviso del sistema aunque use
+          los mismos `Banner`. Sobrio a propósito: sin degradado ni brillo. */}
+      <div
+        aria-live="polite"
+        className={`flex flex-1 flex-col gap-2 ${
+          actual && actual.insights.length > 0 ? 'rounded-xl border border-acento-800 bg-surface-raised p-2.5' : ''
+        }`}
+      >
         {!actual && !generando && (
           <EmptyState
             title="Sin análisis todavía"
@@ -168,7 +177,7 @@ export function PanelInsight({
       </div>
 
       {actual && (
-        <p className="text-[11px] max-panel:text-xs text-neutral-600">
+        <p className="text-[11px] max-panel:text-xs text-neutral-500">
           {actual.rango.desde === actual.rango.hasta
             ? actual.rango.desde
             : `${actual.rango.desde} → ${actual.rango.hasta}`}{' '}

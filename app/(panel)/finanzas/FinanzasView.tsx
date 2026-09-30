@@ -238,8 +238,10 @@ function PatrimonioCard({ overview }: { overview: FinanceOverview }): JSX.Elemen
 
   if (total === null) {
     return (
-      <div className="rounded-xl border border-border-subtle bg-surface p-5 shadow-inset-highlight panel:p-6">
-        <div className="truncate text-xs font-medium text-neutral-400">Patrimonio</div>
+      <div className="sheen rounded-xl border border-border-subtle bg-surface p-5 shadow-card panel:p-6">
+        <h2 className="truncate font-display text-[15px] font-semibold -tracking-[0.01em] text-neutral-200">
+          Patrimonio
+        </h2>
         <div className="mt-1.5 whitespace-nowrap font-mono text-[28px] font-medium -tracking-[0.02em] text-neutral-500 panel:text-[40px]">
           sin información
         </div>
@@ -255,11 +257,15 @@ function PatrimonioCard({ overview }: { overview: FinanceOverview }): JSX.Elemen
 
   return (
     <div
-      className={`rounded-xl border bg-surface p-5 shadow-inset-highlight panel:p-6 ${
+      className={`sheen rounded-xl border bg-surface p-5 shadow-card panel:p-6 ${
         negativo ? 'border-bad-500/20' : 'border-border-subtle'
       }`}
     >
-      <div className="truncate text-xs font-medium text-neutral-400">Patrimonio</div>
+      {/* El rótulo en display, como el título de una Card: es el título del
+          hero, y en Geist 12px se leía como la etiqueta de un KPI más. */}
+      <h2 className="truncate font-display text-[15px] font-semibold -tracking-[0.01em] text-neutral-200">
+        Patrimonio
+      </h2>
       {/*
         El número GIGANTE del handoff: 56px en desktop, 40 en mobile, con
         letter-spacing −0.02em. Es el único número del panel a ese tamaño, y es
@@ -816,7 +822,8 @@ export function FinanzasView({
                 header: 'Monto',
                 align: 'right',
                 render: (m) => (
-                  <span className={m.amountEur < 0 ? 'text-bad-300' : 'text-good-300'}>
+                  // good y no acento: plata que ENTRA es un resultado, no un control (D1).
+                  <span className={`font-mono tabular-nums ${m.amountEur < 0 ? 'text-bad-300' : 'text-good-300'}`}>
                     {fmtMoney(m.amountEur, MONEDA_REPORTE)}
                   </span>
                 ),
@@ -839,10 +846,17 @@ export function FinanzasView({
             ]}
           />
 
-          <div className="mt-4 rounded-xl border border-border-subtle bg-overlay/2 p-4">
-            <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-neutral-500">
+          {/* Editando un movimiento, la caja pasa al "seleccionado" del acento
+              (plan §5): la tabla no marca la fila, así que la caja avisa que estás
+              cambiando uno que ya existe y no cargando otro. */}
+          <div
+            className={`mt-4 rounded-xl border p-4 transition-colors duration-250 ${
+              editMov === null ? 'border-border-subtle bg-overlay/2' : 'border-acento-700 bg-acento-900/40'
+            }`}
+          >
+            <h3 className="mb-3 font-display text-sm font-semibold -tracking-[0.01em] text-neutral-100">
               {editMov === null ? 'Cargar movimiento' : 'Editar movimiento'}
-            </p>
+            </h3>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
               <label className="flex flex-col gap-1 text-xs text-neutral-500">
                 Tipo
@@ -989,9 +1003,9 @@ export function FinanzasView({
                 key: 'amount',
                 header: 'Monto',
                 align: 'right',
-                render: (p) => <span className="tabular-nums">{fmtMoney(p.amountEur, MONEDA_REPORTE)}</span>,
+                render: (p) => <span className="font-mono tabular-nums">{fmtMoney(p.amountEur, MONEDA_REPORTE)}</span>,
               },
-              { key: 'day', header: 'Día del mes', align: 'right', render: (p) => <span className="tabular-nums">{p.dayOfMonth}</span> },
+              { key: 'day', header: 'Día del mes', align: 'right', render: (p) => <span className="font-mono tabular-nums">{p.dayOfMonth}</span> },
               {
                 key: 'estado',
                 header: 'Estado',
@@ -1023,10 +1037,14 @@ export function FinanzasView({
             ]}
           />
 
-          <div className="mt-4 rounded-xl border border-border-subtle bg-overlay/2 p-4">
-            <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-neutral-500">
+          <div
+            className={`mt-4 rounded-xl border p-4 transition-colors duration-250 ${
+              editPago === null ? 'border-border-subtle bg-overlay/2' : 'border-acento-700 bg-acento-900/40'
+            }`}
+          >
+            <h3 className="mb-3 font-display text-sm font-semibold -tracking-[0.01em] text-neutral-100">
               {editPago === null ? 'Cargar pago programado' : 'Editar pago programado'}
-            </p>
+            </h3>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <label className="flex flex-col gap-1 text-xs text-neutral-500">
                 Nombre

@@ -189,11 +189,14 @@ function formatearValorCondicion(c: { metric: Condicion['metric']; value: number
 // ─── Estilos (el mismo kit que ConfigView) ───────────────────────────────────
 
 const inputCls =
-  'rounded-lg border border-border-strong bg-overlay/4 px-2 py-1.5 text-sm text-neutral-200 focus:border-good-500/50 focus:outline-none focus:ring-1 focus:ring-good-500/50 disabled:opacity-40';
+  'rounded-lg border border-border-strong bg-canvas/50 px-2 py-1.5 text-sm text-neutral-200 shadow-[inset_0_1px_2px_0_rgb(var(--sombra)/0.45)] transition-colors duration-250 placeholder:text-neutral-600 hover:border-overlay/16 focus:border-acento-500/60 focus:outline-none focus:ring-1 focus:ring-acento-500/50 disabled:opacity-40';
 const btnCls =
-  'rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-good-500/50 disabled:opacity-40';
-const btnPrimary = `${btnCls} bg-good-500 text-white hover:bg-good-400`;
-const btnGhost = `${btnCls} border border-border-strong text-neutral-300 hover:bg-overlay/6`;
+  'press rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-[background-color,border-color,color,filter] duration-250 focus:outline-none focus:ring-2 focus:ring-acento-500/50 disabled:opacity-40';
+/* La receta del botón primario del panel (§5 del plan iris). Antes era
+   `text-white` sobre el tono base, que con el iris queda por debajo de 4.5:1;
+   el texto `canvas` sobre el degradado es la combinación que se midió. */
+const btnPrimary = `${btnCls} bg-gradient-to-b from-acento-400 to-acento-500 text-canvas shadow-glow-acento hover:brightness-110`;
+const btnGhost = `${btnCls} border border-border-strong bg-surface-raised text-neutral-300 shadow-inset-highlight hover:border-overlay/16 hover:bg-surface-overlay hover:text-neutral-100`;
 const btnDanger = `${btnCls} border border-bad-500/30 text-bad-300 hover:bg-bad-500/10`;
 
 // ─── Switch accesible (role="switch", foco visible) ─────────────────────────
@@ -217,12 +220,12 @@ function Switch({
       aria-label={label}
       disabled={disabled}
       onClick={() => onChange(!checked)}
-      className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-good-500/50 disabled:opacity-40 ${
-        checked ? 'bg-good-500' : 'bg-overlay/15'
+      className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-acento-500/50 disabled:opacity-40 ${
+        checked ? 'bg-acento-500' : 'bg-overlay/15'
       }`}
     >
       <span
-        className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+        className={`inline-block h-4 w-4 transform rounded-full bg-neutral-50 shadow-lozenge transition-transform ${
           checked ? 'translate-x-4' : 'translate-x-0.5'
         }`}
       />
@@ -374,7 +377,7 @@ function MenuAcciones({
   const claseTrigger =
     variante === 'texto'
       ? `${btnGhost} inline-flex items-center gap-1`
-      : 'inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border-strong text-neutral-300 transition-colors hover:bg-overlay/6 hover:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-good-500/50 disabled:opacity-40';
+      : 'inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border-strong text-neutral-300 transition-colors hover:bg-overlay/6 hover:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-acento-500/50 disabled:opacity-40';
 
   return (
     <>
@@ -400,7 +403,7 @@ function MenuAcciones({
               ref={panelRef}
               id={idPanel}
               style={{ position: 'fixed', top: pos.top, right: pos.right }}
-              className="z-[60] w-[17rem] overflow-hidden rounded-xl border border-border-strong bg-surface-raised shadow-2xl"
+              className="z-[60] w-[17rem] overflow-hidden rounded-xl border border-border-strong bg-surface-overlay shadow-popover"
             >
               {/* El encabezado va AFUERA del role="menu": un texto que no es una
                   opción no puede ser hijo de un menú (un lector de pantalla lo
@@ -426,7 +429,7 @@ function MenuAcciones({
                       setAbierto(false);
                       it.onSelect();
                     }}
-                    className={`block w-full rounded-lg px-3 py-1.5 text-left text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-good-500/50 ${
+                    className={`block w-full rounded-lg px-3 py-1.5 text-left text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-acento-500/50 ${
                       it.peligro
                         ? 'text-bad-300 hover:bg-bad-500/10'
                         : it.aviso
@@ -1731,7 +1734,7 @@ function DialogoImportar({
               <label key={c.accountId} className="flex items-center gap-2 text-xs text-neutral-300">
                 <input
                   type="checkbox"
-                  className="h-4 w-4 accent-good-500"
+                  className="h-4 w-4 accent-acento-500"
                   checked={seleccion.includes(c.accountId)}
                   onChange={() => toggleCuenta(c.accountId)}
                 />
@@ -1867,7 +1870,7 @@ function Modal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-canvas/75 p-4 backdrop-blur-sm"
       // `e.target === e.currentTarget`: sólo el fondo cierra. Con un onClick
       // pelado, arrastrar el mouse desde un input hasta afuera también cerraba.
       onMouseDown={(e) => {
@@ -1875,7 +1878,7 @@ function Modal({
       }}
     >
       <div
-        className={`flex max-h-[calc(100vh-2rem)] w-full flex-col overflow-hidden rounded-2xl border border-border-subtle bg-surface shadow-2xl ${
+        className={`flex max-h-[calc(100vh-2rem)] w-full flex-col overflow-hidden rounded-2xl border border-border-strong bg-surface shadow-float ${
           ancho === 'lg' ? 'max-w-3xl' : 'max-w-lg'
         }`}
         role="dialog"
@@ -1884,7 +1887,7 @@ function Modal({
       >
         <div className="flex items-start justify-between gap-3 border-b border-border-subtle px-5 py-3.5">
           <div className="min-w-0">
-            <h2 className="text-sm font-semibold text-neutral-100">{title}</h2>
+            <h2 className="font-display text-base font-semibold -tracking-[0.01em] text-neutral-50">{title}</h2>
             {hint && <p className="mt-0.5 text-xs leading-snug text-neutral-500">{hint}</p>}
           </div>
           <button
@@ -1892,7 +1895,7 @@ function Modal({
             aria-label="Cerrar"
             title="Cerrar"
             onClick={onClose}
-            className="-mr-1 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-neutral-400 transition-colors hover:bg-overlay/8 hover:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-good-500/50"
+            className="-mr-1 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-neutral-400 transition-colors hover:bg-overlay/8 hover:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-acento-500/50"
           >
             <X size={14} weight="bold" aria-hidden="true" />
           </button>
@@ -2147,9 +2150,9 @@ function FormularioRegla({
               aria-controls={`${idTabs}-panel-${id}`}
               tabIndex={activa ? 0 : -1}
               onClick={() => setTab(id)}
-              className={`-mb-px flex shrink-0 items-center gap-1.5 border-b-2 px-3 py-2 text-xs font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-good-500/60 ${
+              className={`-mb-px flex shrink-0 items-center gap-1.5 border-b-2 px-3 py-2 text-xs font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-acento-500/60 ${
                 activa
-                  ? 'border-good-500 text-good-300'
+                  ? 'border-acento-500 text-acento-300'
                   : 'border-transparent text-neutral-500 hover:text-neutral-300'
               }`}
             >
@@ -2179,7 +2182,7 @@ function FormularioRegla({
                 <label key={c.accountId} className="flex items-center gap-2 text-neutral-300">
                   <input
                     type="checkbox"
-                    className="h-4 w-4 accent-good-500"
+                    className="h-4 w-4 accent-acento-500"
                     checked={f.accountIds.includes(c.accountId)}
                     onChange={() => toggleCuenta(c.accountId)}
                   />
