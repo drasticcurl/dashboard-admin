@@ -22,7 +22,9 @@
  */
 
 import { q, q1 } from '@/lib/db';
-import { getMetricasAds } from '@/lib/queries/ads';
+import { getMetricasAds, primerDiaConVentas } from '@/lib/queries/ads';
+import { resolverRangoCustom } from '@/lib/ads/rangoCustom';
+import { TZ_DEFAULT } from '@/lib/ads/zona';
 import { UMBRAL_FRESCURA_DEFAULT_SEGUNDOS } from '@/lib/ads/frescura';
 import { ensureFreshAdSpend } from '@/lib/ads/live';
 import { cascadaDeSearchParams } from './cascadaUrl';
@@ -124,11 +126,20 @@ export default async function AnunciosPage({ searchParams }: { searchParams: Sea
   // filtra a esa campaña sin una línea nueva.
   const { campaignIds, adsetIds } = cascadaDeSearchParams(searchParams, nivel);
 
+  // ── El rango del calendario (`?from=&to=`), acotado al primer día con
+  // ventas y a hoy, los dos en la zona de la cuenta. Sin rango válido manda
+  // `period`. `primerDia` también viaja al cliente: es el borde del calendario.
+  const tzCuenta = cuentaActual.timezone ?? TZ_DEFAULT;
+  const [hoyCuenta, primerDia] = await Promise.all([today(tzCuenta), primerDiaConVentas(tzCuenta)]);
+  const custom = resolverRangoCustom(single(searchParams.from), single(searchParams.to), hoyCuenta, primerDia);
+
   let data;
   try {
     data = await getMetricasAds({
       level: nivel,
       period,
+      desde: custom?.desde,
+      hasta: custom?.hasta,
       accountIds: account ? [account] : undefined,
       status,
       nombre,
@@ -242,8 +253,10 @@ export default async function AnunciosPage({ searchParams }: { searchParams: Sea
       adsFreshness={adsFreshness}
       jerarquiaFreshness={jerarquiaFreshness}
       nivelInicial={nivel}
+      primerDia={primerDia}
       filtrosIniciales={{
         period,
+        rango: custom ? { from: custom.desde, to: custom.hasta } : null,
         status,
         account,
         nombre,

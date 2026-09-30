@@ -133,9 +133,10 @@ export function RangePicker() {
         <PopoverPeriodo
           ancla={boton.current}
           hoy={hoy}
+          opciones={RANGE_OPTIONS}
           preset={custom ? null : preset}
           custom={custom}
-          onPreset={elegirPreset}
+          onPreset={(v) => elegirPreset(v as RangePreset)}
           onRango={elegirRango}
           onCerrar={() => {
             setAbierto(false);
@@ -147,20 +148,31 @@ export function RangePicker() {
   );
 }
 
-function PopoverPeriodo({
+/**
+ * El popover de presets + calendario. Lo usan este selector global y el de
+ * /anuncios (`BarraFiltros`), que tiene sus propios presets y un borde
+ * izquierdo: `minimo` deshabilita los días anteriores y no deja retroceder a
+ * meses enteros fuera de rango.
+ */
+export function PopoverPeriodo({
   ancla,
   hoy,
+  opciones,
   preset,
   custom,
+  minimo = null,
   onPreset,
   onRango,
   onCerrar,
 }: {
   ancla: HTMLElement | null;
   hoy: string;
-  preset: RangePreset | null;
+  opciones: ReadonlyArray<{ value: string; label: string }>;
+  preset: string | null;
   custom: { from: string; to: string } | null;
-  onPreset: (v: RangePreset) => void;
+  /** Primer día elegible (YYYY-MM-DD). null = sin borde. */
+  minimo?: string | null;
+  onPreset: (v: string) => void;
   onRango: (from: string, to: string) => void;
   onCerrar: () => void;
 }): JSX.Element {
@@ -173,7 +185,7 @@ function PopoverPeriodo({
   const [sobre, setSobre] = useState<string | null>(null);
   // Sólo en desktop (≥760px, el corte `panel`) se ancla al botón; debajo es
   // la hoja de abajo y la posición la ponen las clases.
-  const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   const panel = useRef<HTMLDivElement>(null);
   const cerrar = useRef(onCerrar);
   cerrar.current = onCerrar;
@@ -186,8 +198,13 @@ function PopoverPeriodo({
         setPos(null);
         return;
       }
+      // Alineado al borde derecho del botón (el del header vive a la derecha),
+      // pero acotado a la ventana: el de /anuncios vive a la izquierda y 520px
+      // alineados a su borde derecho arrancarían fuera de la pantalla.
       const r = ancla.getBoundingClientRect();
-      setPos({ top: r.bottom + 8, right: Math.max(8, window.innerWidth - r.right) });
+      const ancho = 520;
+      const left = Math.max(8, Math.min(r.right - ancho, window.innerWidth - ancho - 8));
+      setPos({ top: r.bottom + 8, left });
     }
     medir();
     window.addEventListener('resize', medir);
@@ -224,6 +241,7 @@ function PopoverPeriodo({
 
   const celdas = celdasMes(mes.y, mes.m0);
   const esMesActual = mes.y === partes(hoy).y && mes.m0 === partes(hoy).m0;
+  const esMesMinimo = minimo !== null && mes.y === partes(minimo).y && mes.m0 === partes(minimo).m0;
   const moverMes = (delta: number): void =>
     setMes((m) => {
       const d = new Date(Date.UTC(m.y, m.m0 + delta, 1));
@@ -240,7 +258,7 @@ function PopoverPeriodo({
         role="dialog"
         aria-label="Elegir período"
         className="hoja-sube fixed inset-x-0 bottom-0 z-50 flex max-h-[85vh] flex-col overflow-y-auto rounded-t-2xl border border-border-strong bg-surface-raised shadow-float panel:inset-x-auto panel:bottom-auto panel:w-[520px] panel:flex-row panel:rounded-2xl panel:[animation:none]"
-        style={pos ? { top: pos.top, right: pos.right } : undefined}
+        style={pos ? { top: pos.top, left: pos.left } : undefined}
       >
 
         {/* ── Presets ───────────────────────────────────────────────────── */}
@@ -249,7 +267,7 @@ function PopoverPeriodo({
           aria-label="Períodos rápidos"
           className="flex gap-1 overflow-x-auto border-b border-divider p-2 panel:w-36 panel:shrink-0 panel:flex-col panel:overflow-visible panel:border-b-0 panel:border-r"
         >
-          {RANGE_OPTIONS.map((o) => (
+          {opciones.map((o) => (
             <button
               key={o.value}
               type="button"
@@ -273,8 +291,9 @@ function PopoverPeriodo({
             <button
               type="button"
               onClick={() => moverMes(-1)}
+              disabled={esMesMinimo}
               aria-label="Mes anterior"
-              className="flex h-8 w-8 items-center justify-center rounded-lg text-neutral-400 hover:bg-overlay/4 hover:text-neutral-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-acento-500/60"
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-neutral-400 hover:bg-overlay/4 hover:text-neutral-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-acento-500/60 disabled:opacity-25 disabled:hover:bg-transparent"
             >
               <CaretLeft size={14} weight="bold" />
             </button>
@@ -302,7 +321,7 @@ function PopoverPeriodo({
           <div className="grid grid-cols-7 gap-y-0.5" onPointerLeave={() => setSobre(null)}>
             {celdas.map((dia, i) => {
               if (dia === null) return <span key={`h${i}`} />;
-              const futuro = dia > hoy;
+              const futuro = dia > hoy || (minimo !== null && dia < minimo);
               const enRango = pDesde !== null && pHasta !== null && dia >= pDesde && dia <= pHasta;
               const esPunta = dia === pDesde || dia === pHasta;
               const esHoy = dia === hoy;

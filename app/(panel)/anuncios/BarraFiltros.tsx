@@ -15,9 +15,16 @@
  * - Cada filtro muestra su valor vigente dentro de su propio control, con un
  *   rótulo de valor por defecto cuando no hay selección explícita (R1 c5).
  * - El período se expresa como rango de fechas resuelto en la Zona_Cuenta.
+ * - El período se elige con el MISMO popover que el selector global del panel
+ *   (`PopoverPeriodo`): los cuatro períodos fijos a la izquierda y el calendario
+ *   a la derecha. El calendario no deja elegir días anteriores a la primera
+ *   venta registrada (`primerDia`): antes no hay ventas que atribuir.
  */
 
 import { useRef, useState } from 'react';
+import { CalendarBlank, CaretDown } from '@phosphor-icons/react';
+import { PopoverPeriodo } from '@/components/RangePicker';
+import { aDia, etiquetaRango } from '@/lib/rango-fechas';
 import type { NivelAds, PeriodoAds } from '@/lib/ads/tipos';
 import { fmtDate } from '@/components/ui';
 import type { CuentaAds } from './page';
@@ -29,6 +36,17 @@ const PERIODO_ROTULO: Record<PeriodoAds, string> = {
   '7d_excl_today': '7 días sin hoy',
 };
 
+const OPCIONES_PERIODO = (['today', 'yesterday', '7d', '7d_excl_today'] as PeriodoAds[]).map((p) => ({
+  value: p,
+  label: PERIODO_ROTULO[p],
+}));
+
+/** Hoy en el reloj del navegador: sólo acota el calendario (el server vuelve a acotar en la zona de la cuenta). */
+function hoyLocal(): string {
+  const d = new Date();
+  return aDia(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
 const inputCls =
   'min-h-[44px] rounded-lg border border-border-strong bg-canvas/50 px-2 py-1.5 text-sm text-neutral-200 shadow-[inset_0_1px_2px_0_rgb(var(--sombra)/0.45)] transition-colors duration-250 placeholder:text-neutral-600 hover:border-overlay/16 focus:border-acento-500/60 focus:outline-none focus:ring-1 focus:ring-acento-500/50 panel:min-h-0';
 
@@ -36,6 +54,8 @@ export function BarraFiltros({
   nivel,
   period,
   rango,
+  rangoCustom,
+  primerDia,
   status,
   cuenta,
   nombre,
@@ -44,6 +64,7 @@ export function BarraFiltros({
   ocultarSinDatos,
   ocultarPadreApagado,
   onPeriodo,
+  onRango,
   onStatus,
   onNombre,
   onOcultarSinDatos,
@@ -53,6 +74,10 @@ export function BarraFiltros({
   period: PeriodoAds;
   /** El rango resuelto del período, para expresarlo como fechas (R1 c5). */
   rango: { from: string; to: string } | null;
+  /** El rango elegido en el calendario, si hay uno. Gana sobre `period`. */
+  rangoCustom: { from: string; to: string } | null;
+  /** Primer día con ventas: el borde izquierdo del calendario. */
+  primerDia: string | null;
   status: 'active' | 'paused' | 'any';
   cuenta: string;
   nombre: string;
@@ -62,6 +87,7 @@ export function BarraFiltros({
   ocultarSinDatos: boolean;
   ocultarPadreApagado: boolean;
   onPeriodo: (p: PeriodoAds) => void;
+  onRango: (from: string, to: string) => void;
   onStatus: (s: 'active' | 'paused' | 'any') => void;
   onNombre: (n: string) => void;
   onOcultarSinDatos: (v: boolean) => void;
@@ -76,30 +102,71 @@ export function BarraFiltros({
     debounce.current = setTimeout(() => onNombre(v), 400);
   };
 
-  const periodoLabel = rango
-    ? `${PERIODO_ROTULO[period]} (${fmtDate(rango.from)} – ${fmtDate(rango.to)})`
-    : PERIODO_ROTULO[period];
+  const [calendario, setCalendario] = useState(false);
+  const botonPeriodo = useRef<HTMLButtonElement>(null);
+  const hoy = hoyLocal();
+
+  const periodoLabel = rangoCustom
+    ? etiquetaRango(rangoCustom.from, rangoCustom.to, hoy)
+    : rango
+      ? `${PERIODO_ROTULO[period]} (${fmtDate(rango.from)} – ${fmtDate(rango.to)})`
+      : PERIODO_ROTULO[period];
+
+  const cerrarCalendario = (): void => {
+    setCalendario(false);
+    botonPeriodo.current?.focus();
+  };
 
   return (
     <div className="flex flex-wrap items-center gap-2">
       {/* Filtro_Cascada: el ChipCascada, visible sólo con cascada activa */}
       {cascada}
 
-      <label className="flex items-center gap-1.5">
+      <span className="relative flex items-center gap-1.5">
         <span className="text-xs text-neutral-500">Período</span>
-        <select
-          value={period}
-          onChange={(e) => onPeriodo(e.target.value as PeriodoAds)}
-          aria-label="Período de visualización"
-          className={inputCls}
+        <button
+          ref={botonPeriodo}
+          type="button"
+          onClick={() => setCalendario((v) => !v)}
+          aria-haspopup="dialog"
+          aria-expanded={calendario}
+          aria-label={`Período de visualización: ${periodoLabel}`}
+          className={`${inputCls} inline-flex items-center gap-2 pr-2.5 ${rangoCustom ? 'border-acento-700/70' : ''}`}
         >
-          {(['today', 'yesterday', '7d', '7d_excl_today'] as PeriodoAds[]).map((p) => (
-            <option key={p} value={p}>
-              {p === period ? periodoLabel : PERIODO_ROTULO[p]}
-            </option>
-          ))}
-        </select>
-      </label>
+          <CalendarBlank
+            size={14}
+            weight="bold"
+            aria-hidden
+            className={rangoCustom ? 'text-acento-400' : 'text-neutral-400'}
+          />
+          <span className="whitespace-nowrap">{periodoLabel}</span>
+          <CaretDown
+            size={12}
+            weight="bold"
+            aria-hidden
+            className={`text-neutral-500 transition-transform ${calendario ? 'rotate-180' : ''}`}
+          />
+        </button>
+        {calendario && (
+          <PopoverPeriodo
+            ancla={botonPeriodo.current}
+            hoy={hoy}
+            opciones={OPCIONES_PERIODO}
+            preset={rangoCustom ? null : period}
+            custom={rangoCustom}
+            minimo={primerDia}
+            onPreset={(v) => {
+              setCalendario(false);
+              onPeriodo(v as PeriodoAds);
+            }}
+            onRango={(from, to) => {
+              setCalendario(false);
+              onRango(from, to);
+            }}
+            onCerrar={cerrarCalendario}
+          />
+        )}
+      </span>
 
       {/* Sólo lectura: la cuenta sale del funnel elegido arriba. */}
       <span className="flex items-center gap-1.5">

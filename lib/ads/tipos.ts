@@ -169,6 +169,12 @@ export type ClaveOrden =
 export type FiltrosAds = {
   level: NivelAds;
   period: PeriodoAds;
+  /**
+   * Rango del calendario (YYYY-MM-DD, ya validado y acotado con
+   * `resolverRangoCustom`). Con los dos presentes ganan sobre `period`.
+   */
+  desde?: string;
+  hasta?: string;
   accountIds?: string[]; // vacío o ausente = todas las cuentas activas
   status?: 'active' | 'paused' | 'any';
   nombre?: string; // substring, case-insensitive
