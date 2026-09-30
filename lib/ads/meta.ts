@@ -917,3 +917,122 @@ export async function fetchPreview(adId: string, formato: FormatoPreview): Promi
   }
   return src;
 }
+
+/**
+ * El creativo de un anuncio en crudo, para dibujarlo en el panel sin el iframe
+ * de Meta. El iframe de `/previews` trae el cartel de cookies de Facebook
+ * adentro, y siendo de otro origen el panel no lo puede tocar: armar la vista
+ * con los datos (video .mp4 o imagen, copy, título, botón) es la única forma de
+ * que no aparezca.
+ *
+ * Las URLs de `fbcdn.net` son firmadas y vencen: se piden al abrir el popup y
+ * no se guardan.
+ */
+export type CreativoAnuncio = {
+  tipo: 'video' | 'imagen' | 'desconocido';
+  videoUrl: string | null;
+  imagenUrl: string | null;
+  texto: string | null;
+  titulo: string | null;
+  cta: string | null;
+  link: string | null;
+};
+
+type CreativoCrudo = {
+  object_type?: string;
+  video_id?: string;
+  image_url?: string;
+  image_hash?: string;
+  thumbnail_url?: string;
+  body?: string;
+  title?: string;
+  call_to_action_type?: string;
+  link_url?: string;
+  object_story_spec?: {
+    link_data?: {
+      picture?: string;
+      image_hash?: string;
+      message?: string;
+      name?: string;
+      link?: string;
+      call_to_action?: { type?: string; value?: { link?: string } };
+    };
+    video_data?: {
+      video_id?: string;
+      image_url?: string;
+      message?: string;
+      title?: string;
+      call_to_action?: { type?: string; value?: { link?: string } };
+    };
+  };
+  asset_feed_spec?: {
+    videos?: { video_id?: string; thumbnail_url?: string }[];
+    images?: { url?: string; hash?: string }[];
+    bodies?: { text?: string }[];
+    titles?: { text?: string }[];
+    call_to_action_types?: string[];
+    link_urls?: { website_url?: string }[];
+  };
+};
+
+export async function fetchCreativo(adId: string, accountId: string): Promise<CreativoAnuncio | null> {
+  const d = await pedir<{ creative?: CreativoCrudo }>(
+    `${BASE}/${adId}?fields=creative.thumbnail_width(1080).thumbnail_height(1080){object_type,video_id,image_url,image_hash,thumbnail_url,body,title,call_to_action_type,link_url,object_story_spec,asset_feed_spec}`,
+    accountId,
+  );
+  const c = d.creative;
+  if (!c) return null;
+  const ld = c.object_story_spec?.link_data;
+  const vd = c.object_story_spec?.video_data;
+  const af = c.asset_feed_spec;
+
+  // El video: puede venir por tres lados, y no todos se pueden leer con el
+  // token del panel (el `video_id` de primer nivel a veces es una copia de la
+  // página sin permiso). Se prueba en orden hasta que uno dé `source`.
+  const idsVideo = [vd?.video_id, af?.videos?.[0]?.video_id, c.video_id].filter(
+    (v, i, a): v is string => !!v && a.indexOf(v) === i,
+  );
+  let videoUrl: string | null = null;
+  for (const id of idsVideo) {
+    try {
+      const v = await pedir<{ source?: string }>(`${BASE}/${id}?fields=source`, accountId);
+      if (v.source) {
+        videoUrl = v.source;
+        break;
+      }
+    } catch {
+      // sin permiso sobre ese id: probar el siguiente
+    }
+  }
+
+  // La imagen (o el póster del video). Los anuncios de imagen suelen traer sólo
+  // el hash: la URL sale de /adimages de la cuenta.
+  let imagenUrl = c.image_url ?? ld?.picture ?? af?.images?.[0]?.url ?? null;
+  const hash = ld?.image_hash ?? c.image_hash ?? af?.images?.[0]?.hash;
+  if (!imagenUrl && hash && !videoUrl) {
+    try {
+      const r = await pedir<{ data?: { url?: string }[] }>(
+        `${BASE}/${accountId}/adimages?hashes=${encodeURIComponent(JSON.stringify([hash]))}&fields=url`,
+        accountId,
+      );
+      imagenUrl = r.data?.[0]?.url ?? null;
+    } catch {
+      // cae al thumbnail
+    }
+  }
+  imagenUrl ??= vd?.image_url ?? af?.videos?.[0]?.thumbnail_url ?? c.thumbnail_url ?? null;
+
+  const cta = vd?.call_to_action?.type ?? ld?.call_to_action?.type ?? c.call_to_action_type ?? af?.call_to_action_types?.[0] ?? null;
+  const link =
+    vd?.call_to_action?.value?.link ?? ld?.call_to_action?.value?.link ?? ld?.link ?? c.link_url ?? af?.link_urls?.[0]?.website_url ?? null;
+
+  return {
+    tipo: videoUrl ? 'video' : c.object_type === 'VIDEO' ? 'video' : imagenUrl ? 'imagen' : 'desconocido',
+    videoUrl,
+    imagenUrl,
+    texto: vd?.message ?? ld?.message ?? c.body ?? af?.bodies?.[0]?.text ?? null,
+    titulo: vd?.title ?? ld?.name ?? c.title ?? af?.titles?.[0]?.text ?? null,
+    cta,
+    link,
+  };
+}
