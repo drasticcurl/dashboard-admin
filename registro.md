@@ -52,11 +52,19 @@ Tests: 11 nuevos en `route.test.ts` y `_nombres.test.ts`; 3 existentes se
 ajustaron porque afirmaban el modo sombra. Suite completa 1747/1747, `tsc` y
 `next build` limpios.
 
-**Unión de las reglas duplicadas:** es un paso de datos aparte, después del
-deploy, y se anota acá cuando se corra. Las dos "Apagar" prendidas de
-HIlvanapp tienen filtro de nombre `LATAM`. Unirlas con esa configuración dejaría
-a Gelxiin sin ninguna regla que corte pérdidas, así que quedan fuera hasta que
-el usuario lo confirme.
+**Las reglas duplicadas no se unieron.** El usuario: "eliminamos las de
+Gelxiin, solo dejá las de HIlvanapp, yo chequeo qué reglas quedaron".
+Deployado `174aea7` (release 20260930115421, 037 aplicada) y después, por SQL
+en producción: `DELETE FROM ad_rules WHERE account_id = 'act_2412127832646347'`
+(13 reglas: ids 94–106; el historial queda por FK SET NULL). Quedan 13 reglas,
+todas de HIlvanapp, 8 prendidas, ninguna en sombra. **Gelxiin (Chau
+Hinchazón) quedó sin reglas** hasta que se tilde en las que correspondan. Ojo:
+las dos "Apagar" prendidas de HIlvanapp tienen filtro de nombre `LATAM`, así
+que si se tilda Gelxiin en ellas, ahí también solo van a apagar lo que diga
+LATAM.
+
+La instancia infinix corre la 037 en su próximo deploy. Su worker de reglas
+no está levantado, así que no cambia nada ahí.
 
 ---
 
