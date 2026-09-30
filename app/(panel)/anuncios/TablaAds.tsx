@@ -50,7 +50,7 @@ import {
   useSortable,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { DotsThree, PencilSimple } from '@phosphor-icons/react';
+import { DotsThree, Eye, PencilSimple } from '@phosphor-icons/react';
 import type { ClaveOrden, MetricasObjeto, NivelAds } from '@/lib/ads/tipos';
 import {
   CLAVES_FIJAS,
@@ -374,15 +374,28 @@ export function TablaAds(props: PropsTablaAds): JSX.Element {
     if (c.clave === 'nombre') {
       return (
         <span className="flex items-center gap-2">
+          {/* En nivel anuncio no hay nivel de abajo al que bajar: el click en el
+              nombre abre el preview de Meta, que es lo que se quiere ver de un
+              anuncio. */}
           <button
             type="button"
-            onClick={() => props.onBajarNivel(fila)}
-            disabled={fila.level === 'ad'}
-            className="max-w-full truncate text-left text-neutral-200 underline-offset-2 hover:underline focus:outline-none focus:ring-2 focus:ring-acento-500/50 disabled:cursor-default disabled:no-underline"
-            title={fila.objectName ?? undefined}
+            onClick={() => (fila.level === 'ad' ? setAnuncioAbierto(fila) : props.onBajarNivel(fila))}
+            className="max-w-full truncate text-left text-neutral-200 underline-offset-2 hover:underline focus:outline-none focus:ring-2 focus:ring-acento-500/50"
+            title={fila.level === 'ad' ? `Ver anuncio: ${fila.objectName ?? fila.objectId}` : (fila.objectName ?? undefined)}
           >
             {fila.objectName ?? '(sin nombre)'}
           </button>
+          {fila.level === 'ad' && (
+            <button
+              type="button"
+              onClick={() => setAnuncioAbierto(fila)}
+              aria-label={`Ver anuncio ${fila.objectName ?? fila.objectId}`}
+              title="Ver anuncio (preview de Meta)"
+              className="shrink-0 rounded p-0.5 text-neutral-500 hover:text-acento-300 focus:outline-none focus:ring-2 focus:ring-acento-500/50"
+            >
+              <Eye size={14} weight="bold" />
+            </button>
+          )}
           <button
             type="button"
             onClick={() => props.onRenombrarFila(fila)}
@@ -575,9 +588,8 @@ export function TablaAds(props: PropsTablaAds): JSX.Element {
                       de Meta no traen espacios donde cortar. */}
                   <button
                     type="button"
-                    onClick={() => props.onBajarNivel(fila)}
-                    disabled={fila.level === 'ad'}
-                    className="min-w-0 flex-1 break-words text-left text-sm font-medium text-neutral-100 disabled:cursor-default"
+                    onClick={() => (fila.level === 'ad' ? setAnuncioAbierto(fila) : props.onBajarNivel(fila))}
+                    className="min-w-0 flex-1 break-words text-left text-sm font-medium text-neutral-100"
                   >
                     {fila.objectName ?? '(sin nombre)'}
                   </button>
@@ -790,7 +802,7 @@ export function TablaAds(props: PropsTablaAds): JSX.Element {
                         aria-haspopup="dialog"
                         aria-expanded={abierta}
                         aria-label={`Acciones de ${fila.objectName ?? fila.objectId}`}
-                        title="Presupuesto, renombrar, duplicar, pausar"
+                        title={fila.level === 'ad' ? 'Ver anuncio, renombrar, duplicar, pausar' : 'Presupuesto, renombrar, duplicar, pausar'}
                         className={`press flex h-7 w-7 items-center justify-center rounded-md transition-colors duration-250 focus:outline-none focus:ring-2 focus:ring-acento-500/50 ${
                           abierta
                             ? 'bg-acento-800 text-acento-100'
