@@ -125,8 +125,10 @@ cualquier cosa.
 ## Imputar campañas de una cuenta compartida a otro funnel
 
 El gasto va al funnel de la cuenta publicitaria salvo que la campaña esté en
-`ad_campaign_funnel` (migración 033). La cuenta `act_2501344510302910` la
-comparten Chau Hinchazón, LATAM y Alma Gemela.
+`ad_campaign_funnel` (migración 033). Desde el 2026-09-29 la cuenta
+`act_2501344510302910` (HIlvanapp) es de Alma Gemela, con las campañas de LATAM
+mapeadas, y Chau Hinchazón corre en `act_2412127832646347` (Gelxiin). Hasta el
+28/09 HIlvanapp era de Chau Hinchazón (ver `registro.md` 2026-09-29 (3)).
 
 - **Por la UI**: `/config` → Publicidad → Campañas de la cuenta. El endpoint
   (`/api/config/ads/campanas`) mueve el gasto histórico y recalcula el rollup
@@ -135,8 +137,14 @@ comparten Chau Hinchazón, LATAM y Alma Gemela.
   `ad_campaign_funnel`, un `UPDATE ad_spend SET funnel_id = …` para esas
   campañas y el `rollup.ts --from=… --to=…` del rango, todo por ID de campaña y
   **nunca por prefijo del nombre**.
-- Es manual y se repite: cada tanda nueva de campañas de Alma Gemela en esa
-  cuenta cae en Chau Hinchazón hasta que alguien la mapea.
+- Solo hay que mapear las campañas que no son del funnel de su cuenta: una
+  campaña nueva de HIlvanapp cae sola en Alma Gemela.
+- Mapear una campaña **re-imputa todo su gasto histórico**. No mapees una
+  campaña de HIlvanapp que gastó antes del 29/09: su pasado era de Chau
+  Hinchazón.
+- Para cambiar una cuenta entera de funnel solo de hoy en adelante, no uses
+  `/config`: el POST arrastra todo el histórico. El procedimiento está en
+  `registro.md` 2026-09-29 (3).
 
 ## Agregar una variable de entorno
 

@@ -124,6 +124,38 @@ describe.skipIf(!dbAvailable)('filtros de ruido (ocultarSinDatos, ocultarPadreAp
     expect(r.total).toBe(1);
   });
 
+  // 2026-09-30: tildar conjuntos pausados en 7 días y bajar a anuncios mostraba
+  // 25 de 126 anuncios, porque cada anuncio de un conjunto pausado viene con
+  // ADSET_PAUSED. El padre que se eligió en la cascada no cuenta como "apagado".
+  it('ocultarPadreApagado NO saca los hijos del padre que se eligió en la cascada', async () => {
+    const r = await pedir({ ocultarPadreApagado: true, campaignIds: ['9003'] });
+    expect(r.filas.map((f) => f.objectId)).toEqual(['8003']);
+  });
+
+  it('con cascada, lo que está fuera de ella sigue filtrado igual', async () => {
+    const r = await pedir({ ocultarPadreApagado: true, campaignIds: ['9001', '9003'] });
+    expect(r.filas.map((f) => f.objectId).sort()).toEqual(['8001', '8003']);
+    const sinCascada = await pedir({ ocultarPadreApagado: true });
+    expect(sinCascada.filas.find((f) => f.objectId === '8003')).toBeUndefined();
+  });
+
+  it('a nivel anuncio, los anuncios de un conjunto elegido se ven aunque su padre esté apagado', async () => {
+    await q(
+      `INSERT INTO ads (ad_id, adset_id, campaign_id, account_id, name, status, effective_status, synced_at)
+       VALUES ('7003', '8003', '9003', $1, 'A 7003', 'ACTIVE', 'ADSET_PAUSED', now())
+       ON CONFLICT (ad_id) DO NOTHING`,
+      [CUENTA],
+    );
+    try {
+      const con = await pedir({ level: 'ad', ocultarPadreApagado: true, adsetIds: ['8003'] });
+      expect(con.filas.map((f) => f.objectId)).toEqual(['7003']);
+      const sin = await pedir({ level: 'ad', ocultarPadreApagado: true });
+      expect(sin.filas.find((f) => f.objectId === '7003')).toBeUndefined();
+    } finally {
+      await q(`DELETE FROM ads WHERE account_id = $1`, [CUENTA]);
+    }
+  });
+
   it('a nivel campaña ocultarPadreApagado es inocuo: una campaña no tiene padre', async () => {
     const sin = await pedir({ level: 'campaign' });
     const con = await pedir({ level: 'campaign', ocultarPadreApagado: true });

@@ -738,8 +738,17 @@ export async function getMetricasAds(f: FiltrosAds): Promise<ResultadoMetricas> 
        -- NO se ocultan: NULL es "no sé", y esconder gasto por no saber es peor
        -- que mostrarlo. A nivel campaña el filtro es inocuo (una campaña no
        -- tiene padre, nunca está CAMPAIGN_PAUSED).
+       --
+       -- Salvo que el padre sea justamente el que se eligió en la cascada: si
+       -- se tildaron conjuntos y se bajó a anuncios, se quieren ver TODOS sus
+       -- anuncios, prendidos o no. Sin esta excepción, en 7 días (donde
+       -- aparecen los conjuntos ya pausados) cada anuncio de un conjunto
+       -- pausado viene con ADSET_PAUSED y se escondía: el 2026-09-30 la tabla
+       -- mostraba 25 de 126 anuncios de los conjuntos tildados.
        AND (NOT ${pOcultarPadre}::boolean OR o."effectiveStatus" IS NULL
-            OR o."effectiveStatus" NOT IN ('CAMPAIGN_PAUSED', 'ADSET_PAUSED'))
+            OR o."effectiveStatus" NOT IN ('CAMPAIGN_PAUSED', 'ADSET_PAUSED')
+            OR (cardinality(COALESCE(${pAdsetIds}::text[], '{}')) > 0 AND o."adsetId" = ANY(${pAdsetIds}))
+            OR (cardinality(COALESCE(${pCampaignIds}::text[], '{}')) > 0 AND o."campaignId" = ANY(${pCampaignIds})))
   ),
   -- Los cocientes existen SOLO para el ORDER BY. Lo que la API devuelve lo
   -- sigue calculando filaDesdeRow: una sola fuente de verdad para lo que se
