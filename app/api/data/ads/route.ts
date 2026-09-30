@@ -39,7 +39,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { guard } from '../../config/_lib';
 import { q, q1 } from '@/lib/db';
-import { getMetricasAds, rangoDePeriodo } from '@/lib/queries/ads';
+import { getMetricasAds, primerDiaConVentas, rangoDePeriodo } from '@/lib/queries/ads';
+import { resolverRangoCustom } from '@/lib/ads/rangoCustom';
 import { UMBRAL_FRESCURA_DEFAULT_SEGUNDOS } from '@/lib/ads/frescura';
 import { ensureFreshAdSpend } from '@/lib/ads/live';
 import { ensureFreshJerarquia } from '@/lib/ads/liveJerarquia';
@@ -200,7 +201,11 @@ export async function GET(req: NextRequest): Promise<Response> {
     [accountId, TZ_DEFAULT],
   );
   const tz = tzRow?.tz ?? TZ_DEFAULT;
-  const [rango, hoy] = await Promise.all([rangoDePeriodo(period, tz), today(tz)]);
+  // El rango del calendario (`?from=&to=`), acotado al primer día con ventas y
+  // a hoy. Si no es válido se ignora y manda `period`.
+  const [hoy, primerDia] = await Promise.all([today(tz), primerDiaConVentas(tz)]);
+  const custom = resolverRangoCustom(sp.get('from'), sp.get('to'), hoy, primerDia);
+  const rango = await rangoDePeriodo(period, tz, custom);
 
   // ── 2. Los dos sync, en paralelo, ANTES de leer (R5.1). ──
   //
@@ -251,6 +256,8 @@ export async function GET(req: NextRequest): Promise<Response> {
     data = await getMetricasAds({
       level,
       period,
+      desde: custom?.desde,
+      hasta: custom?.hasta,
       accountIds,
       status,
       nombre: sp.get('nombre') ?? undefined,

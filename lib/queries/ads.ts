@@ -484,7 +484,10 @@ function comun(
 export async function rangoDePeriodo(
   period: PeriodoAds,
   tz: string,
+  /** El rango del calendario, ya validado y acotado (`resolverRangoCustom`). Gana sobre `period`. */
+  custom?: { desde: string; hasta: string } | null,
 ): Promise<{ desde: string; hasta: string }> {
+  if (custom) return custom;
   const rango = await q1<{ desde: string; hasta: string }>(
     `SELECT CASE $1::text
                 WHEN 'today'          THEN (now() AT TIME ZONE $2)::date
@@ -504,6 +507,19 @@ export async function rangoDePeriodo(
     desde: rango?.desde ?? '1970-01-01',
     hasta: rango?.hasta ?? '1970-01-01',
   };
+}
+
+/**
+ * El primer día con ventas registradas en el panel, en la zona de la cuenta. Es
+ * el borde izquierdo del calendario de /anuncios: antes no hay ventas que
+ * atribuir. null si todavía no hay ninguna venta.
+ */
+export async function primerDiaConVentas(tz: string): Promise<string | null> {
+  const r = await q1<{ dia: string | null }>(
+    `SELECT (min(purchased_at) AT TIME ZONE $1)::date::text AS dia FROM orders`,
+    [tz],
+  );
+  return r?.dia ?? null;
 }
 
 export async function getMetricasAds(f: FiltrosAds): Promise<ResultadoMetricas> {
@@ -540,7 +556,11 @@ export async function getMetricasAds(f: FiltrosAds): Promise<ResultadoMetricas> 
   const tz = cuentas[0]?.tz ?? TZ_DEFAULT;
 
   // ── 2. Rango del período, resuelto en la zona de la cuenta. ──
-  const { desde, hasta } = await rangoDePeriodo(period, tz);
+  const { desde, hasta } = await rangoDePeriodo(
+    period,
+    tz,
+    f.desde && f.hasta ? { desde: f.desde, hasta: f.hasta } : null,
+  );
 
   // ── 3. Parámetros de la query de filas ──
   const params: unknown[] = [];

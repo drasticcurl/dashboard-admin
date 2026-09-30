@@ -770,6 +770,7 @@ export function GestorAnuncios({
   vistaPorDefecto,
   nombresCascada,
   frescuraUmbralSegundos,
+  primerDia,
 }: {
   cuentas: CuentaAds[];
   initialData: ResultadoMetricas;
@@ -789,6 +790,8 @@ export function GestorAnuncios({
   nivelInicial: NivelAds;
   filtrosIniciales: {
     period: PeriodoAds;
+    /** El rango del calendario (`?from=&to=`), ya acotado. Gana sobre `period`. */
+    rango: { from: string; to: string } | null;
     status: 'active' | 'paused' | 'any';
     account: string;
     nombre?: string;
@@ -808,12 +811,15 @@ export function GestorAnuncios({
    * solas al primer cambio de filtro.
    */
   frescuraUmbralSegundos?: number;
+  /** Primer día con ventas registradas: el borde izquierdo del calendario. */
+  primerDia: string | null;
 }): JSX.Element {
   const router = useRouter();
   const searchParams = useSearchParams();
 
   const [nivel, setNivel] = useState<NivelAds>(nivelInicial);
   const [period, setPeriod] = useState<PeriodoAds>(filtrosIniciales.period);
+  const [rangoCustom, setRangoCustom] = useState<{ from: string; to: string } | null>(filtrosIniciales.rango);
   const [status, setStatus] = useState<'active' | 'paused' | 'any'>(filtrosIniciales.status);
   // La cuenta NO es estado: la determina el funnel del selector de arriba y
   // llega resuelta desde el server component. Cambiar de funnel navega y
@@ -958,6 +964,10 @@ export function GestorAnuncios({
       const params = new URLSearchParams();
       params.set('level', nivel);
       params.set('period', period);
+      if (rangoCustom) {
+        params.set('from', rangoCustom.from);
+        params.set('to', rangoCustom.to);
+      }
       params.set('status', status);
       params.set('account', account);
       if (nombre) params.set('nombre', nombre);
@@ -973,7 +983,7 @@ export function GestorAnuncios({
       if (extra?.forzar) params.set('forzar', '1');
       return `/api/data/ads?${params.toString()}`;
     },
-    [nivel, period, status, account, nombre, cascada, ordenEstado, columnas, ocultarSinDatos, ocultarPadreApagado],
+    [nivel, period, rangoCustom, status, account, nombre, cascada, ordenEstado, columnas, ocultarSinDatos, ocultarPadreApagado],
   );
 
   /**
@@ -1055,7 +1065,7 @@ export function GestorAnuncios({
       })
       .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nivel, period, status, account, nombre, cascada, ordenEstado.clave, ordenEstado.dir, ordenEstado.pagina, ocultarSinDatos, ocultarPadreApagado, retryTick]);
+  }, [nivel, period, rangoCustom, status, account, nombre, cascada, ordenEstado.clave, ordenEstado.dir, ordenEstado.pagina, ocultarSinDatos, ocultarPadreApagado, retryTick]);
 
   // El server pintó sin esperar al sync de Meta (`esperar: false` en
   // anuncios/page.tsx, mismo fix que Resumen y Ventas): no hay ningún polling
@@ -1109,16 +1119,27 @@ export function GestorAnuncios({
     );
   };
 
-  const cambiarFiltro = (cambios: { period?: PeriodoAds; status?: 'active' | 'paused' | 'any'; nombre?: string; ocultarSinDatos?: boolean; ocultarPadreApagado?: boolean }): void => {
+  const cambiarFiltro = (cambios: { period?: PeriodoAds; rango?: { from: string; to: string } | null; status?: 'active' | 'paused' | 'any'; nombre?: string; ocultarSinDatos?: boolean; ocultarPadreApagado?: boolean }): void => {
     // R9 c6: la selección se vacía, la cascada se conserva
     evento({ tipo: 'cambiar_filtro' });
     if (cambios.period !== undefined) setPeriod(cambios.period);
+    // Elegir un período fijo borra el rango del calendario, y al revés: si
+    // quedaran los dos, el rango ganaría y el período recién elegido no haría nada.
+    const rangoNuevo = cambios.rango !== undefined ? cambios.rango : cambios.period !== undefined ? null : undefined;
+    if (rangoNuevo !== undefined) setRangoCustom(rangoNuevo);
     if (cambios.status !== undefined) setStatus(cambios.status);
     if (cambios.nombre !== undefined) setNombre(cambios.nombre);
     if (cambios.ocultarSinDatos !== undefined) setOcultarSinDatos(cambios.ocultarSinDatos);
     if (cambios.ocultarPadreApagado !== undefined) setOcultarPadreApagado(cambios.ocultarPadreApagado);
     const params = new URLSearchParams(searchParams.toString());
     if (cambios.period !== undefined) params.set('period', cambios.period);
+    if (rangoNuevo === null) {
+      params.delete('from');
+      params.delete('to');
+    } else if (rangoNuevo !== undefined) {
+      params.set('from', rangoNuevo.from);
+      params.set('to', rangoNuevo.to);
+    }
     if (cambios.status !== undefined) params.set('status', cambios.status);
     if (cambios.nombre !== undefined) {
       if (cambios.nombre) params.set('nombre', cambios.nombre);
@@ -1937,6 +1958,9 @@ export function GestorAnuncios({
             nivel={nivel}
             period={period}
             rango={data.rango}
+            rangoCustom={rangoCustom}
+            primerDia={primerDia}
+            onRango={(from, to) => cambiarFiltro({ rango: { from, to } })}
             status={status}
             cuenta={account}
             nombre={nombre}
