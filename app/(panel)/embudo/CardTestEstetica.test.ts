@@ -189,3 +189,27 @@ describe('Original contra Ritual (chauhinchazon)', () => {
     expect(nombreBrazoEstetica('estetica_ritual')).toBe('Ritual');
   });
 });
+
+describe('Original contra Original + (chauhinchazon, desde 2026-09-30)', () => {
+  // Lo que queda declarado después de la 038: sale Ritual, entra Original +.
+  const brazos = brazosDelTest(['A', 'B', 'pitch_A', 'pitch_B', 'estetica_original', 'estetica_plus']);
+
+  it('los brazos son Original y Original +, en ese orden', () => {
+    expect(brazos).toEqual(['estetica_original', 'estetica_plus']);
+    const filas = [fila('estetica_plus', 100, 3, 300), fila(SIN_EXPERIMENTO, 900, 9, 900), fila('estetica_original', 100, 3, 300)];
+    expect(brazosEstetica(filas, brazos).map((f) => f.experiment)).toEqual(['estetica_original', 'estetica_plus']);
+  });
+
+  it('decide por plata por sesión y avisa con muestra chica', () => {
+    const original = fila('estetica_original', 100, 6, 600);
+    const plus = fila('estetica_plus', 80, 5, 640);
+    expect(liderEstetica([original, plus], brazos)?.experiment).toBe('estetica_plus');
+    const n = MIN_COMPRAS_POR_BRAZO;
+    expect(muestraChicaEstetica([fila('estetica_original', 5000, n, 1), fila('estetica_plus', 5000, n - 1, 1)], brazos)).toBe(true);
+    expect(muestraChicaEstetica([fila('estetica_original', 5000, n, 1), fila('estetica_plus', 5000, n, 1)], brazos)).toBe(false);
+  });
+
+  it('el nombre de la fila', () => {
+    expect(nombreBrazoEstetica('estetica_plus')).toBe('Original +');
+  });
+});
