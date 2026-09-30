@@ -279,6 +279,7 @@ export const MAPA_API: Record<string, readonly Seccion[] | 'admin' | 'publica'> 
   '/api/ads/interruptores': ['anuncios'],
   '/api/ads/reglas': ['anuncios'],
   '/api/ads/reglas/csv': ['anuncios'],
+  '/api/ads/preview': ['anuncios'],
 
   // ── Finanzas ─────────────────────────────────────────────────────────────
   '/api/finanzas/cuentas': ['finanzas'],

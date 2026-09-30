@@ -62,6 +62,7 @@ import {
 import { AsaRedimension, ANCHO_MAX, ANCHO_MIN } from './AsaRedimension';
 import { EncabezadoOrdenable, ariaSortDe } from './EncabezadoOrdenable';
 import { MarcaFrescura, PresupuestoCelda, ToggleEstado, etiquetaEffective } from './celdas';
+import { ModalAnuncio } from './ModalAnuncio';
 import {
   PopoverFila,
   posicionPopover,
@@ -248,6 +249,10 @@ export function TablaAds(props: PropsTablaAds): JSX.Element {
 
   /** El popover anclado a una fila (rediseño v3). `null` = cerrado. */
   const [popover, setPopover] = useState<EstadoPopover | null>(null);
+
+  // La fila cuyo preview de Meta está abierto. Se guarda la fila entera y no
+  // el id: el modal sigue abierto aunque la fila salga de la página.
+  const [anuncioAbierto, setAnuncioAbierto] = useState<MetricasObjeto | null>(null);
 
   const filaDelPopover = useMemo(
     () => (popover ? (filas.find((f) => f.objectId === popover.filaId) ?? null) : null),
@@ -829,6 +834,18 @@ export function TablaAds(props: PropsTablaAds): JSX.Element {
             setPopover(null);
             props.onToggleEstado(filaDelPopover);
           }}
+          onVerAnuncio={() => {
+            setPopover(null);
+            setAnuncioAbierto(filaDelPopover);
+          }}
+        />
+      )}
+      {anuncioAbierto && (
+        <ModalAnuncio
+          adId={anuncioAbierto.objectId}
+          accountId={anuncioAbierto.accountId}
+          nombre={anuncioAbierto.objectName}
+          onCerrar={() => setAnuncioAbierto(null)}
         />
       )}
     </div>

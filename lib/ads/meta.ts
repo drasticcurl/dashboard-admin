@@ -869,3 +869,51 @@ export async function verificarPermisos(): Promise<{
     apiVersion: API_VERSION,
   };
 }
+
+// ─── Preview oficial de un anuncio (el popup «Ver anuncio») ──────────────────
+
+/**
+ * Los formatos de preview que ofrece el popup. Son un subconjunto de los
+ * `ad_format` de `/{ad_id}/previews`: los que corresponden a las ubicaciones
+ * donde corren los anuncios del panel. Meta devuelve error (y no un preview
+ * vacío) cuando el creativo no es apto para ese formato; el popup lo muestra
+ * como motivo, no como falla.
+ */
+export const FORMATOS_PREVIEW = [
+  'MOBILE_FEED_STANDARD',
+  'INSTAGRAM_STANDARD',
+  'INSTAGRAM_STORY',
+  'INSTAGRAM_REELS',
+] as const;
+
+export type FormatoPreview = (typeof FORMATOS_PREVIEW)[number];
+
+/**
+ * El `src` del iframe que arma Meta para previsualizar el anuncio tal cual sale
+ * en esa ubicación (copy, imagen o video reproducible, botón).
+ *
+ * Meta devuelve un `<iframe ...>` en HTML crudo. Se extrae SÓLO el `src` y se
+ * exige que apunte a facebook.com: el cliente arma su propio `<iframe>` con
+ * ese src en lugar de inyectar HTML que viene de afuera con
+ * `dangerouslySetInnerHTML`. La URL lleva un token firmado de corta vida y no
+ * la credencial del panel, así que puede viajar al navegador.
+ *
+ * Devuelve null si Meta respondió sin preview (formato no apto sin error).
+ */
+export async function fetchPreview(adId: string, formato: FormatoPreview): Promise<string | null> {
+  const d = await pedir<{ data?: { body?: string }[] }>(
+    `${BASE}/${adId}/previews?ad_format=${formato}`,
+  );
+  const body = d.data?.[0]?.body;
+  if (!body) return null;
+  const m = /src="([^"]+)"/.exec(body);
+  if (!m) return null;
+  const src = m[1]!.replace(/&amp;/g, '&');
+  try {
+    const u = new URL(src);
+    if (u.protocol !== 'https:' || !/(^|\.)facebook\.com$/.test(u.hostname)) return null;
+  } catch {
+    return null;
+  }
+  return src;
+}

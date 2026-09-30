@@ -43,6 +43,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   CopySimple,
   CurrencyDollar,
+  Eye,
   Pause,
   Play,
   TextAa,
@@ -188,6 +189,7 @@ export type FilaPopover = Pick<
   MetricasObjeto,
   | 'objectId'
   | 'objectName'
+  | 'accountId'
   | 'level'
   | 'status'
   | 'spendEur'
@@ -219,6 +221,7 @@ export function PopoverFila({
   onRenombrar,
   onDuplicar,
   onToggle,
+  onVerAnuncio,
 }: {
   estado: EstadoPopover;
   fila: FilaPopover;
@@ -231,6 +234,8 @@ export function PopoverFila({
   onRenombrar: (nombre: string) => void;
   onDuplicar: () => void;
   onToggle: () => void;
+  /** Abre el popup con el preview oficial de Meta. Sólo para filas de nivel anuncio. */
+  onVerAnuncio: () => void;
 }): JSX.Element {
   const caja = useRef<HTMLDivElement>(null);
   const [modo, setModo] = useState<ModoPresupuesto>('diario');
@@ -295,6 +300,14 @@ export function PopoverFila({
             </span>
           </p>
           <div className="pt-1.5">
+            {/* Sólo en nivel anuncio: campañas y conjuntos no tienen creativo
+                propio, y un "ver anuncio" de una campaña no sabría cuál mostrar. */}
+            {fila.level === 'ad' && (
+              <button type="button" className={ITEM} onClick={onVerAnuncio}>
+                <Eye size={15} weight="bold" aria-hidden />
+                Ver anuncio
+              </button>
+            )}
             {/* Deshabilitado CON el motivo en el title, no escondido: una fila de
                 nivel anuncio nunca tiene presupuesto propio, y un menú al que le
                 faltan items según la fila obliga a adivinar si la opción no está
