@@ -323,9 +323,49 @@ export function VentasPorHora({ data, size }: { data: OverviewData; size: Widget
             </span>
           ))}
         </div>
+
+        {/*
+          Lo que dejó cada hora, debajo de su número: leer "a las 03 ganamos 96"
+          sin tener que pasar el mouse barra por barra. Sólo en desktop: en
+          mobile cada columna mide ~12px y un número no entra. Las horas que
+          todavía no pasaron quedan vacías (no son un cero, no existen aún).
+        */}
+        <div aria-hidden className="mt-0.5 hidden gap-[3px] panel:flex panel:gap-1">
+          {horas.map((h) => {
+            const v = valorHora(h, medida);
+            const futura = enCurso !== null && h.hour > enCurso;
+            return (
+              <span
+                key={h.hour}
+                className={`min-w-0 flex-1 truncate text-center font-mono text-[10px] tabular-nums ${
+                  futura || v === 0
+                    ? 'text-neutral-700'
+                    : !esResultado
+                      ? 'text-neutral-300'
+                      : v > 0
+                        ? 'text-good-400'
+                        : 'text-bad-400'
+                } ${activa === h.hour ? 'font-semibold' : ''}`}
+              >
+                {futura ? '' : v === 0 ? '·' : montoCorto(v)}
+              </span>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
+}
+
+/**
+ * El monto de una hora en el ancho de una columna (~38px a 10px de mono):
+ * "96", "-31", "1.5k", "12k". Sin moneda: la dice el total de al lado.
+ */
+function montoCorto(v: number): string {
+  const abs = Math.abs(v);
+  if (abs < 1_000) return String(Math.round(v));
+  if (abs < 10_000) return `${(v / 1_000).toFixed(1)}k`;
+  return `${Math.round(v / 1_000)}k`;
 }
 
 function Lectura({ etiqueta, children }: { etiqueta: string; children: React.ReactNode }): JSX.Element {
