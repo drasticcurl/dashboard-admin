@@ -21,6 +21,7 @@ import type { CuentaAds, EstadoInterruptores, ReglaFila } from './_tipos';
 
 type FilaReglaRaw = {
   id: number;
+  grupo: string;
   name: string;
   enabled: boolean;
   dry_run: boolean;
@@ -54,7 +55,7 @@ const iso = (d: Date | null): string | null => (d ? d.toISOString() : null);
 export async function listarReglas(): Promise<ReglaFila[]> {
   const [filas, condiciones] = await Promise.all([
     q<FilaReglaRaw>(
-      `SELECT id, name, enabled, dry_run, account_id, level, status_filter,
+      `SELECT id, grupo, name, enabled, dry_run, account_id, level, status_filter,
               name_filter, name_filter_mode, action, action_value, action_unit,
               budget_max, budget_min, period, metrics_level, every_minutes,
               window_start, window_end, max_runs_per_day, cooldown_minutes,
@@ -81,6 +82,7 @@ export async function listarReglas(): Promise<ReglaFila[]> {
 
   return filas.map((f) => ({
     id: f.id,
+    grupo: f.grupo,
     name: f.name,
     enabled: f.enabled,
     dryRun: f.dry_run,

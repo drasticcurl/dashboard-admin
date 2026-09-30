@@ -2,8 +2,10 @@
  * /api/ads/reglas — escritura y lectura de reglas del motor (T19).
  *
  *   GET    /api/ads/reglas            lista todas las reglas con condiciones
- *   POST   /api/ads/reglas            crear (sin id) o actualizar (con id)
- *   DELETE /api/ads/reglas?id=7       borrar (no borra su historial: FK SET NULL)
+ *   POST   /api/ads/reglas            crear (sin id) o actualizar (con id) la regla
+ *                                     general de `id`, con sus `accountIds` (037)
+ *   DELETE /api/ads/reglas?id=7       borrar la regla general entera (no borra su
+ *                                     historial: FK SET NULL)
  *   POST   /api/ads/reglas?preview=1  evaluar sin ejecutar, SIEMPRE en sombra
  *
  * Reglas no negociables (task §5):
@@ -11,8 +13,9 @@
  *   - zod replica los CHECK de la base con `refine`, así el error dice QUÉ campo
  *     está mal (Postgres sólo dice el nombre de un constraint).
  *   - regla + condiciones en UNA transacción.
- *   - una regla NUEVA nace `enabled=false` y `dry_run=true`, ignorando el
- *     payload (D-A12). Prenderla es un segundo POST explícito.
+ *   - una regla NUEVA nace `enabled=false`, ignorando el payload (D-A12).
+ *     Prenderla es un segundo POST explícito. No hay más modo sombra: toda
+ *     fila se escribe con `dry_run=false` (037).
  *   - `preview=1` llama a `correrRegla` con `forzarSombra: true`: nunca escribe
  *     en Meta.
  */
@@ -58,14 +61,18 @@ const reglaSchema = z
     // que falta, que es lo que pide R9 c2. Los tres mensajes son el mismo a
     // propósito: para quien manda el payload, "no vino", "vino null" y "vino
     // vacío" son el mismo problema.
+    // Las cuentas a las que se aplica la regla general (migración 037). Se
+    // acepta también `accountId` suelto, que es lo que mandan el CSV y los
+    // payloads viejos: se normaliza a una lista de uno en `cuentasDelPayload`.
+    accountIds: z
+      .array(z.string().trim().min(1).max(64), { invalid_type_error: 'Falta la cuenta de anuncios' })
+      .max(50)
+      .optional(),
     accountId: z
-      .string({
-        required_error: 'Falta la cuenta de anuncios',
-        invalid_type_error: 'Falta la cuenta de anuncios',
-      })
+      .string({ invalid_type_error: 'Falta la cuenta de anuncios' })
       .trim()
-      .min(1, 'Falta la cuenta de anuncios')
-      .max(64, 'Falta la cuenta de anuncios'),
+      .max(64, 'Falta la cuenta de anuncios')
+      .optional(),
     level: z.enum(['campaign', 'adset', 'ad']),
     statusFilter: z.enum(['active', 'paused', 'any']).optional().default('active'),
     nameFilter: z.string().max(200).nullable().optional(),
@@ -87,9 +94,18 @@ const reglaSchema = z
     maxActionsPerObjectPerDay: z.number().int().min(0).optional().default(4),
     conditions: z.array(condicionSchema).max(50).optional().default([]),
     enabled: z.boolean().optional(),
+    // Ya no se usa (037: sin modo sombra). Se acepta para no romper payloads viejos.
     dryRun: z.boolean().optional(),
   })
   .superRefine((d, ctx) => {
+    if (cuentasDelPayload(d).length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Falta la cuenta de anuncios',
+        path: ['accountIds'],
+      });
+    }
+
     const esPresupuesto = d.action === 'budget_increase' || d.action === 'budget_decrease';
 
     // §4.6: 'parent' no está implementado (la base lo rechaza con
@@ -181,13 +197,14 @@ const reglaSchema = z
     // coherencia` es el mismo módulo que usa el formulario, para que el mensaje
     // que ve el usuario sea el que aplica el server.
     //
-    // LA EXCEPCIÓN, QUE NO ES UN DESCUIDO: si el payload apaga la regla o la
-    // manda a sombra, no se valida nada de esto. Una regla incoherente ya
-    // cargada tiene que poder apagarse y tiene que poder volver a simulación
-    // SIEMPRE — son las dos acciones que reducen el riesgo, y bloquearlas por
-    // un problema de coherencia dejaría a alguien sin forma de frenar una regla
-    // desde la UI. Lo que no se puede es dejarla prendida y en real.
-    const reduceRiesgo = d.enabled === false || d.dryRun === true;
+    // LA EXCEPCIÓN, QUE NO ES UN DESCUIDO: si el payload apaga la regla, no se
+    // valida nada de esto. Una regla incoherente ya cargada tiene que poder
+    // apagarse SIEMPRE — es la acción que reduce el riesgo, y bloquearla por un
+    // problema de coherencia dejaría a alguien sin forma de frenar una regla
+    // desde la UI. Lo que no se puede es dejarla prendida. (Hasta la 037
+    // también contaba mandarla a sombra; el modo sombra ya no existe y
+    // `dryRun` se ignora.)
+    const reduceRiesgo = d.enabled === false;
     if (!reduceRiesgo) {
       const motivo = motivoIncoherente({
         action: d.action,
@@ -203,6 +220,12 @@ const reglaSchema = z
   });
 
 // ─────────────────────────────────────────────────────────────────────────────
+
+/** Las cuentas del payload, sin repetidas: `accountIds` o, si no vino, `accountId`. */
+function cuentasDelPayload(d: { accountIds?: string[]; accountId?: string }): string[] {
+  const crudas = d.accountIds ?? (d.accountId ? [d.accountId] : []);
+  return Array.from(new Set(crudas.map((c) => c.trim()).filter((c) => c !== '')));
+}
 
 /**
  * R9 c3: la cuenta tiene que ser una Cuenta_Activa. Se chequea acá y no sólo en
@@ -293,17 +316,28 @@ export async function POST(req: NextRequest): Promise<Response> {
     });
   }
   const d = parsed.data;
-  // ── R9 c3: la cuenta tiene que existir y estar activa ANTES de la
+  const cuentas = cuentasDelPayload(d);
+  // ── R9 c3: cada cuenta tiene que existir y estar activa ANTES de la
   //    transacción, para cortar con un mensaje que nombre el id y no con el
   //    código del FK. ────────────────────────────────────────────────────────
-  if (!(await cuentaEsActiva(d.accountId))) {
-    return json(400, {
-      ok: false,
-      error: 'cuenta_invalida',
-      detail: `la cuenta ${d.accountId} no existe o no está activa`,
-    });
+  for (const cuenta of cuentas) {
+    if (!(await cuentaEsActiva(cuenta))) {
+      return json(400, {
+        ok: false,
+        error: 'cuenta_invalida',
+        detail: `la cuenta ${cuenta} no existe o no está activa`,
+      });
+    }
   }
-  // ── crear o actualizar en una transacción ─────────────────────────────────
+  // ── crear o actualizar la regla general en una transacción ────────────────
+  //
+  // Una regla general es un GRUPO de filas de `ad_rules`, una por cuenta, con
+  // la misma configuración (migración 037). Guardar escribe todas las filas
+  // del grupo: la de cada cuenta tildada se crea o se actualiza, y la de cada
+  // cuenta destildada se reusa para una cuenta nueva o se borra. Reusar antes
+  // que borrar conserva el id cuando sólo se CAMBIA la cuenta (el caso de una
+  // regla de una sola cuenta), y el historial de una fila borrada no se
+  // pierde: las FK de ad_actions/ad_rule_runs son SET NULL.
   try {
     const ruleId = await tx(async (client) => {
       // Con pause/activate el valor, la unidad y los límites no aplican: se
@@ -317,69 +351,94 @@ export async function POST(req: NextRequest): Promise<Response> {
       const windowStart = d.windowStart ?? null;
       const windowEnd = d.windowEnd ?? null;
 
-      let ruleId: number;
-      if (d.id == null) {
-        // Regla nueva: nace apagada y en sombra SIEMPRE (D-A12), ignorando
-        // enabled/dryRun del payload. `metrics_level` se fija en 'object'.
-        const res = await client.query(
-          `INSERT INTO ad_rules
-             (name, enabled, dry_run, account_id, level, status_filter, name_filter,
-              name_filter_mode, action, action_value, action_unit, budget_max, budget_min,
-              period, metrics_level, every_minutes, window_start, window_end,
-              max_runs_per_day, cooldown_minutes, max_actions_per_object_per_day)
-           VALUES ($1, false, true, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-                   'object', $13, $14::time, $15::time, $16, $17, $18)
-           RETURNING id`,
-          [
-            d.name, d.accountId, d.level, d.statusFilter, nameFilter, d.nameFilterMode,
-            d.action, actionValue, actionUnit, budgetMax, budgetMin, d.period,
-            d.everyMinutes, windowStart, windowEnd, d.maxRunsPerDay,
-            d.cooldownMinutes, d.maxActionsPerObjectPerDay,
-          ],
+      let grupo: string | null = null;
+      let existentes: { id: number; account_id: string; enabled: boolean }[] = [];
+      if (d.id != null) {
+        const ancla = await client.query<{ grupo: string }>(
+          'SELECT grupo FROM ad_rules WHERE id = $1 FOR UPDATE',
+          [d.id],
         );
-        ruleId = res.rows[0].id;
-      } else {
-        // Actualizar: enabled/dry_run se cambian acá (los switches de la fila).
-        // Si no vienen, se conservan.
-        const res = await client.query(
-          `UPDATE ad_rules SET
-             name = $2, account_id = $3, level = $4, status_filter = $5,
-             name_filter = $6, name_filter_mode = $7, action = $8, action_value = $9,
-             action_unit = $10, budget_max = $11, budget_min = $12, period = $13,
-             every_minutes = $14, window_start = $15::time, window_end = $16::time,
-             max_runs_per_day = $17, cooldown_minutes = $18,
-             max_actions_per_object_per_day = $19,
-             enabled = COALESCE($20, enabled),
-             dry_run = COALESCE($21, dry_run),
-             updated_at = now()
-           WHERE id = $1
-           RETURNING id`,
-          [
-            d.id, d.name, d.accountId, d.level, d.statusFilter, nameFilter, d.nameFilterMode,
-            d.action, actionValue, actionUnit, budgetMax, budgetMin, d.period,
-            d.everyMinutes, windowStart, windowEnd, d.maxRunsPerDay,
-            d.cooldownMinutes, d.maxActionsPerObjectPerDay,
-            d.enabled ?? null, d.dryRun ?? null,
-          ],
-        );
-        if (res.rows.length === 0) {
-          throw new Error('not_found');
-        }
-        ruleId = d.id;
+        if (ancla.rows.length === 0) throw new Error('not_found');
+        grupo = ancla.rows[0]!.grupo;
+        existentes = (
+          await client.query<{ id: number; account_id: string; enabled: boolean }>(
+            'SELECT id, account_id, enabled FROM ad_rules WHERE grupo = $1 ORDER BY id FOR UPDATE',
+            [grupo],
+          )
+        ).rows;
       }
 
-      // Condiciones: se borran las viejas y se insertan las nuevas. Sin el
-      // DELETE, una edición duplicaría las condiciones (task §5.4).
-      await client.query('DELETE FROM ad_rule_conditions WHERE rule_id = $1', [ruleId]);
-      for (let i = 0; i < d.conditions.length; i++) {
-        const c = d.conditions[i];
-        await client.query(
-          `INSERT INTO ad_rule_conditions (rule_id, metric, op, value, position)
-           VALUES ($1, $2, $3, $4, $5)`,
-          [ruleId, c.metric, c.op, c.value, i],
-        );
+      // Una regla nueva nace APAGADA (D-A12), ignorando el payload: prenderla
+      // es un segundo POST explícito. Una editada toma el estado del payload
+      // o, si no vino, el que tenía (una cuenta recién tildada hereda el del
+      // grupo). No hay más modo sombra: `dry_run` siempre false (037).
+      const enabled =
+        d.id == null ? false : d.enabled ?? existentes.some((e) => e.enabled);
+
+      const libres = existentes.filter((e) => !cuentas.includes(e.account_id));
+      let primera: number | null = null;
+
+      for (const cuenta of cuentas) {
+        const propia = existentes.find((e) => e.account_id === cuenta) ?? libres.shift() ?? null;
+        const valores = [
+          d.name, cuenta, d.level, d.statusFilter, nameFilter, d.nameFilterMode,
+          d.action, actionValue, actionUnit, budgetMax, budgetMin, d.period,
+          d.everyMinutes, windowStart, windowEnd, d.maxRunsPerDay ?? null,
+          d.cooldownMinutes, d.maxActionsPerObjectPerDay, enabled,
+        ];
+        let id: number;
+        if (propia) {
+          await client.query(
+            `UPDATE ad_rules SET
+               name = $2, account_id = $3, level = $4, status_filter = $5,
+               name_filter = $6, name_filter_mode = $7, action = $8, action_value = $9,
+               action_unit = $10, budget_max = $11, budget_min = $12, period = $13,
+               every_minutes = $14, window_start = $15::time, window_end = $16::time,
+               max_runs_per_day = $17, cooldown_minutes = $18,
+               max_actions_per_object_per_day = $19,
+               enabled = $20, dry_run = false,
+               updated_at = now()
+             WHERE id = $1`,
+            [propia.id, ...valores],
+          );
+          id = propia.id;
+        } else {
+          const res = await client.query<{ id: number; grupo: string }>(
+            `INSERT INTO ad_rules
+               (name, account_id, level, status_filter, name_filter,
+                name_filter_mode, action, action_value, action_unit, budget_max, budget_min,
+                period, every_minutes, window_start, window_end,
+                max_runs_per_day, cooldown_minutes, max_actions_per_object_per_day,
+                enabled, dry_run, metrics_level, grupo)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
+                     $13, $14::time, $15::time, $16, $17, $18, $19, false, 'object',
+                     COALESCE($20::uuid, gen_random_uuid()))
+             RETURNING id, grupo`,
+            [...valores, grupo],
+          );
+          id = res.rows[0]!.id;
+          grupo = res.rows[0]!.grupo;
+        }
+
+        // Condiciones: se borran las viejas y se insertan las nuevas. Sin el
+        // DELETE, una edición duplicaría las condiciones (task §5.4).
+        await client.query('DELETE FROM ad_rule_conditions WHERE rule_id = $1', [id]);
+        for (let i = 0; i < d.conditions.length; i++) {
+          const c = d.conditions[i]!;
+          await client.query(
+            `INSERT INTO ad_rule_conditions (rule_id, metric, op, value, position)
+             VALUES ($1, $2, $3, $4, $5)`,
+            [id, c.metric, c.op, c.value, i],
+          );
+        }
+        primera ??= id;
       }
-      return ruleId;
+
+      // Las cuentas destildadas que no se reusaron: su fila se va.
+      if (libres.length > 0) {
+        await client.query('DELETE FROM ad_rules WHERE id = ANY($1::int[])', [libres.map((l) => l.id)]);
+      }
+      return primera!;
     });
 
     return json(200, { ok: true, id: ruleId });
@@ -388,13 +447,13 @@ export async function POST(req: NextRequest): Promise<Response> {
       return json(404, { ok: false, error: 'not_found' });
     }
     // Nombre duplicado: el único es (account_id, name) desde la 021 (R9 c5).
-    // El mensaje nombra la cuenta y el nombre, que es lo que hace falta para
-    // saber cuál de las dos reglas homónimas está en conflicto.
+    // El mensaje nombra el nombre y las cuentas, que es lo que hace falta para
+    // encontrar la otra regla.
     if ((e as { code?: string }).code === '23505') {
       return json(409, {
         ok: false,
         error: 'nombre_duplicado',
-        detail: `Ya existe una regla llamada «${d.name}» en la cuenta ${d.accountId}`,
+        detail: `Ya existe una regla llamada «${d.name}» en la cuenta ${cuentas.join(', ')}`,
       });
     }
     // 23503 = FK violada: la cuenta se borró entre el chequeo y el INSERT.
@@ -402,7 +461,7 @@ export async function POST(req: NextRequest): Promise<Response> {
       return json(400, {
         ok: false,
         error: 'cuenta_invalida',
-        detail: `la cuenta ${d.accountId} no existe`,
+        detail: `la cuenta ${cuentas.join(', ')} no existe`,
       });
     }
     throw e;
@@ -419,9 +478,13 @@ export async function DELETE(req: NextRequest): Promise<Response> {
     return json(400, { ok: false, error: 'invalid_params', detail: 'falta un id válido' });
   }
 
-  // El historial NO se borra: las FK de ad_actions/ad_rule_runs son SET NULL y
-  // rule_name queda desnormalizado (verificación 10 del task).
-  const res = await q<{ id: number }>('DELETE FROM ad_rules WHERE id = $1 RETURNING id', [id]);
+  // Borra la regla general entera: todas las filas de su grupo, una por
+  // cuenta. El historial NO se borra: las FK de ad_actions/ad_rule_runs son
+  // SET NULL y rule_name queda desnormalizado (verificación 10 del task).
+  const res = await q<{ id: number }>(
+    `DELETE FROM ad_rules WHERE grupo = (SELECT grupo FROM ad_rules WHERE id = $1) RETURNING id`,
+    [id],
+  );
   if (res.length === 0) return json(404, { ok: false, error: 'not_found' });
   return json(200, { ok: true });
 }

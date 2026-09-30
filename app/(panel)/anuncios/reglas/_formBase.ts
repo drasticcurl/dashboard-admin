@@ -40,7 +40,7 @@ export type FormEstado = Parameters<typeof problema>[0];
 export function formBase(over: Partial<FormEstado> = {}): FormEstado {
   return {
     name: 'Regla de prueba',
-    accountId: 'act_123',
+    accountIds: ['act_123'],
     level: 'adset',
     statusFilter: 'active',
     nameFilter: '',

@@ -4,7 +4,7 @@ import path from 'node:path';
 import fc from 'fast-check';
 import { NextRequest } from 'next/server';
 import { q, q1 } from '../../../../lib/db';
-import { GET, POST } from './route';
+import { DELETE, GET, POST } from './route';
 import { isAuthenticated } from '../../../../lib/auth';
 import { enviar, fetchMinimoPresupuesto, fetchObjeto } from '../../../../lib/ads/meta';
 import { correrRegla } from '../../../../lib/ads/reglas/ejecutor';
@@ -317,9 +317,10 @@ describe.skipIf(!dbAvailable)('/api/ads/reglas', () => {
             expect(fila!.condiciones[i].value).toBe(enviado.conditions[i].value);
           }
 
-          // Nace apagada y en sombra, ignorando lo que pidió el payload.
+          // Nace apagada, ignorando lo que pidió el payload, y sin modo
+          // sombra (037): el `dryRun` del payload se ignora.
           expect(fila!.enabled).toBe(false);
-          expect(fila!.dryRun).toBe(true);
+          expect(fila!.dryRun).toBe(false);
         } finally {
           await q(`DELETE FROM ad_rules WHERE id = $1`, [id]);
         }
@@ -526,7 +527,7 @@ describe.skipIf(!dbAvailable)('/api/ads/reglas', () => {
     expect(await fotoDeReglas()).toEqual(antes);
   });
 
-  it('una regla incoherente ya guardada se puede APAGAR y mandar a sombra', async (ctx) => {
+  it('una regla incoherente ya guardada se puede APAGAR', async (ctx) => {
     if (!(await requiereEsquema021(ctx))) return;
     const nombre = `${PREFIJO}incoherente-guardada-${Date.now()}`;
     // Se siembra por SQL, salteando el API: es el estado en el que quedaron las
@@ -546,11 +547,8 @@ describe.skipIf(!dbAvailable)('/api/ads/reglas', () => {
       const apagar = await post({ ...base, enabled: false });
       expect(apagar.status).toBe(200);
 
-      // Volverla a sombra: también permitido.
-      const sombra = await post({ ...base, dryRun: true });
-      expect(sombra.status).toBe(200);
-
-      // Prenderla en real: eso NO.
+      // Prenderla: eso NO. (Hasta la 037 también se podía mandar a sombra;
+      // el modo sombra ya no existe.)
       const prender = await post({ ...base, enabled: true, dryRun: false });
       expect(prender.status).toBe(400);
       const cuerpo = (await prender.json()) as { detail?: string };
@@ -561,10 +559,79 @@ describe.skipIf(!dbAvailable)('/api/ads/reglas', () => {
         [id],
       );
       expect(estado?.enabled).toBe(false);
-      expect(estado?.dry_run).toBe(true);
+      expect(estado?.dry_run).toBe(false);
     } finally {
       await q(`DELETE FROM ad_rules WHERE id = $1`, [id]);
     }
+  });
+
+  // ── Reglas generales (037): una regla, varias cuentas ─────────────────────
+  describe('reglas generales (037)', () => {
+    const filasDe = (nombre: string) =>
+      q<{ id: number; grupo: string; account_id: string; enabled: boolean; dry_run: boolean; conds: number }>(
+        `SELECT r.id, r.grupo, r.account_id, r.enabled, r.dry_run,
+                (SELECT count(*)::int FROM ad_rule_conditions c WHERE c.rule_id = r.id) AS conds
+           FROM ad_rules r WHERE r.name = $1 ORDER BY r.account_id`,
+        [nombre],
+      );
+    const condicion = { metric: 'spend' as const, op: '>' as const, value: 5 };
+
+    it('crear con dos cuentas escribe una fila por cuenta, en el mismo grupo y con las mismas condiciones', async (ctx) => {
+      if (!(await requiereEsquema021(ctx))) return;
+      const nombre = `${PREFIJO}general-crear`;
+      const resp = await post({ ...payloadMinimo(), name: nombre, accountId: undefined, accountIds: [CUENTA_A, CUENTA_B], conditions: [condicion] });
+      expect(resp.status).toBe(200);
+      const filas = await filasDe(nombre);
+      expect(filas.map((f) => f.account_id)).toEqual([CUENTA_A, CUENTA_B]);
+      expect(new Set(filas.map((f) => f.grupo)).size).toBe(1);
+      expect(filas.every((f) => f.conds === 1 && !f.enabled && !f.dry_run)).toBe(true);
+      await q(`DELETE FROM ad_rules WHERE name = $1`, [nombre]);
+    });
+
+    it('editar: prender alcanza a todas las cuentas, destildar borra esa fila y tildar otra la agrega', async (ctx) => {
+      if (!(await requiereEsquema021(ctx))) return;
+      const nombre = `${PREFIJO}general-editar`;
+      const creada = await post({ ...payloadMinimo(), name: nombre, accountIds: [CUENTA_A, CUENTA_B], conditions: [condicion] });
+      const id = ((await creada.json()) as { id: number }).id;
+      try {
+        const base = { ...payloadMinimo(), id, name: nombre, conditions: [condicion] };
+
+        expect((await post({ ...base, accountIds: [CUENTA_A, CUENTA_B], enabled: true })).status).toBe(200);
+        expect((await filasDe(nombre)).every((f) => f.enabled)).toBe(true);
+
+        expect((await post({ ...base, accountIds: [CUENTA_B] })).status).toBe(200);
+        const soloB = await filasDe(nombre);
+        expect(soloB.map((f) => f.account_id)).toEqual([CUENTA_B]);
+        // La cuenta que queda hereda el estado de la regla.
+        expect(soloB[0]!.enabled).toBe(true);
+
+        expect((await post({ ...base, id: soloB[0]!.id, accountIds: [CUENTA_A, CUENTA_B] })).status).toBe(200);
+        const otraVez = await filasDe(nombre);
+        expect(otraVez.map((f) => f.account_id)).toEqual([CUENTA_A, CUENTA_B]);
+        expect(new Set(otraVez.map((f) => f.grupo)).size).toBe(1);
+        expect(otraVez.every((f) => f.enabled && f.conds === 1)).toBe(true);
+      } finally {
+        await q(`DELETE FROM ad_rules WHERE name = $1`, [nombre]);
+      }
+    });
+
+    it('sin ninguna cuenta: 400 y no deja rastro', async (ctx) => {
+      if (!(await requiereEsquema021(ctx))) return;
+      const antes = await fotoDeReglas();
+      const resp = await post({ ...payloadMinimo(), accountId: undefined, accountIds: [] });
+      expect(resp.status).toBe(400);
+      expect(await fotoDeReglas()).toEqual(antes);
+    });
+
+    it('DELETE borra la regla general entera, en todas sus cuentas', async (ctx) => {
+      if (!(await requiereEsquema021(ctx))) return;
+      const nombre = `${PREFIJO}general-borrar`;
+      const creada = await post({ ...payloadMinimo(), name: nombre, accountIds: [CUENTA_A, CUENTA_B] });
+      const id = ((await creada.json()) as { id: number }).id;
+      const resp = await DELETE(new NextRequest(`http://localhost/api/ads/reglas?id=${id}`, { method: 'DELETE' }));
+      expect(resp.status).toBe(200);
+      expect(await filasDe(nombre)).toHaveLength(0);
+    });
   });
 });
 

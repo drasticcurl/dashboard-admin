@@ -13,8 +13,9 @@
  *   - Todo el import en UNA transacción: o entran todas las reglas del archivo
  *     o no entra ninguna. Un import a medias deja al usuario sin saber qué
  *     quedó cargado y con un motor corriendo sobre una mezcla.
- *   - Una regla importada nace `enabled=false` y `dry_run=true`, igual que una
- *     creada a mano (D-A12). El formato de UTMify no trae esos campos, así que
+ *   - Una regla importada nace `enabled=false`, igual que una creada a mano
+ *     (D-A12), y sin modo sombra (037). Cada fila importada es su propia regla
+ *     general, con una cuenta. El formato de UTMify no trae esos campos, así que
  *     acá no hay nada que ignorar: no existen en el archivo.
  *   - `reemplazar` borra las reglas viejas de las cuentas de destino ANTES de
  *     insertar, dentro de la misma transacción. El historial no se toca: las FK
@@ -182,7 +183,7 @@ export async function POST(req: NextRequest): Promise<Response> {
                 name_filter_mode, action, action_value, action_unit, budget_max, budget_min,
                 period, metrics_level, every_minutes, window_start, window_end,
                 max_runs_per_day, cooldown_minutes, max_actions_per_object_per_day)
-             VALUES ($1, false, true, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
+             VALUES ($1, false, false, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
                      'object', $13, $14::time, $15::time, $16, $17, $18)
              RETURNING id`,
             [

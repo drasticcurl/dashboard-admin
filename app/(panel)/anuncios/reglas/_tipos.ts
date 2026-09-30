@@ -12,6 +12,12 @@ import type { Condicion, Regla } from '@/lib/ads/tipos';
 
 /** Una regla tal como la lista la pantalla: el contrato de §5 más condiciones y timestamps. */
 export type ReglaFila = Regla & {
+  /**
+   * La regla general a la que pertenece esta fila (migración 037). Una regla
+   * general = todas las filas con el mismo `grupo`, una por cuenta, con la
+   * misma configuración. La pantalla muestra y edita el grupo como una sola.
+   */
+  grupo: string;
   condiciones: Condicion[];
   lastRunAt: string | null;
   lastRunError: string | null;
