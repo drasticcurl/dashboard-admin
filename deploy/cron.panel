@@ -25,34 +25,27 @@
 # falla cualquiera de los pares, pero el par del peso y el backfill se hacen
 # igual: un fallo del par nuevo no puede dejar sin convertir las ventas en pesos.
 #
-# 05:10 Y NO 03:10, Y LA HORA NO ES ARBITRARIA. LEER ANTES DE MOVERLA.
+# 01:10, Y LA HORA NO ES ARBITRARIA. LEER ANTES DE MOVERLA.
 #
 # `fetch-fx.ts` pide la cotización del día que devuelve `today(DASHBOARD_TZ)`, y
-# DASHBOARD_TZ es America/Argentina/Buenos_Aires. El servidor está en
-# Europe/Berlin, 5 horas adelante en verano europeo. Entonces la hora del cron
-# decide EN QUÉ MOMENTO DEL DÍA ARGENTINO se escribe la cotización de ese día:
+# desde el 2026-09-30 DASHBOARD_TZ es Europe/Lisbon (antes era Buenos Aires: el
+# panel cambiaba de día a las 04:00 de Lisboa y el usuario lo pidió en hora de
+# Lisboa). El servidor está en Europe/Berlin, que va SIEMPRE 1 hora adelante de
+# Lisboa (los dos cambian de hora el mismo día). Entonces:
 #
-#   servidor 03:10 CEST  →  BsAs 22:10  →  la cotización del día llega al final
-#   servidor 05:10 CEST  →  BsAs 00:10  →  llega a los 10 min de empezar el día
+#   servidor 01:10  →  Lisboa 00:10  →  la cotización llega a los 10 min del día
 #
-# Las dos cubren todos los días. La diferencia es cuánto tiempo las órdenes del
-# día quedan sin su cotización: con 03:10 son ~22 horas (toda orden anterior a
-# las 22:10 se convierte con la de ayer y queda marcada `fx_stale`, y el panel
-# muestra "Conversión provisoria" todo el día); con 05:10 son 10 minutos.
-#
-# Ojo con la otra mitad: `fx:backfill` NO puede arreglar esas órdenes mientras la
-# cotización del día no exista, porque sólo aplica cotizaciones ya presentes.
-# Por eso mover la hora es el arreglo y correr el backfill no lo es.
-#
-# 05:10 es la única hora que cae después de la medianoche argentina en las DOS
-# estaciones europeas (verano CEST → BsAs 00:10; invierno CET → BsAs 01:10).
-# 04:10 sólo funcionaría en invierno. No la bajes.
+# en las dos estaciones. Si la dejás más tarde, toda orden anterior a esa hora
+# se convierte con la cotización de ayer y queda marcada `fx_stale` ("Conversión
+# provisoria"), y `fx:backfill` no la arregla mientras la del día no exista.
+# Antes era 05:10 por la medianoche argentina: con Lisboa eso dejaba 4 horas de
+# órdenes provisorias por día.
 #
 # Contexto de cómo se pobló esta tabla, para que nadie se confunda leyendo
 # `fetched_at`: los días 2026-08-01..11 se cargaron A MANO el 12/08 16:44 en un
 # lote (`source = oficial-usd-ecb`, script backfill-fx-historico), y el 12/08
 # vino de dolarapi ese mismo día. No hay un histórico de corridas del cron.
-10 5 * * * cd /srv/panel/current && /usr/bin/node --env-file=.env.production ./node_modules/.bin/tsx scripts/fetch-fx.ts >> /var/log/panel/fx.log 2>&1
+10 1 * * * cd /srv/panel/current && /usr/bin/node --env-file=.env.production ./node_modules/.bin/tsx scripts/fetch-fx.ts >> /var/log/panel/fx.log 2>&1
 
 # Rollup del Resumen (T08). Cada 10 min los últimos 3 días.
 */10 * * * * cd /srv/panel/current && /usr/bin/node --env-file=.env.production ./node_modules/.bin/tsx scripts/rollup.ts --days=3 >> /var/log/panel/rollup.log 2>&1
@@ -61,11 +54,12 @@
 # día cerrado usen la cotización correcta. Invertir el orden deja los euros de
 # ayer calculados con la cotización de antes de ayer.
 #
-# SE MOVIÓ DE 03:25 A 05:25 JUNTO CON EL FETCH-FX. Los 15 minutos de separación
-# son la dependencia: si dejás este a las 03:25 y el fetch a las 05:10, el rollup
+# SE MOVIÓ A 01:25 JUNTO CON EL FETCH-FX (antes 05:25, con el panel en hora argentina). Los 15 minutos de separación
+# son la dependencia: si dejás este a las 05:25 y el fetch a las 01:10, está bien, pero si
+# el fetch queda después que este, el rollup
 # corre ANTES de que exista la cotización del día y pasa exactamente lo que este
 # comentario advierte. Las dos líneas se mueven juntas o ninguna.
-25 5 * * * cd /srv/panel/current && /usr/bin/node --env-file=.env.production ./node_modules/.bin/tsx scripts/rollup.ts --days=35 >> /var/log/panel/rollup.log 2>&1
+25 1 * * * cd /srv/panel/current && /usr/bin/node --env-file=.env.production ./node_modules/.bin/tsx scripts/rollup.ts --days=35 >> /var/log/panel/rollup.log 2>&1
 
 # Particiones de events con 3 meses de anticipación (T01).
 0 4 1 * * cd /srv/panel/current && /usr/bin/node --env-file=.env.production ./node_modules/.bin/tsx scripts/ensure-partitions.ts >> /var/log/panel/db.log 2>&1

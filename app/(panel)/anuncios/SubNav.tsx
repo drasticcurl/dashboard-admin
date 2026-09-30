@@ -44,9 +44,9 @@ export function SubNav(): JSX.Element {
               rótulo se corre 2px al activarse y las otras dos pestañas se mueven
               de lugar.
             */
-            className={`tap flex items-center gap-1.5 border-b-2 px-3 py-2 text-sm transition-colors duration-250 focus:outline-none focus:ring-2 focus:ring-good-500/50 ${
+            className={`tap flex items-center gap-1.5 border-b-2 px-3 py-2 text-sm transition-colors duration-250 focus:outline-none focus:ring-2 focus:ring-acento-500/50 ${
               active
-                ? 'border-good-500 font-medium text-neutral-50'
+                ? 'border-acento-500 font-medium text-neutral-50'
                 : 'border-transparent text-neutral-400 hover:border-overlay/16 hover:text-neutral-200'
             }`}
           >

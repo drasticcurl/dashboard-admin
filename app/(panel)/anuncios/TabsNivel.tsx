@@ -66,9 +66,9 @@ export function TabsNivel({
             role="tab"
             aria-selected={activa}
             onClick={() => onNivel(n)}
-            className={`tap flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm transition-colors duration-250 focus:outline-none focus-visible:ring-2 focus-visible:ring-good-500/60 ${
+            className={`tap flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm transition-colors duration-250 focus:outline-none focus-visible:ring-2 focus-visible:ring-acento-500/60 ${
               activa
-                ? 'bg-good-900 font-medium text-good-100'
+                ? 'bg-acento-900 font-medium text-acento-100'
                 : 'text-neutral-400 hover:text-neutral-100'
             }`}
           >
@@ -76,7 +76,7 @@ export function TabsNivel({
             {rotulo}
             {typeof cuenta === 'number' && (
               <span
-                className={`tabular-nums ${activa ? 'text-good-300' : 'text-neutral-600'}`}
+                className={`tabular-nums ${activa ? 'text-acento-300' : 'text-neutral-600'}`}
               >
                 {fmtInt(cuenta)}
               </span>

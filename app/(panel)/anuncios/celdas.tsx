@@ -539,10 +539,10 @@ const ANTEPASADO_TEXTO: Record<'campaign' | 'adset', string> = {
  * `senalEntrega.test.ts` lo hace imposible de reintroducir por accidente.
  *
  * Lo que cambia con `antepasado_apagado` son tres cosas y ninguna es la posición:
- * el **tono de la pista** (`bg-good-500` → `bg-warn-500`), el **nombre accesible**
+ * el **tono de la pista** (`bg-acento-500` → `bg-warn-500`), el **nombre accesible**
  * y el **`title`**. Más el link, que es un elemento nuevo al lado.
  *
- * El tono reemplaza al verde y sólo al verde: la pista apagada
+ * El tono reemplaza al del acento y sólo a ése: la pista apagada
  * (`bg-overlay/12`) se queda como está. Una fila `PAUSED / CAMPAIGN_PAUSED` con
  * el interruptor apagado no está afirmando nada falso, así que no hay nada que
  * corregirle al color; igual gana la señal y el link, porque «esta fila no
@@ -644,8 +644,8 @@ export function ToggleEstado({
         }`}
         aria-describedby={porQue === null ? undefined : idDescripcion}
         onClick={() => onToggle(fila)}
-        className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors before:absolute before:left-1/2 before:top-1/2 before:h-11 before:w-11 before:-translate-x-1/2 before:-translate-y-1/2 before:content-[""] focus:outline-none focus:ring-2 focus:ring-good-500/50 panel:before:hidden ${
-          activo ? (porQue === null ? 'bg-good-500' : 'bg-warn-500') : 'bg-overlay/12'
+        className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors before:absolute before:left-1/2 before:top-1/2 before:h-11 before:w-11 before:-translate-x-1/2 before:-translate-y-1/2 before:content-[""] focus:outline-none focus:ring-2 focus:ring-acento-500/50 panel:before:hidden ${
+          activo ? (porQue === null ? 'bg-acento-500' : 'bg-warn-500') : 'bg-overlay/12'
         }${enCurso ? ' opacity-50' : ''}`}
         // El `title` del pedido en vuelo PISA a los otros dos, y es a propósito:
         // mientras el cambio no está confirmado, «Pausar» o «Activar» describe
@@ -662,7 +662,7 @@ export function ToggleEstado({
         }
       >
         <span
-          className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+          className={`inline-block h-4 w-4 transform rounded-full bg-neutral-50 shadow-lozenge transition-transform ${
             activo ? 'translate-x-4' : 'translate-x-0.5'
           }`}
         />
@@ -723,7 +723,7 @@ export function PresupuestoCelda({
       <button
         type="button"
         onClick={() => onEdit(fila.dailyBudgetEur !== null ? String(fila.dailyBudgetEur) : '')}
-        className="rounded px-1 text-neutral-200 underline decoration-dotted underline-offset-2 hover:text-neutral-50 focus:outline-none focus:ring-2 focus:ring-good-500/50"
+        className="rounded px-1 text-neutral-200 underline decoration-dotted underline-offset-2 hover:text-neutral-50 focus:outline-none focus:ring-2 focus:ring-acento-500/50"
         title="Editar presupuesto"
       >
         {fila.dailyBudgetEur === null ? '—' : money(fila.dailyBudgetEur)}
@@ -752,7 +752,7 @@ export function PresupuestoCelda({
           }
           if (e.key === 'Escape') onEdit('');
         }}
-        className="w-24 rounded border border-border-strong bg-overlay/4 px-1 py-0.5 text-right text-sm text-neutral-100 focus:outline-none focus:ring-2 focus:ring-good-500/50"
+        className="w-24 rounded border border-border-strong bg-overlay/4 px-1 py-0.5 text-right text-sm text-neutral-100 focus:outline-none focus:ring-2 focus:ring-acento-500/50"
         aria-label="Presupuesto en euros"
       />
     </span>

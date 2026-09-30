@@ -73,7 +73,7 @@ export function BarraPrimaria({
           maxLength={200}
           placeholder="Buscar por nombre"
           aria-label="Buscar por nombre"
-          className="h-11 w-full rounded-lg border border-border-strong bg-canvas/50 pl-9 pr-3 text-sm text-neutral-200 transition-colors duration-250 placeholder:text-neutral-600 hover:border-overlay/16 focus:border-good-500/60 focus:outline-none panel:h-9"
+          className="h-11 w-full rounded-lg border border-border-strong bg-canvas/50 pl-9 pr-3 text-sm text-neutral-200 shadow-[inset_0_1px_2px_0_rgb(var(--sombra)/0.45)] transition-colors duration-250 placeholder:text-neutral-600 hover:border-overlay/16 focus:border-acento-500/60 focus:outline-none panel:h-9"
         />
       </div>
 

@@ -80,9 +80,20 @@ export function TarjetaTarea({
   const nLinks = tarea.links.length;
 
   return (
+    /*
+      `lift` va en ESTE div y no en el wrapper de TarjetaOrdenable: el transform
+      inline de dnd-kit vive en el wrapper, así que el del hover no lo pisa. Y
+      sin `transition-[…]` propio: esa utilidad reemplaza entera la transición
+      de `.lift` y el levantarse saltaría en vez de subir.
+
+      La tarjeta que viaja con el puntero (overlay) y la que tiene el foco se
+      marcan en acento: es "la que tenés agarrada", no un estado de la tarea.
+    */
     <div
-      className={`relative flex overflow-hidden rounded-xl border border-border-subtle bg-surface transition-[background-color,box-shadow] duration-150 ${
-        overlay ? 'shadow-float' : 'hover:bg-surface-overlay'
+      className={`relative flex overflow-hidden rounded-xl border bg-surface ${
+        overlay
+          ? 'border-acento-700 shadow-float ring-1 ring-acento-500/40'
+          : 'lift border-border-subtle shadow-card hover:border-overlay/11 hover:shadow-card-hover focus-within:border-acento-700'
       }`}
     >
       {/* Franja de color de prioridad. La palabra va abajo: el color no es la
@@ -95,7 +106,7 @@ export function TarjetaTarea({
             type="button"
             onClick={onAbrir}
             disabled={!onAbrir}
-            className="min-w-0 flex-1 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-good-500/60 disabled:cursor-default"
+            className="min-w-0 flex-1 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-acento-500/60 disabled:cursor-default"
           >
             <span className="line-clamp-2 text-sm font-medium text-neutral-100">
               {tarea.titulo}
@@ -173,7 +184,7 @@ export function TarjetaOrdenable({
             {...listeners}
             aria-label={`Arrastrar la tarea ${tarea.titulo}`}
             title="Arrastrar para mover (o Tab + Espacio + flechas)"
-            className="flex h-11 w-11 shrink-0 touch-none cursor-grab items-center justify-center rounded-lg border border-border-subtle text-neutral-500 panel:h-7 panel:w-7 transition-colors hover:bg-overlay/4 hover:text-neutral-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-good-500/60 active:cursor-grabbing"
+            className="flex h-11 w-11 shrink-0 touch-none cursor-grab items-center justify-center rounded-lg border border-border-subtle text-neutral-500 panel:h-7 panel:w-7 transition-colors hover:bg-overlay/4 hover:text-neutral-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-acento-500/60 active:cursor-grabbing"
           >
             <DotsSixVertical size={14} weight="bold" />
           </button>

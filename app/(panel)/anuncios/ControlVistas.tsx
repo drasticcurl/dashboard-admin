@@ -62,7 +62,7 @@ export function ControlVistas({
         <button
           type="button"
           onClick={() => setAbierto(true)}
-          className="tap inline-flex items-center gap-1.5 rounded-md border border-border-strong px-2.5 py-1.5 text-xs font-semibold text-neutral-200 hover:bg-overlay/6 focus:outline-none focus-visible:ring-2 focus-visible:ring-good-500/60"
+          className="tap press inline-flex items-center gap-1.5 rounded-md border border-border-strong px-2.5 py-1.5 text-xs font-semibold text-neutral-200 transition-colors duration-250 hover:bg-overlay/6 focus:outline-none focus-visible:ring-2 focus-visible:ring-acento-500/60"
         >
           <Star size={13} weight={vistaAplicada ? 'fill' : 'regular'} />
           Vistas y columnas {vistaAplicada ? `· ${vistaAplicada.nombre}` : ''}
@@ -159,12 +159,12 @@ export function ControlVistas({
   return (
     <div className="rounded-xl border border-border-strong bg-surface p-3">
       <div className="mb-2 flex items-center justify-between">
-        <span className="text-xs font-semibold text-neutral-200">Vistas guardadas</span>
+        <span className="font-display text-sm font-semibold -tracking-[0.01em] text-neutral-50">Vistas guardadas</span>
         <button
           type="button"
           onClick={() => setAbierto(false)}
           aria-label="Cerrar el control de Vistas"
-          className="rounded p-1 text-neutral-500 hover:bg-overlay/6 hover:text-neutral-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-good-500/60"
+          className="rounded p-1 text-neutral-500 hover:bg-overlay/6 hover:text-neutral-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-acento-500/60"
         >
           <X size={14} weight="bold" />
         </button>
@@ -184,11 +184,11 @@ export function ControlVistas({
           const esDefault = repo?.porDefecto === v.id;
           const aplicada = vistaAplicada?.id === v.id;
           return (
-            <li key={v.id} className="flex items-center gap-1.5 rounded-md px-2 py-1 hover:bg-overlay/4">
+            <li key={v.id} className={`flex items-center gap-1.5 rounded-md px-2 py-1 transition-colors duration-250 ${aplicada ? 'bg-acento-900' : 'hover:bg-overlay/4'}`}>
               <button
                 type="button"
                 onClick={() => onAplicarVista(v)}
-                className={`flex-1 truncate text-left text-xs ${aplicada ? 'font-semibold text-good-300' : 'text-neutral-300 hover:text-neutral-100'}`}
+                className={`flex-1 truncate text-left text-xs ${aplicada ? 'font-semibold text-acento-100' : 'text-neutral-300 hover:text-neutral-100'}`}
                 title={aplicada ? 'Vista aplicada' : 'Aplicar esta Vista'}
               >
                 {v.nombre}
@@ -212,7 +212,7 @@ export function ControlVistas({
                 <button
                   type="button"
                   onClick={() => onCambiarRepo({ v: 1, vistas, porDefecto: v.id })}
-                  className="rounded px-1 py-0.5 text-neutral-500 hover:text-good-300"
+                  className="rounded px-1 py-0.5 text-neutral-500 hover:text-acento-300"
                   aria-label={`Marcar «${v.nombre}» como Vista por defecto`}
                   title="Marcar como Vista por defecto"
                 >
@@ -253,13 +253,13 @@ export function ControlVistas({
             value={nombreRenombre}
             maxLength={60}
             onChange={(e) => setNombreRenombre(e.target.value)}
-            className="flex-1 rounded border border-border-strong bg-overlay/4 px-2 py-1 text-xs text-neutral-200 focus:outline-none focus:ring-1 focus:ring-good-500/50"
+            className="flex-1 rounded-md border border-border-strong bg-canvas/50 px-2 py-1 text-xs text-neutral-200 shadow-[inset_0_1px_2px_0_rgb(var(--sombra)/0.45)] transition-colors duration-250 hover:border-overlay/16 focus:border-acento-500/60 focus:outline-none focus:ring-1 focus:ring-acento-500/50"
             aria-label="Nuevo nombre de la Vista"
           />
           <button
             type="button"
             onClick={() => confirmarRenombre(vistas.find((v) => v.id === renombrando)!)}
-            className="rounded border border-border-strong px-2 py-1 text-xs font-semibold text-neutral-200 hover:bg-overlay/6"
+            className="press rounded-md border border-border-strong px-2 py-1 text-xs font-semibold text-neutral-200 transition-colors duration-250 hover:bg-overlay/6 hover:text-neutral-50"
           >
             Guardar
           </button>
@@ -270,7 +270,7 @@ export function ControlVistas({
           Cambiar columnas marca la Vista como modificada vía `hayCambios`, así
           que el botón de sobrescribir aparece solo. */}
       <div className="mt-3 border-t border-border-subtle pt-3">
-        <p className="mb-2 text-xs font-semibold text-neutral-200">Columnas de esta vista</p>
+        <p className="mb-2 font-display text-sm font-semibold -tracking-[0.01em] text-neutral-50">Columnas de esta vista</p>
         <ConfiguradorColumnas columnas={columnas} onColumnas={onColumnas} />
       </div>
 
@@ -281,13 +281,13 @@ export function ControlVistas({
           maxLength={60}
           placeholder="Nombre de la Vista nueva"
           onChange={(e) => setNombreNuevo(e.target.value)}
-          className="flex-1 rounded border border-border-strong bg-overlay/4 px-2 py-1 text-xs text-neutral-200 placeholder:text-neutral-600 focus:outline-none focus:ring-1 focus:ring-good-500/50"
+          className="flex-1 rounded-md border border-border-strong bg-canvas/50 px-2 py-1 text-xs text-neutral-200 shadow-[inset_0_1px_2px_0_rgb(var(--sombra)/0.45)] transition-colors duration-250 hover:border-overlay/16 focus:border-acento-500/60 placeholder:text-neutral-600 focus:outline-none focus:ring-1 focus:ring-acento-500/50"
           aria-label="Nombre de la Vista nueva"
         />
         <button
           type="button"
           onClick={crear}
-          className="inline-flex items-center gap-1 rounded border border-border-strong px-2 py-1 text-xs font-semibold text-neutral-200 hover:bg-overlay/6"
+          className="press inline-flex items-center gap-1 rounded-md border border-border-strong px-2 py-1 text-xs font-semibold text-neutral-200 transition-colors duration-250 hover:bg-overlay/6 hover:text-neutral-50"
         >
           <Plus size={12} weight="bold" /> Crear con lo de pantalla
         </button>

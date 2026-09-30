@@ -24,7 +24,7 @@ import { listFunnels } from '@/lib/funnels';
 import { leerInsightVigente, type InsightGuardado } from '@/lib/ia/insights';
 import { MONEDA_REPORTE, type MonedaReporte } from '@/lib/moneda-reporte';
 import { UNATTRIBUTED_FUNNEL, getDashboardTimezone } from './sales';
-import { repartirGastoDelDia, type LecturaGasto } from './gasto-hora';
+import { tramosGastoDelDia, volcarEnHoras, type LecturaGasto } from './gasto-hora';
 
 export type OverviewFilters = { from: string; to: string }; // en DASHBOARD_TZ
 
@@ -376,27 +376,48 @@ function hourSql(convierte: boolean): string {
   FROM orders o
   ${joinFactor(convierte, 'o.day')}
   WHERE o.funnel_id IS NOT NULL
-    AND o.day BETWEEN $1::date AND $2::date
+    -- El rango se corta con el reloj del PANEL (purchased_at en ${tz}) y NO
+    -- con o.day, que está en la zona de la TIENDA: con una tienda en Lisboa, el
+    -- día de hoy de la tienda arranca a las 20:00 de ayer en Argentina y esas
+    -- ventas de anoche aparecían como "las 23 de hoy" (una hora del futuro).
+    -- El filtro por o.day ±1 queda para usar el índice (funnel_id, day).
+    AND o.day BETWEEN $1::date - 1 AND $2::date + 1
+    AND o.purchased_at >= ($1::date)::timestamp AT TIME ZONE ${tz}
+    AND o.purchased_at <  ($2::date + 1)::timestamp AT TIME ZONE ${tz}
   GROUP BY 1, 2`;
 }
 
 type HourRowRaw = { hour: number; funnelId: number; orders: number; grossEur: string; netEur: string };
 
 /**
- * El gasto total de cada funnel y día del rango (la misma suma que el rollup
- * pasa a daily_metrics.ad_spend_eur) y las 00:00 de ese día en la TZ del
- * dashboard, que es desde donde se reparte en horas.
+ * El gasto total de cada funnel y día DE META que toca el rango, con el
+ * arranque y el fin de ese día en la zona de la CUENTA publicitaria (migración
+ * 015: `ad_spend.day` es el día de la cuenta, no el del panel). Se piden los
+ * días de Meta de un día antes a uno después del rango, porque con zonas
+ * distintas un día del panel cae repartido entre dos días de Meta; lo que cae
+ * fuera del rango lo recorta `volcarEnHoras`.
+ *
+ * Si un funnel tuviera cuentas en zonas distintas, se toma una (MIN): las
+ * lecturas de `ad_spend_hora` son por funnel y día, no por cuenta, así que no
+ * hay forma de separarlas. Hoy ningún funnel está en ese caso.
  */
 function spendDaySql(convierte: boolean): string {
   const tz = convierte ? '$5' : '$3';
   return `
-  SELECT a.funnel_id AS "funnelId", a.day::text AS day,
-         COALESCE(SUM(a.spend_eur * fx.k), 0)::text AS total,
-         (EXTRACT(EPOCH FROM (a.day::timestamp AT TIME ZONE ${tz})) * 1000)::text AS "inicioMs"
-  FROM ad_spend a
-  ${joinFactor(convierte, 'a.day')}
-  WHERE a.funnel_id IS NOT NULL AND a.day BETWEEN $1::date AND $2::date
-  GROUP BY a.funnel_id, a.day`;
+  WITH d AS (
+    SELECT a.funnel_id, a.day,
+           COALESCE(SUM(a.spend_eur * fx.k), 0) AS total,
+           COALESCE(MIN(ac.timezone), ${tz}) AS zona
+    FROM ad_spend a
+    LEFT JOIN ad_accounts ac ON ac.account_id = a.account_id
+    ${joinFactor(convierte, 'a.day')}
+    WHERE a.funnel_id IS NOT NULL AND a.day BETWEEN $1::date - 1 AND $2::date + 1
+    GROUP BY a.funnel_id, a.day
+  )
+  SELECT funnel_id AS "funnelId", day::text AS day, total::text AS total,
+         (EXTRACT(EPOCH FROM (day::timestamp AT TIME ZONE zona)) * 1000)::text AS "inicioMs",
+         (EXTRACT(EPOCH FROM ((day + 1)::timestamp AT TIME ZONE zona)) * 1000)::text AS "finMs"
+  FROM d`;
 }
 
 /** Las lecturas del gasto acumulado que guarda el trigger de la 036. */
@@ -407,8 +428,13 @@ function spendLecturasSql(convierte: boolean): string {
          (s.spend_eur_acum * fx.k)::text AS acum
   FROM ad_spend_hora s
   ${joinFactor(convierte, 's.day')}
-  WHERE s.day BETWEEN $1::date AND $2::date`;
+  WHERE s.day BETWEEN $1::date - 1 AND $2::date + 1`;
 }
+
+/** El rango del panel en ms: de las 00:00 de `from` a las 00:00 del día después de `to`. */
+const RANGO_MS_SQL = `
+  SELECT (EXTRACT(EPOCH FROM ($1::date)::timestamp AT TIME ZONE $3) * 1000)::text AS desde,
+         (EXTRACT(EPOCH FROM ($2::date + 1)::timestamp AT TIME ZONE $3) * 1000)::text AS hasta`;
 
 type HorasFunnel = { orders: number[]; gross: number[]; net: number[]; spend: number[] };
 
@@ -424,14 +450,20 @@ async function leerHoras(
 ): Promise<Map<number, HorasFunnel>> {
   const convierte = moneda !== MONEDA_REPORTE;
   const params = [...paramsRango(from, to, moneda), timezone];
-  const [ventas, gastoDia, lecturas] = await Promise.all([
+  const [ventas, gastoDia, lecturas, rango] = await Promise.all([
     q<HourRowRaw>(hourSql(convierte), params),
-    q<{ funnelId: number; day: string; total: string; inicioMs: string }>(spendDaySql(convierte), params),
+    q<{ funnelId: number; day: string; total: string; inicioMs: string; finMs: string }>(
+      spendDaySql(convierte),
+      params,
+    ),
     q<{ funnelId: number; day: string; t: string; acum: string }>(
       spendLecturasSql(convierte),
       paramsRango(from, to, moneda),
     ),
+    q1<{ desde: string; hasta: string }>(RANGO_MS_SQL, [from, to, timezone]),
   ]);
+  const rangoDesde = Number(rango?.desde ?? 0);
+  const rangoHasta = Number(rango?.hasta ?? 0);
 
   const porFunnel = new Map<number, HorasFunnel>();
   const de = (id: number): HorasFunnel => {
@@ -461,14 +493,14 @@ async function leerHoras(
   }
   const ahoraMs = Date.now();
   for (const g of gastoDia) {
-    const horas = repartirGastoDelDia({
+    const tramos = tramosGastoDelDia({
       inicioMs: Number(g.inicioMs),
+      finMs: Number(g.finMs),
       ahoraMs,
       total: MONEY(g.total),
       lecturas: lecturasDe.get(`${g.funnelId}:${g.day}`) ?? [],
     });
-    const x = de(g.funnelId);
-    for (let h = 0; h < 24; h++) x.spend[h]! += horas[h]!;
+    volcarEnHoras(tramos, rangoDesde, rangoHasta, de(g.funnelId).spend);
   }
   return porFunnel;
 }

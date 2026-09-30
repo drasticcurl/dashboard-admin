@@ -243,7 +243,7 @@ export function UsuariosSection({ shell }: { shell: ConfigShell }): JSX.Element 
                         >
                           <input
                             type="checkbox"
-                            className="h-3.5 w-3.5 rounded border-border-strong bg-canvas/60 accent-good-500 disabled:opacity-60"
+                            className="h-3.5 w-3.5 rounded border-border-strong bg-canvas/60 accent-acento-500 disabled:opacity-60"
                             checked={marcado}
                             disabled={esAdmin || busy}
                             onChange={() => toggle(u.id, s)}
@@ -285,8 +285,8 @@ export function UsuariosSection({ shell }: { shell: ConfigShell }): JSX.Element 
 
       {/* Alta de un usuario nuevo. */}
       <div className="mt-4 border-t border-border-subtle pt-4">
-        <p className="mb-3 text-sm font-semibold text-neutral-200">
-          Crear usuario <span className="font-normal text-neutral-500">— nace con la clave 123456 y sin ninguna sección</span>
+        <p className="mb-3 font-display text-sm font-semibold -tracking-[0.01em] text-neutral-100">
+          Crear usuario <span className="font-sans font-normal tracking-normal text-neutral-500">— nace con la clave 123456 y sin ninguna sección</span>
         </p>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <label className="flex flex-col gap-1 text-xs text-neutral-500">

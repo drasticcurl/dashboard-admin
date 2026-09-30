@@ -198,7 +198,7 @@ export function LeadsView({
               type="checkbox"
               checked={onlyNonBuyers}
               onChange={(e) => setOnlyNonBuyers(e.target.checked)}
-              className="h-4 w-4 accent-good-500"
+              className="h-4 w-4 accent-acento-500"
             />
             Solo no-compradores
           </label>
@@ -208,18 +208,19 @@ export function LeadsView({
               type="date"
               value={since}
               onChange={(e) => setSince(e.target.value)}
-              className="rounded-lg border border-border-strong bg-overlay/4 px-2 py-1.5 text-sm text-neutral-200 focus:border-good-500/50 focus:outline-none"
+              className="rounded-lg border border-border-strong bg-overlay/4 px-2 py-1.5 text-sm text-neutral-200 transition-colors duration-250 hover:border-overlay/16 focus:border-acento-500/60 focus:outline-none"
             />
           </label>
           <a
             href={data.configured ? exportHref : undefined}
             aria-disabled={!data.configured}
-            className={`press flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-semibold transition-[background-color,filter] duration-250 focus:outline-none focus:ring-2 focus:ring-good-500/50 ${
+            className={`press flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-semibold transition-[background-color,filter] duration-250 focus:outline-none focus-visible:ring-2 focus-visible:ring-acento-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-surface ${
               data.configured
-                ? /* Texto OSCURO sobre el verde, no blanco: blanco sobre este
-                     tono da 2,2:1 de contraste (reprueba incluso AA), el canvas
-                     da 8,8:1. */
-                  'bg-gradient-to-b from-good-400 to-good-600 text-canvas shadow-glow-good hover:brightness-110'
+                ? /* El botón primario del panel (plan §5): iris y no verde,
+                     porque exportar es una acción y no un resultado. Texto
+                     OSCURO sobre el iris, no blanco: el canvas da 7,27:1 arriba
+                     del degradado y 5,94:1 abajo; blanco no llega a AA. */
+                  'bg-gradient-to-b from-acento-400 to-acento-500 text-canvas shadow-glow-acento hover:brightness-110'
                 : 'pointer-events-none bg-overlay/6 text-neutral-500'
             }`}
           >
@@ -239,7 +240,7 @@ export function LeadsView({
               value={sort}
               onChange={(e) => cambiarSort(e.target.value as SortLeads)}
               aria-label="Orden de la tabla de leads"
-              className="rounded-lg border border-border-strong bg-overlay/4 px-2 py-1.5 text-sm text-neutral-200 focus:border-good-500/50 focus:outline-none"
+              className="rounded-lg border border-border-strong bg-overlay/4 px-2 py-1.5 text-sm text-neutral-200 transition-colors duration-250 hover:border-overlay/16 focus:border-acento-500/60 focus:outline-none"
             >
               <option value="recientes" className="bg-surface">Más recientes primero</option>
               <option value="severidad" className="bg-surface">Mayor severidad primero</option>
@@ -295,7 +296,7 @@ export function LeadsView({
               header: 'Tipo',
               align: 'right',
               render: (r) => (
-                <span className="tabular-nums text-neutral-300">
+                <span className="font-mono tabular-nums text-neutral-300">
                   {r.tipoHinchazon == null ? '—' : r.tipoHinchazon}
                 </span>
               ),
@@ -334,7 +335,7 @@ function MaskedEmail({ email }: { email: string }): JSX.Element {
       type="button"
       onClick={() => setOpen((o) => !o)}
       aria-label={open ? 'Ocultar email completo' : 'Mostrar email completo'}
-      className="rounded-sm tabular-nums text-neutral-300 underline decoration-dotted underline-offset-2 transition-colors hover:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-good-500/50"
+      className="rounded-sm tabular-nums text-neutral-300 underline decoration-dotted underline-offset-2 transition-colors hover:text-neutral-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-acento-500/60"
     >
       {open ? email : masked}
     </button>
@@ -349,5 +350,6 @@ function ComproBadge({ compro }: { compro: boolean | string | null }): JSX.Eleme
   if (compro == null || compro === '' || compro === false || compro === 'false') {
     return <span className="text-neutral-600">No</span>;
   }
+  // good y no acento: una compra es un resultado, no un control (D1).
   return <span className="font-medium text-good-400">Sí</span>;
 }

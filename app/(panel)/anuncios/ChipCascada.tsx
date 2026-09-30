@@ -70,7 +70,7 @@ export function ChipCascada({
   const texto = `${rotuloCascada(cascada, nivelActivo, nombre)}${resto > 0 ? ` +${resto}` : ''}`;
 
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full border border-good-500/30 bg-good-500/10 px-3 py-1 text-xs font-semibold text-good-200">
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-acento-500/30 bg-acento-500/10 px-3 py-1 text-xs font-semibold text-acento-200">
       <span title={cascada.ids.join(', ')}>{texto}</span>
       {cascada.descartados > 0 && (
         <span className="text-[10px] max-panel:text-xs font-normal text-neutral-400" title={`Se descartaron ${cascada.descartados} identificadores (motivo: ${cascada.motivo ?? 'tope'})`}>
@@ -82,7 +82,7 @@ export function ChipCascada({
         onClick={onLimpiar}
         aria-label="Limpiar el filtro de cascada"
         title="Limpiar el filtro de cascada"
-        className="rounded-full p-0.5 text-good-300 transition-colors hover:bg-good-500/20 hover:text-good-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-good-500/60"
+        className="rounded-full p-0.5 text-acento-300 transition-colors hover:bg-acento-500/20 hover:text-acento-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-acento-500/60"
       >
         <X size={12} weight="bold" />
       </button>

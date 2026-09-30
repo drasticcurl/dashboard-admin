@@ -22,7 +22,6 @@
 
 import { cookies, headers } from 'next/headers';
 import { redirect } from 'next/navigation';
-import { PanelLogo } from '@/components/PanelLogo';
 import {
   PANEL_COOKIE_NAME,
   checkLoginRateLimit,
@@ -161,12 +160,10 @@ export default function LoginPage({
         sobre el fondo en lugar de un recuadro sobre un color.
       */}
       <div className="glass sheen w-full max-w-md rounded-3xl border border-border-subtle p-7">
-        <div className="mb-5 flex items-center gap-2.5">
-          <PanelLogo size="md" />
-          <span className="text-sm font-semibold text-neutral-300">Dashboard interno</span>
-        </div>
-
-        <h1 className="text-[1.5rem] font-semibold -tracking-[0.02em] text-neutral-50">
+        {/* `font-display` con el tracking apretado, igual que el h1 de
+            EncabezadoPagina (D6): es la primera pantalla que ve alguien y tiene
+            que hablar con la misma voz que el panel del otro lado. */}
+        <h1 className="font-display text-[1.75rem] font-semibold leading-tight -tracking-[0.03em] text-neutral-50">
           Acceso al panel
         </h1>
         <p className="mt-1.5 max-w-[42ch] text-pretty text-sm leading-relaxed text-neutral-400">
@@ -184,8 +181,10 @@ export default function LoginPage({
               required
               /* El anillo de foco lo da el `:focus-visible` global. Acá sólo
                  viaja el cambio de borde, que es la señal de "estoy escribiendo
-                 en este campo" y sobrevive al click del mouse. */
-              className="mt-2 w-full rounded-xl border border-border-strong bg-canvas/60 px-3.5 py-2.5 text-sm text-neutral-100 shadow-[inset_0_1px_2px_0_rgba(4,6,14,0.5)] transition-colors duration-250 placeholder:text-neutral-600 hover:border-overlay/16 focus:border-good-500/60"
+                 en este campo" y sobrevive al click del mouse. La sombra
+                 interna es la tinta del canvas (12,10,28): con el hue viejo
+                 quedaba un gris azulado "sucio" sobre el fondo violáceo (D5). */
+              className="mt-2 w-full rounded-xl border border-border-strong bg-canvas/60 px-3.5 py-2.5 text-sm text-neutral-100 shadow-[inset_0_1px_2px_0_rgba(12,10,28,0.5)] transition-colors duration-250 placeholder:text-neutral-600 hover:border-overlay/16 focus:border-acento-500/60"
               placeholder="tu usuario"
             />
           </label>
@@ -197,14 +196,14 @@ export default function LoginPage({
               name="password"
               autoComplete="current-password"
               required
-              className="mt-2 w-full rounded-xl border border-border-strong bg-canvas/60 px-3.5 py-2.5 text-sm text-neutral-100 shadow-[inset_0_1px_2px_0_rgba(4,6,14,0.5)] transition-colors duration-250 placeholder:text-neutral-600 hover:border-overlay/16 focus:border-good-500/60"
+              className="mt-2 w-full rounded-xl border border-border-strong bg-canvas/60 px-3.5 py-2.5 text-sm text-neutral-100 shadow-[inset_0_1px_2px_0_rgba(12,10,28,0.5)] transition-colors duration-250 placeholder:text-neutral-600 hover:border-overlay/16 focus:border-acento-500/60"
               placeholder="••••••••••••••••••••••••"
             />
           </label>
 
           <button
             type="submit"
-            className="press w-full rounded-xl bg-gradient-to-b from-good-400 to-good-600 px-3 py-2.5 text-sm font-semibold text-canvas shadow-glow-good transition-[filter,box-shadow] duration-250 hover:brightness-110"
+            className="press w-full rounded-xl bg-gradient-to-b from-acento-400 to-acento-500 px-3 py-2.5 text-sm font-semibold text-canvas shadow-glow-acento transition-[filter,box-shadow] duration-250 hover:brightness-110"
           >
             Ingresar
           </button>

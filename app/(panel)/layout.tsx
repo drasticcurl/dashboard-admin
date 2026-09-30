@@ -100,13 +100,13 @@ export default async function PanelLayout({ children }: { children: ReactNode })
         nombre={sesion.nombre}
         salir={
           <form action={logoutAction}>
-            {/* Link de texto en verde y no un botón con fondo: en el pie del
+            {/* Link de texto en el acento y no un botón con fondo: en el pie del
                 sidebar, un botón con el mismo tratamiento que los ítems de
                 navegación se lee como una décima sección en vez de como la
                 salida. Así se ve que es una acción. */}
             <button
               type="submit"
-              className="tap press rounded-lg px-1.5 py-1 text-sm font-medium text-good-400 transition-colors duration-250 hover:bg-good-900 hover:text-good-200"
+              className="tap press rounded-lg px-1.5 py-1 text-sm font-medium text-acento-400 transition-colors duration-250 hover:bg-acento-900 hover:text-acento-200"
             >
               Salir
             </button>

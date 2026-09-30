@@ -311,7 +311,7 @@ export function CuentasSection({
             key: 'sortOrder',
             header: 'Orden',
             align: 'right',
-            render: (c) => <span className="tabular-nums">{c.sortOrder}</span>,
+            render: (c) => <span className="font-mono tabular-nums">{c.sortOrder}</span>,
           },
           {
             key: 'acciones',
@@ -360,14 +360,22 @@ export function CuentasSection({
         ]}
       />
 
-      <div className="mt-4 rounded-xl border border-border-subtle bg-overlay/2 p-4">
-        <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-neutral-500">
+      {/* Editando o cerrando una cuenta, la caja pasa al "seleccionado" del
+          acento (plan §5): la tabla no marca la fila, así que la caja es la que
+          dice que estás tocando una cuenta que ya existe. */}
+      <div className={`mt-4 rounded-xl border p-4 transition-colors duration-250 ${
+          editId === null ? 'border-border-subtle bg-overlay/2' : 'border-acento-700 bg-acento-900/40'
+        }`}>
+        {/* Título de subsección en display (D6), igual que los formularios de
+            Movimientos y Pagos: antes era un eyebrow en mayúsculas grises y se
+            leía como una etiqueta, no como "acá empieza otro formulario". */}
+        <h3 className="mb-3 font-display text-sm font-semibold -tracking-[0.01em] text-neutral-100">
           {editId === null
             ? 'Agregar cuenta'
             : cerrando
               ? `Cerrar «${original?.name ?? ''}»`
               : `Editar «${original?.name ?? ''}»`}
-        </p>
+        </h3>
 
         {cerrando && (
           <div className="mb-3">

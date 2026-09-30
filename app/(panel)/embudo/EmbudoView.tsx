@@ -67,7 +67,7 @@ import { CaretDown, CaretUp } from '@phosphor-icons/react';
   navegador los pinte de blanco.
 */
 const SELECT_CLS =
-  'press min-h-[44px] appearance-none rounded-lg border border-border-strong bg-surface-raised py-1.5 pl-3 pr-8 panel:min-h-0 text-sm font-medium text-neutral-200 shadow-inset-highlight transition-[background-color,border-color] duration-250 hover:border-overlay/18 hover:bg-surface-overlay';
+  'press min-h-[44px] appearance-none rounded-lg border border-border-strong bg-surface-raised py-1.5 pl-3 pr-8 panel:min-h-0 text-sm font-medium text-neutral-200 shadow-inset-highlight transition-[background-color,border-color] duration-250 hover:border-overlay/18 hover:bg-surface-overlay focus:outline-none focus-visible:border-acento-700 focus-visible:ring-2 focus-visible:ring-acento-500/50';
 
 type CampaignRow = { campaign: string; sessions: number; purchases: number };
 type CampaignSortKey = 'campaign' | 'sessions' | 'purchases' | 'conversion';
@@ -212,7 +212,7 @@ export function EmbudoView({
             <button
               type="button"
               onClick={() => setRetryTick((t) => t + 1)}
-              className="rounded-md border border-border-strong px-2 py-1 font-semibold text-neutral-200 hover:bg-overlay/6"
+              className="rounded-md border border-border-strong px-2 py-1 font-semibold text-neutral-200 transition-colors hover:bg-overlay/6 focus:outline-none focus-visible:ring-2 focus-visible:ring-acento-500/60"
             >
               Reintentar
             </button>
@@ -268,9 +268,9 @@ export function EmbudoView({
               type="button"
               onClick={() => setBase('landing')}
               aria-pressed={base === 'landing'}
-              className={`tap press rounded-md px-2.5 py-1.5 text-xs transition-colors duration-250 panel:text-sm ${
+              className={`tap press rounded-md px-2.5 py-1.5 text-xs transition-colors duration-250 focus:outline-none focus-visible:ring-2 focus-visible:ring-acento-500/50 panel:text-sm ${
                 base === 'landing'
-                  ? 'bg-good-900 font-medium text-good-100'
+                  ? 'bg-acento-900 font-medium text-acento-100'
                   : 'text-neutral-400 hover:text-neutral-100'
               }`}
             >
@@ -280,9 +280,9 @@ export function EmbudoView({
               type="button"
               onClick={() => setBase('start')}
               aria-pressed={base === 'start'}
-              className={`tap press rounded-md px-2.5 py-1.5 text-xs transition-colors duration-250 panel:text-sm ${
+              className={`tap press rounded-md px-2.5 py-1.5 text-xs transition-colors duration-250 focus:outline-none focus-visible:ring-2 focus-visible:ring-acento-500/50 panel:text-sm ${
                 base === 'start'
-                  ? 'bg-good-900 font-medium text-good-100'
+                  ? 'bg-acento-900 font-medium text-acento-100'
                   : 'text-neutral-400 hover:text-neutral-100'
               }`}
             >
@@ -304,17 +304,19 @@ export function EmbudoView({
           </Banner>
         )}
         {data.porEtapas.etapas.length === 0 ? (
-          <div className="flex flex-col items-center gap-2 py-8 text-center">
+          <div className="flex flex-col items-center gap-2 py-10 text-center">
+            {/* La misma forma que `EmptyState` del kit (que no acepta un link en
+                el hint): un vacío con otra tipografía se leía como un error. */}
             <p className="text-sm font-medium text-neutral-300">
               Este funnel no tiene etapas configuradas
             </p>
-            <p className="text-xs text-neutral-500">
+            <p className="max-w-[46ch] text-pretty text-xs leading-relaxed text-neutral-500">
               El embudo por etapas se arma desde Config → Etapas. La lista paso a paso sigue
               disponible más abajo.
             </p>
             <Link
               href="/config"
-              className="text-xs font-semibold text-good-400 underline underline-offset-2"
+              className="rounded-sm text-xs font-semibold text-acento-400 underline underline-offset-2 transition-colors hover:text-acento-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-acento-500/60"
             >
               Ir a Config
             </Link>
@@ -600,14 +602,14 @@ function CampaignTable({ rows }: { rows: CampaignRow[] }) {
             setSortDesc(true);
           }
         }}
-        className={`tap text-xs font-semibold uppercase tracking-wide transition-colors focus:outline-none focus:ring-2 focus:ring-good-500/50 ${
+        className={`tap text-xs font-semibold uppercase tracking-wide transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-acento-500/50 ${
           align === 'right' ? 'w-full text-right' : ''
         } ${active ? 'text-neutral-200' : 'text-neutral-500 hover:text-neutral-300'}`}
         aria-label={`Ordenar por ${label}${active ? (sortDesc ? ' descendente' : ' ascendente') : ''}`}
       >
         {label}
         {active && (
-          <span className="ml-0.5 inline-flex align-middle">
+          <span className="ml-0.5 inline-flex align-middle text-acento-400">
             {sortDesc ? (
               <CaretDown size={11} weight="bold" aria-hidden="true" />
             ) : (

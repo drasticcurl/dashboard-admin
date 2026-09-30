@@ -15,9 +15,11 @@
  * confirmación, no un contenedor.
  *
  * Lo que sí se copió de él es el envoltorio visual, para que los dos modales del
- * panel se vean como el mismo objeto: `fixed inset-0` con `bg-canvas/80` y
- * `backdrop-blur-sm`, y la tarjeta con `rounded-2xl border-border-strong
- * bg-surface shadow-float`.
+ * panel se vean como el mismo objeto: `fixed inset-0` con `bg-canvas/75` y
+ * `backdrop-blur-sm` (el backdrop del rediseño iris: tinta, no gris), y la
+ * tarjeta con `rounded-2xl border-border-strong shadow-float`. La tarjeta va en
+ * `surface-overlay`, un escalón arriba de las cards de la pantalla: lo que
+ * flota encima tiene que leerse más cerca que lo que queda detrás del velo.
  *
  * Y lo que se AGREGÓ, porque acá adentro van formularios y no un sí/no:
  *
@@ -153,7 +155,7 @@ export function Modal({
         tarjeta es una hoja que va de 24px del tope hasta abajo (handoff), y para
         eso tiene que poder estirarse.
       */
-      className="fixed inset-0 z-modal flex items-stretch justify-center overflow-hidden bg-canvas/80 pt-6 backdrop-blur-sm panel:items-center panel:p-4"
+      className="fixed inset-0 z-modal flex items-stretch justify-center overflow-hidden bg-canvas/75 pt-6 backdrop-blur-sm panel:items-center panel:p-4"
       // `onMouseDown` en el overlay y el chequeo de target: cierra sólo cuando
       // el gesto EMPEZÓ en el fondo. Con onClick, seleccionar texto de adentro
       // y soltar afuera cerraba el modal y perdía lo tipeado.
@@ -185,7 +187,7 @@ export function Modal({
           min(560px, 100% − 32px), que es el `max-w-[560px]` + el `p-4` del
           overlay.
         */
-        className={`flex max-h-[calc(100dvh-48px)] w-full flex-col overflow-hidden rounded-t-2xl border border-border-strong bg-surface shadow-float outline-none panel:my-auto panel:rounded-2xl ${
+        className={`flex max-h-[calc(100dvh-48px)] w-full flex-col overflow-hidden rounded-t-2xl border border-border-strong bg-surface-overlay shadow-float outline-none panel:my-auto panel:rounded-2xl ${
           ancho === 'lg' ? 'panel:max-w-4xl' : 'panel:max-w-[560px]'
         }`}
       >
@@ -200,7 +202,10 @@ export function Modal({
             del encabezado. */}
         <div className="flex shrink-0 items-start justify-between gap-4 border-b border-divider px-4 py-3 panel:px-5 panel:py-4">
           <div className="min-w-0" title={descripcion}>
-            <h2 id={idTitulo} className="text-base font-medium -tracking-[0.01em] text-neutral-50">
+            <h2
+              id={idTitulo}
+              className="font-display text-[17px] font-semibold leading-snug -tracking-[0.015em] text-neutral-50"
+            >
               {titulo}
             </h2>
             {descripcion && (
@@ -237,7 +242,7 @@ export function Modal({
           // El pie FIJO, fuera del scroll. `shrink-0` por el mismo motivo que el
           // encabezado. El `safe-area-inset-bottom` es para el iPhone: sin él la
           // barra de gestos del sistema se come la mitad del botón de guardar.
-          <div className="shrink-0 border-t border-divider bg-surface p-4 pb-[max(1rem,env(safe-area-inset-bottom))] panel:px-5 panel:pb-4">
+          <div className="shrink-0 border-t border-divider bg-surface-overlay p-4 pb-[max(1rem,env(safe-area-inset-bottom))] panel:px-5 panel:pb-4">
             {pie}
           </div>
         )}

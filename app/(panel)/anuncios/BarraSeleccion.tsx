@@ -60,7 +60,7 @@ export function BarraSeleccion({
           key={a}
           type="button"
           onClick={() => onAccion(a)}
-          className={`rounded px-2 py-0.5 text-xs font-semibold hover:bg-overlay/6 focus:outline-none focus-visible:ring-2 focus-visible:ring-good-500/60 ${
+          className={`rounded px-2 py-0.5 text-xs font-semibold hover:bg-overlay/6 focus:outline-none focus-visible:ring-2 focus-visible:ring-acento-500/60 ${
             TONO_ACCION[a] ?? 'text-neutral-200'
           }`}
         >

@@ -219,7 +219,7 @@ export function EtapasSection({
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        <button type="button" className="flex items-center gap-1.5 border border-border-strong px-2.5 py-1.5 text-xs font-semibold text-neutral-300 transition-colors hover:bg-overlay/6 focus:outline-none focus:ring-2 focus:ring-good-500/50" onClick={agregar} disabled={busy}>
+        <button type="button" className="tap press flex items-center gap-1.5 rounded-lg border border-border-strong px-2.5 py-1.5 text-xs font-semibold text-neutral-300 transition-colors duration-250 hover:bg-overlay/6 focus:outline-none focus:ring-2 focus:ring-acento-500/50 disabled:cursor-not-allowed disabled:opacity-40" onClick={agregar} disabled={busy}>
           <Plus size={14} weight="bold" /> Agregar etapa
         </button>
         <button type="button" className={btnPrimary} onClick={guardar} disabled={busy}>

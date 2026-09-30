@@ -396,9 +396,13 @@ export function CargaDiaria({
                 <Badge tone={KIND_TONE[c.kind]}>{KIND_LABEL[c.kind]}</Badge>
                 {/* `whitespace-nowrap`: "Falta hoy" partido en dos líneas dentro
                     de una fila de 44px de alto rompe la alineación de todas las
-                    demás. */}
+                    demás.
+
+                    En acento y no en good (D1): "falta cargar" es un pendiente
+                    que te toca a vos, no un buen resultado. En verde se leía
+                    como "esta cuenta está bien", que es justo lo contrario. */}
                 {esHoy && c.amountEur === null && (
-                  <span className="whitespace-nowrap rounded-md border border-good-700 px-1.5 py-0.5 text-[11px] max-panel:text-xs font-medium text-good-300">
+                  <span className="whitespace-nowrap rounded-md border border-acento-700 px-1.5 py-0.5 text-[11px] max-panel:text-xs font-medium text-acento-300">
                     Falta hoy
                   </span>
                 )}
@@ -453,8 +457,10 @@ export function CargaDiaria({
                     {n.error}
                   </span>
                 ) : diferencia !== null && diferencia !== 0 ? (
+                  // Acento: el ajuste es lo que estás escribiendo, no un juicio.
+                  // Un ajuste − en verde decía "bien" sobre plata que baja.
                   <span
-                    className="font-mono tabular-nums text-good-400"
+                    className="font-mono tabular-nums text-acento-400"
                     aria-live="polite"
                   >
                     Ajuste {diferencia > 0 ? '+' : '−'}

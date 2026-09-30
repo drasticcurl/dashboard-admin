@@ -55,7 +55,7 @@ export function FormularioProgramar({
   onHora: (h: string) => void;
 }): JSX.Element {
   const inputCls =
-    'rounded border border-border-strong bg-overlay/4 px-2 py-1 text-sm text-neutral-100 focus:outline-none focus:ring-1 focus:ring-good-500/50';
+    'rounded-md border border-border-strong bg-canvas/50 px-2 py-1 shadow-[inset_0_1px_2px_0_rgb(var(--sombra)/0.45)] transition-colors duration-250 text-sm text-neutral-100 focus:outline-none focus:ring-1 focus:ring-acento-500/50';
   const fechaValida = /^\d{4}-\d{2}-\d{2}$/.test(fecha) && !Number.isNaN(Date.parse(`${fecha}T00:00:00Z`));
   const horaValida = /^\d{2}:\d{2}$/.test(hora);
 
@@ -87,7 +87,7 @@ export function FormularioProgramar({
             onFecha(mananaMedianocheLocal(zona));
             onHora('00:00');
           }}
-          className="rounded border border-border-strong px-2 py-1 text-xs text-neutral-300 hover:bg-overlay/6"
+          className="press rounded-md border border-border-strong px-2 py-1 text-xs text-neutral-300 transition-colors duration-250 hover:bg-overlay/6 hover:text-neutral-100"
         >
           mañana 00:00
         </button>

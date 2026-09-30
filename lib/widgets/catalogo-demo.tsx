@@ -95,12 +95,12 @@ export const catalogoDemo: WidgetCatalogo<DemoData> = {
       <div className="h-full min-h-44 w-full">
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={DEMO_DIAS} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-            <CartesianGrid stroke="rgba(255,255,255,0.06)" vertical={false} />
+            <CartesianGrid stroke={panelColors.grid} vertical={false} />
             <XAxis
               dataKey="day"
               tick={{ fontSize: 11, fill: panelColors.axis }}
               tickLine={false}
-              axisLine={{ stroke: 'rgba(255,255,255,0.12)' }}
+              axisLine={{ stroke: panelColors.axisLine }}
               minTickGap={24}
             />
             <YAxis
@@ -110,7 +110,9 @@ export const catalogoDemo: WidgetCatalogo<DemoData> = {
               axisLine={false}
               width={56}
             />
-            <Bar dataKey="net" fill={panelColors.good} radius={[3, 3, 0, 0]} />
+            {/* Mismo reparto que el neto por día de Ventas: el neto es volumen
+                (acento), lo devuelto es pérdida (bad). D8. */}
+            <Bar dataKey="net" fill={panelColors.acento} radius={[3, 3, 0, 0]} />
             <Bar dataKey="refunded" fill={panelColors.bad} radius={[3, 3, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>

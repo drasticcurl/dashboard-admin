@@ -46,7 +46,7 @@ export const dynamic = 'force-dynamic';
 type SearchParams = { [key: string]: string | string[] | undefined };
 
 const INPUT_CLS =
-  'mt-2 w-full rounded-xl border border-border-strong bg-canvas/60 px-3.5 py-2.5 text-sm text-neutral-100 shadow-[inset_0_1px_2px_0_rgba(4,6,14,0.5)] transition-colors duration-250 placeholder:text-neutral-600 hover:border-overlay/16 focus:border-good-500/60';
+  'mt-2 w-full rounded-xl border border-border-strong bg-canvas/60 px-3.5 py-2.5 text-sm text-neutral-100 shadow-[inset_0_1px_2px_0_rgba(12,10,28,0.5)] transition-colors duration-250 placeholder:text-neutral-600 hover:border-overlay/16 focus:border-acento-500/60';
 
 async function cambiarClaveAction(formData: FormData): Promise<void> {
   'use server';
@@ -140,13 +140,16 @@ export default async function CambiarClavePage({
       <div aria-hidden className="aurora" />
       <div aria-hidden className="grain" />
 
+      {/* Mismo lenguaje que el login (tarjeta, título en `font-display`, botón
+          iris) pero SIN costura: D7 la deja en cuatro lugares y el login ya es
+          el de la entrada. Si aparece acá también, deja de ser firma. */}
       <div className="glass sheen w-full max-w-md rounded-3xl border border-border-subtle p-7">
         <div className="mb-5 flex items-center gap-2.5">
           <PanelLogo size="md" />
           <span className="text-sm font-semibold text-neutral-300">Dashboard interno</span>
         </div>
 
-        <h1 className="text-[1.5rem] font-semibold -tracking-[0.02em] text-neutral-50">
+        <h1 className="font-display text-[1.75rem] font-semibold leading-tight -tracking-[0.03em] text-neutral-50">
           {sesion.debeCambiarClave ? 'Cambiá tu contraseña' : 'Cambiar contraseña'}
         </h1>
         <p className="mt-1.5 max-w-[44ch] text-pretty text-sm leading-relaxed text-neutral-400">
@@ -220,7 +223,7 @@ export default async function CambiarClavePage({
 
           <button
             type="submit"
-            className="press w-full rounded-xl bg-gradient-to-b from-good-400 to-good-600 px-3 py-2.5 text-sm font-semibold text-canvas shadow-glow-good transition-[filter,box-shadow] duration-250 hover:brightness-110"
+            className="press w-full rounded-xl bg-gradient-to-b from-acento-400 to-acento-500 px-3 py-2.5 text-sm font-semibold text-canvas shadow-glow-acento transition-[filter,box-shadow] duration-250 hover:brightness-110"
           >
             Cambiar contraseña
           </button>
@@ -231,7 +234,8 @@ export default async function CambiarClavePage({
           pantalla. Va inline y no en un componente client porque la ownership
           de esta task es sólo este archivo (crear un .tsx client sería un
           archivo nuevo fuera de la lista). El tono pasa a `good` cuando llega al
-          mínimo, además del texto, para no depender sólo del color.
+          mínimo, además del texto, para no depender sólo del color. Es `good` y
+          no `acento` a propósito (D1): dice "esta clave ya cumple", un resultado.
         */}
         <script
           dangerouslySetInnerHTML={{

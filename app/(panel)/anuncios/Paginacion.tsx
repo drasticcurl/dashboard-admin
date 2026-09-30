@@ -26,7 +26,7 @@ export function Paginacion({
         onClick={() => onPagina(pagina - 1)}
         disabled={pagina <= 1}
         aria-label="Página anterior"
-        className="inline-flex items-center gap-1 rounded-md border border-border-strong px-2 py-1 text-xs font-semibold text-neutral-300 transition-colors hover:bg-overlay/6 focus:outline-none focus-visible:ring-2 focus-visible:ring-good-500/60 disabled:cursor-not-allowed disabled:opacity-40"
+        className="inline-flex items-center gap-1 rounded-md border border-border-strong px-2 py-1 text-xs font-semibold text-neutral-300 transition-colors hover:bg-overlay/6 focus:outline-none focus-visible:ring-2 focus-visible:ring-acento-500/60 disabled:cursor-not-allowed disabled:opacity-40"
       >
         <CaretLeft size={12} weight="bold" /> Anterior
       </button>
@@ -39,7 +39,7 @@ export function Paginacion({
         onClick={() => onPagina(pagina + 1)}
         disabled={pagina >= totalPaginas}
         aria-label="Página siguiente"
-        className="inline-flex items-center gap-1 rounded-md border border-border-strong px-2 py-1 text-xs font-semibold text-neutral-300 transition-colors hover:bg-overlay/6 focus:outline-none focus-visible:ring-2 focus-visible:ring-good-500/60 disabled:cursor-not-allowed disabled:opacity-40"
+        className="inline-flex items-center gap-1 rounded-md border border-border-strong px-2 py-1 text-xs font-semibold text-neutral-300 transition-colors hover:bg-overlay/6 focus:outline-none focus-visible:ring-2 focus-visible:ring-acento-500/60 disabled:cursor-not-allowed disabled:opacity-40"
       >
         Siguiente <CaretRight size={12} weight="bold" />
       </button>

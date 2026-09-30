@@ -229,8 +229,8 @@ export function ProductosSection({
       )}
 
       <div className="mt-4 border-t border-border-subtle pt-4">
-        <p className="mb-3 text-sm font-semibold text-neutral-200">
-          Mapear producto <span className="font-normal text-neutral-500">— `*` como tienda = cualquier tienda</span>
+        <p className="mb-3 font-display text-sm font-semibold -tracking-[0.01em] text-neutral-100">
+          Mapear producto <span className="font-sans font-normal tracking-normal text-neutral-500">— `*` como tienda = cualquier tienda</span>
         </p>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
           <label className="flex flex-col gap-1 text-xs text-neutral-500">

@@ -141,15 +141,16 @@ const HINT_PLUS =
   'La mitad de las visitas de /quiz ve el quiz de siempre y la otra mitad el mismo quiz con efectos al tocar (la opción se hunde, el check hace pop, vibra en Android, los números cuentan, el botón de compra brilla); sin sonido y, en reposo, idénticos. Mismas preguntas, misma venta, mismo checkout. Cada persona ve siempre la misma. La columna que decide es la plata por sesión. Mirala con el rango desde el encendido: antes, Original compartía la etiqueta con el test de Ritual. Las compras cuentan en el día en que empezó la sesión. Respeta los filtros de arriba.';
 
 /**
- * `original` es el control, en neutro; `tarot` en el dorado de su estética;
- * `ritual` en el verde del panel (el jade de su estética, y distinto de los
- * otros dos).
+ * `original` es el control, en `info`; `tarot` en el dorado de su estética;
+ * `ritual` y `plus` en el acento del panel. Antes iban en el verde, cuando el
+ * verde era el color del panel; ahora `good` dice "esto va bien" y un brazo
+ * no gana por su color sino por la columna de plata por sesión (D8).
  */
 const COLOR_BRAZO: Record<string, string> = {
   estetica_original: panelColors.info,
   estetica_tarot: panelColors.warn,
-  estetica_ritual: panelColors.good,
-  estetica_plus: panelColors.good,
+  estetica_ritual: panelColors.acento,
+  estetica_plus: panelColors.acento,
 };
 
 export function esBrazoDelTest(experiment: string, brazosTest: string[] = BRAZOS_DEL_TEST): boolean {

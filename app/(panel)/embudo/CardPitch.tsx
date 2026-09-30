@@ -50,10 +50,14 @@ import {
   fmtPct,
 } from '@/components/ui';
 
-/** Colores de las dos series. A es el control, así que va en neutro. */
+/**
+ * Colores de las dos series. A es el control y va en `info`; B en el acento,
+ * no en `good`: un brazo no es "el que va bien" por ser el nuevo, y pintarlo
+ * de verde anticipaba un veredicto que decide la tabla (D8).
+ */
 const COLOR_BRAZO: Record<string, string> = {
   pitch_A: panelColors.info,
-  pitch_B: panelColors.good,
+  pitch_B: panelColors.acento,
 };
 
 function colorDe(brazo: string): string {
@@ -289,7 +293,7 @@ export function CardPitch({ funnel }: { funnel: Funnel }) {
           {/* ── Dónde se va la gente ────────────────────────────────────── */}
           <div className="space-y-2">
             <div>
-              <h3 className="text-sm font-semibold text-neutral-100">
+              <h3 className="font-display text-sm font-semibold -tracking-[0.01em] text-neutral-100">
                 En qué minuto se va la gente
               </h3>
               <p className="mt-1 max-w-[70ch] text-pretty text-xs leading-relaxed text-neutral-500">
@@ -307,7 +311,7 @@ export function CardPitch({ funnel }: { funnel: Funnel }) {
                     data={data.retencion}
                     margin={{ top: 8, right: 12, left: 0, bottom: 0 }}
                   >
-                    <CartesianGrid stroke="rgba(255,255,255,0.06)" vertical={false} />
+                    <CartesianGrid stroke={panelColors.grid} vertical={false} />
                     <XAxis
                       dataKey="segundo"
                       type="number"
@@ -315,7 +319,7 @@ export function CardPitch({ funnel }: { funnel: Funnel }) {
                       tickFormatter={mmss}
                       tick={{ fontSize: 11, fill: panelColors.axis }}
                       tickLine={false}
-                      axisLine={{ stroke: 'rgba(255,255,255,0.12)' }}
+                      axisLine={{ stroke: panelColors.axisLine }}
                       minTickGap={28}
                     />
                     <YAxis

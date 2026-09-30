@@ -181,10 +181,16 @@ export function CreativosView({ initial }: { initial: Creativo[] }): JSX.Element
         ]}
       />
 
-      <div className="mt-4 rounded-xl border border-border-subtle bg-overlay/2 p-4">
-        <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-neutral-500">
+      {/* Mientras se edita una fila, la caja del formulario pasa al "seleccionado"
+          del acento (plan §5): la tabla no puede marcar la fila, así que es la
+          caja la que dice "estás cambiando algo que ya existe", no cargando uno
+          nuevo. */}
+      <div className={`mt-4 rounded-xl border p-4 transition-colors duration-250 ${
+          editId === null ? 'border-border-subtle bg-overlay/2' : 'border-acento-700 bg-acento-900/40'
+        }`}>
+        <h3 className="mb-3 font-display text-sm font-semibold -tracking-[0.01em] text-neutral-100">
           {editId === null ? 'Agregar creativo' : 'Editar creativo'}
-        </p>
+        </h3>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <label className="flex flex-col gap-1 text-xs text-neutral-500 lg:col-span-2">
             Nombre o nota

@@ -34,7 +34,7 @@ export default function SinAccesoPage() {
           <span className="text-sm font-semibold text-neutral-300">Dashboard interno</span>
         </div>
 
-        <h1 className="text-[1.5rem] font-semibold -tracking-[0.02em] text-neutral-50">
+        <h1 className="font-display text-[1.75rem] font-semibold leading-tight -tracking-[0.03em] text-neutral-50">
           Todavía no tenés acceso
         </h1>
         <p className="mt-1.5 max-w-[46ch] text-pretty text-sm leading-relaxed text-neutral-400">

@@ -261,17 +261,20 @@ export function VentasView({
           )}
         </div>
 
+        {/* La misma receta que `SwitchMoneda` del encabezado (canal elevado,
+            opción elegida en acento oscuro): dos segmentados de moneda en la
+            misma pantalla con aspectos distintos se leen como dos cosas. */}
         <div
           role="group"
           aria-label="Moneda de visualización"
-          className="flex items-center gap-1 rounded-lg border border-border-subtle bg-overlay/2 p-1"
+          className="flex items-center gap-0.5 rounded-lg border border-border-strong bg-surface-raised p-0.5 shadow-inset-highlight"
         >
           <button
             type="button"
             onClick={() => toggleCur(true)}
             aria-pressed={showEur}
-            className={`tap rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-good-500/50 ${
-              showEur ? 'bg-overlay/8 text-neutral-50' : 'text-neutral-400 hover:bg-overlay/5 hover:text-neutral-200'
+            className={`tap press rounded-md px-3 py-1.5 font-mono text-[13px] font-medium transition-colors duration-250 focus:outline-none focus-visible:ring-2 focus-visible:ring-acento-500/50 ${
+              showEur ? 'bg-acento-900 text-acento-100' : 'text-neutral-400 hover:bg-overlay/6 hover:text-neutral-200'
             }`}
           >
             {MONEDA_REPORTE}
@@ -280,8 +283,8 @@ export function VentasView({
             type="button"
             onClick={() => toggleCur(false)}
             aria-pressed={!showEur}
-            className={`tap rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-good-500/50 ${
-              !showEur ? 'bg-overlay/8 text-neutral-50' : 'text-neutral-400 hover:bg-overlay/5 hover:text-neutral-200'
+            className={`tap press rounded-md px-3 py-1.5 font-mono text-[13px] font-medium transition-colors duration-250 focus:outline-none focus-visible:ring-2 focus-visible:ring-acento-500/50 ${
+              !showEur ? 'bg-acento-900 text-acento-100' : 'text-neutral-400 hover:bg-overlay/6 hover:text-neutral-200'
             }`}
           >
             {t.currency}
@@ -296,7 +299,7 @@ export function VentasView({
             <button
               type="button"
               onClick={() => setRetryTick((x) => x + 1)}
-              className="rounded-md border border-border-strong px-2 py-1 font-semibold text-neutral-200 transition-colors hover:bg-overlay/6"
+              className="rounded-md border border-border-strong px-2 py-1 font-semibold text-neutral-200 transition-colors hover:bg-overlay/6 focus:outline-none focus-visible:ring-2 focus-visible:ring-acento-500/60"
             >
               Reintentar
             </button>

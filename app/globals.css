@@ -13,10 +13,12 @@
        autofill de Chrome aparecen BLANCOS en medio del panel. */
     color-scheme: dark;
 
-    /* El hue del que salen todas las sombras del panel: el mismo del canvas.
+    /* El hue del que salen todas las sombras del panel: la tinta del canvas.
        Vive acá y no sólo en Tailwind porque las sombras compuestas de abajo
-       lo necesitan como valor CSS. */
-    --sombra: 4 6 14;
+       (y las arbitrarias del markup, `rgb(var(--sombra)/…)`) lo necesitan
+       como valor CSS. Es el mismo `12 10 28` de `boxShadow` en
+       tailwind.config.ts. */
+    --sombra: 12 10 28;
   }
 
   html {
@@ -39,17 +41,20 @@
     font-variant-numeric: tabular-nums;
   }
 
+  /* La selección es interfaz ("esto marcaste"), así que va en acento y no en
+     verde: un párrafo seleccionado no es un buen resultado. */
   ::selection {
-    background-color: rgb(34 197 138 / 0.28);
+    background-color: rgb(139 123 255 / 0.32);
     color: theme('colors.neutral.50');
   }
 
   /* Un solo tratamiento de foco para todo el panel. Antes había cuatro
      variantes distintas (ring-2/50, ring-2/60, outline-2/60 y las de
      emerald-500); esta es la base que hereda cualquier control que no defina
-     la suya, y es la que hace el panel navegable con Tab. */
+     la suya, y es la que hace el panel navegable con Tab. Va en acento (D1):
+     el foco dice "acá estás", no "esto está bien". */
   :focus-visible {
-    outline: 2px solid rgb(34 197 138 / 0.65);
+    outline: 2px solid rgb(139 123 255 / 0.7);
     outline-offset: 2px;
     border-radius: theme('borderRadius.md');
   }
@@ -139,7 +144,7 @@
       3. anillo interno de 1px — la refracción del canto del vidrio.
   */
   .glass {
-    background-color: rgb(17 18 25 / 0.72);
+    background-color: rgb(21 20 31 / 0.72); /* surface */
     -webkit-backdrop-filter: blur(20px) saturate(180%);
     backdrop-filter: blur(20px) saturate(180%);
     box-shadow:
@@ -150,7 +155,7 @@
 
   /* El vidrio del header: más translúcido, porque debajo pasa el contenido. */
   .glass-bar {
-    background-color: rgb(8 9 13 / 0.62);
+    background-color: rgb(12 11 20 / 0.62); /* canvas */
     -webkit-backdrop-filter: blur(24px) saturate(180%);
     backdrop-filter: blur(24px) saturate(180%);
   }
@@ -224,11 +229,16 @@
     violeta→esmeralda que había antes, que era el rasgo más genérico de la UI:
     una barra de 45° con dos acentos peleando.
 
-    Ahora son tres manchas RADIALES desfasadas, todas del acento (verde) más
-    una fría al costado, al 6% y al 4%. Un degradado radial no tiene una
-    dirección que delate el truco, y al no estar centrado rompe la simetría del
-    layout sin mover un solo elemento. Es decoración: `pointer-events-none` y
-    detrás de todo.
+    Son tres manchas RADIALES desfasadas: las dos grandes del acento (iris) y
+    una fría de `info` al costado. Un degradado radial no tiene una dirección
+    que delate el truco, y al no estar centrado rompe la simetría del layout
+    sin mover un solo elemento. Es decoración: `pointer-events-none` y detrás
+    de todo.
+
+    Las manchas son del ACENTO y no de `good` desde el rediseño iris: un fondo
+    que brilla en verde le dice "todo bien" a una pantalla que puede estar
+    mostrando pérdida. Los alfas no subieron (0.08 / 0.06 / 0.035): es luz que
+    tiñe la tinta, no un degradado que se mire.
   */
   .aurora {
     position: fixed;
@@ -236,9 +246,9 @@
     z-index: -10;
     pointer-events: none;
     background-image:
-      radial-gradient(56rem 28rem at 12% -8%, rgb(34 197 138 / 0.09), transparent 65%),
-      radial-gradient(44rem 22rem at 88% -14%, rgb(74 154 232 / 0.07), transparent 62%),
-      radial-gradient(70rem 36rem at 62% 4%, rgb(34 197 138 / 0.035), transparent 70%);
+      radial-gradient(56rem 28rem at 12% -8%, rgb(139 123 255 / 0.08), transparent 65%),
+      radial-gradient(44rem 22rem at 88% -14%, rgb(92 184 255 / 0.06), transparent 62%),
+      radial-gradient(70rem 36rem at 62% 4%, rgb(139 123 255 / 0.035), transparent 70%);
   }
 
   /*
@@ -305,6 +315,54 @@
   .reveal > *:nth-child(7) { animation-delay: 270ms; }
   .reveal > *:nth-child(8) { animation-delay: 315ms; }
   .reveal > *:nth-child(n + 9) { animation-delay: 360ms; }
+
+  /* ───────────────────────────────────────────────────────────────────────────
+     Rediseño iris: la costura, la firma del panel.
+     ─────────────────────────────────────────────────────────────────────────── */
+
+  /*
+    La puntada del hilván. "Hilvan" es el nombre del panel, y un hilván es
+    justamente eso: una costura provisoria de puntadas largas que marca por
+    dónde va a pasar la definitiva. Es la única pieza decorativa con identidad
+    propia de todo el panel, y por eso vale lo que vale: si aparece en todos
+    lados deja de ser firma y pasa a ser ruido.
+
+    D7 la limita a CUATRO lugares y ninguno más: el ítem activo del nav
+    (`.costura-v`), bajo el h1 del encabezado de pantalla, el conector entre
+    pasos del embudo y la tarjeta del login. Si hace falta una línea en otro
+    lado, es un `border` o un `divider`, no esto.
+
+    Es un `repeating-linear-gradient` y no un `border-style: dashed` porque el
+    dashed lo dibuja el navegador con el largo de trazo que se le ocurre (y
+    distinto en Safari y Chrome); acá el ritmo es fijo: 6px de puntada, 4px de
+    hueco. El `border-radius` redondea las puntas de la tira entera, que es lo
+    que hace que se lea como hilo y no como una línea punteada de formulario.
+
+    El ancho (horizontal) o el alto (vertical) los pone quien la usa: la
+    costura no sabe cuánto mide lo que cose.
+  */
+  .costura {
+    height: 2px;
+    background-image: repeating-linear-gradient(
+      90deg,
+      theme('colors.acento.500') 0 6px,
+      transparent 6px 10px
+    );
+    border-radius: 9999px;
+  }
+
+  /* La misma, vertical: llena el alto de su caja. Un `h-*` o un `inset-y-*`
+     con `h-auto` en el markup la acortan. */
+  .costura-v {
+    width: 2px;
+    height: 100%;
+    background-image: repeating-linear-gradient(
+      180deg,
+      theme('colors.acento.500') 0 6px,
+      transparent 6px 10px
+    );
+    border-radius: 9999px;
+  }
 
   /* ───────────────────────────────────────────────────────────────────────────
      Rediseño v3. Cuatro recetas que no se pueden escribir con utilidades de

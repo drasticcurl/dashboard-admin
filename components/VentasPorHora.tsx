@@ -114,9 +114,9 @@ export function VentasPorHora({ data, size }: { data: OverviewData; size: Widget
               role="radio"
               aria-checked={medida === m}
               onClick={() => setMedida(m)}
-              className={`rounded-md px-2.5 py-1 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-good-500/60 ${
+              className={`rounded-md px-2.5 py-1 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-acento-500/60 ${
                 medida === m
-                  ? 'bg-surface-raised text-neutral-50 shadow-inset-highlight'
+                  ? 'bg-acento-900 text-acento-100'
                   : 'text-neutral-500 hover:text-neutral-300'
               }`}
             >
@@ -178,7 +178,7 @@ export function VentasPorHora({ data, size }: { data: OverviewData; size: Widget
                   '—'
                 ) : (
                   <>
-                    {hh(pico)} h <span className="ml-1 text-good-400">{fmtAxis(valorHora(horas[pico]!, medida))}</span>
+                    {hh(pico)} h <span className="ml-1 text-acento-300">{fmtAxis(valorHora(horas[pico]!, medida))}</span>
                   </>
                 )}
               </Lectura>
@@ -234,7 +234,7 @@ export function VentasPorHora({ data, size }: { data: OverviewData; size: Widget
                 onPointerEnter={() => setActiva(h.hour)}
                 onFocus={() => setActiva(h.hour)}
                 onBlur={() => setActiva(null)}
-                className="relative h-full min-w-0 flex-1 cursor-default rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-good-500/60"
+                className="relative h-full min-w-0 flex-1 cursor-default rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-acento-500/60"
               >
                 <div
                   aria-hidden
@@ -283,10 +283,11 @@ export function VentasPorHora({ data, size }: { data: OverviewData; size: Widget
                   />
                 )}
 
+                {/* La hora en curso es "acá estás", no un buen resultado: acento. */}
                 {esAhora && (
                   <span aria-hidden className="pointer-events-none absolute -bottom-[3px] left-1/2 flex h-1.5 w-1.5 -translate-x-1/2">
-                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-good-400 opacity-60" />
-                    <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-good-400" />
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-acento-400 opacity-60" />
+                    <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-acento-400" />
                   </span>
                 )}
               </div>
@@ -310,7 +311,7 @@ export function VentasPorHora({ data, size }: { data: OverviewData; size: Widget
               key={h.hour}
               className={`min-w-0 flex-1 text-center font-mono text-[10px] tabular-nums ${
                 enCurso === h.hour
-                  ? 'font-semibold text-good-300'
+                  ? 'font-semibold text-acento-300'
                   : activa === h.hour
                     ? 'text-neutral-200'
                     : h.hour % 3 === 0

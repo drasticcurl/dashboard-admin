@@ -1903,7 +1903,7 @@ export function GestorAnuncios({
                 hay un filtro activo cambiando lo que se ve. Sin esto, alguien
                 puede pasar media hora mirando una tabla filtrada sin saberlo. */}
             {filtrosPuestos > 0 && (
-              <span className="rounded-md bg-good-900 px-1.5 py-0.5 text-xs font-medium text-good-200">
+              <span className="rounded-md bg-acento-900 px-1.5 py-0.5 text-xs font-medium text-acento-200">
                 {filtrosPuestos}
               </span>
             )}

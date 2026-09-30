@@ -65,7 +65,7 @@ export function FormularioPresupuesto({
         inputMode="decimal"
         value={valor}
         onChange={(e) => onValor(e.target.value)}
-        className={`w-28 rounded border bg-overlay/4 px-2 py-1 text-right text-sm text-neutral-100 focus:outline-none focus:ring-1 focus:ring-good-500/50 ${
+        className={`w-28 rounded-md border bg-canvas/50 px-2 py-1 shadow-[inset_0_1px_2px_0_rgb(var(--sombra)/0.45)] transition-colors duration-250 text-right text-sm text-neutral-100 focus:outline-none focus:ring-1 focus:ring-acento-500/50 ${
           invalido ? 'border-bad-500/60' : 'border-border-strong'
         }`}
         aria-label="Presupuesto diario en EUR"

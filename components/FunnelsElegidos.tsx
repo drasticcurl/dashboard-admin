@@ -83,7 +83,7 @@ export function FunnelsElegidos({ data, size }: { data: OverviewData; size: Widg
           onClick={() => setAbierto((v) => !v)}
           aria-expanded={abierto}
           aria-haspopup="true"
-          className="tap inline-flex items-center gap-1.5 rounded-md border border-border-subtle px-2 py-1 text-xs font-medium text-neutral-300 transition-colors hover:bg-overlay/4 hover:text-neutral-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-good-500/60"
+          className="tap inline-flex items-center gap-1.5 rounded-md border border-border-subtle px-2 py-1 text-xs font-medium text-neutral-300 transition-colors hover:bg-overlay/4 hover:text-neutral-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-acento-500/60"
         >
           <SlidersHorizontal size={12} weight="bold" aria-hidden />
           Elegir
@@ -114,7 +114,7 @@ export function FunnelsElegidos({ data, size }: { data: OverviewData; size: Widg
                 >
                   <span
                     className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border ${
-                      marcado ? 'border-good-500 bg-good-500 text-neutral-950' : 'border-border-strong'
+                      marcado ? 'border-acento-500 bg-acento-500 text-canvas' : 'border-border-strong'
                     }`}
                   >
                     {marcado && <Check size={10} weight="bold" />}
@@ -164,14 +164,14 @@ function TarjetaCompacta({ f, moneda }: { f: FunnelSummary; moneda: MonedaReport
       <div className="flex items-center justify-between gap-2">
         <Link
           href={`/ventas?f=${f.slug}`}
-          className="min-w-0 truncate text-xs font-semibold text-neutral-200 hover:text-neutral-50 hover:underline hover:underline-offset-2"
+          className="min-w-0 truncate rounded-sm text-xs font-semibold text-neutral-200 decoration-acento-400 transition-colors hover:text-neutral-50 hover:underline hover:underline-offset-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-acento-500/60"
           title={`${f.name} — ver ventas`}
         >
           {f.name}
         </Link>
         <Link
           href={`/embudo?f=${f.slug}`}
-          className="shrink-0 rounded px-1 text-[11px] font-medium text-neutral-500 hover:text-neutral-200"
+          className="shrink-0 rounded px-1 text-[11px] font-medium text-neutral-500 transition-colors hover:text-acento-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-acento-500/60"
           title="Ver el embudo"
         >
           embudo →
