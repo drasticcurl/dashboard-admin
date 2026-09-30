@@ -65,7 +65,7 @@ const PANTALLAS: Record<string, { subtitulo: string; funnel: boolean; periodo: b
   '/resumen':   { subtitulo: 'Cómo viene el período, en una mirada.',        funnel: true,  periodo: true, moneda: true },
   '/embudo':    { subtitulo: 'Dónde se cae la gente, paso por paso.',        funnel: true,  periodo: true },
   '/ventas':    { subtitulo: 'Lo que entró, lo que costó y lo que quedó.',   funnel: true,  periodo: true },
-  '/anuncios':  { subtitulo: 'Tocá un presupuesto para editarlo ahí mismo.', funnel: false, periodo: true },
+  '/anuncios':  { subtitulo: 'Tocá un presupuesto para editarlo ahí mismo.', funnel: true,  periodo: true },
   '/finanzas':  { subtitulo: 'El patrimonio medido, día por día.',           funnel: false, periodo: false },
   '/leads':     { subtitulo: 'Quiénes dejaron sus datos y en qué estado.',   funnel: true,  periodo: true },
   '/tareas':    { subtitulo: 'Qué hay que hacer y en qué anda cada cosa.',   funnel: false, periodo: false },

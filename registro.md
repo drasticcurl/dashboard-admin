@@ -10,6 +10,33 @@ Lo más nuevo va arriba. Las reglas de cómo se escribe una entrada están en
 
 ---
 
+## 2026-09-30 (5) — Selector de funnel en Anuncios, cuenta de Astra Tarot y reset/astratarot en hora de Lisboa
+
+**Pedido.** "Agregame el selector de funnel en la parte de anuncios" y "conectame
+esta cuenta publicitaria (2303097890447888, «tarot astro») al funnel astra tarot".
+
+**Selector.** `app/(panel)/anuncios/page.tsx` ya derivaba la cuenta del funnel
+de `?f=` ("la cuenta la manda el funnel"), pero `Shell.tsx` tenía `/anuncios`
+con `funnel: false`: no había control para cambiar `?f=`, así que Anuncios
+mostraba siempre la cuenta del PRIMER funnel. Se prendió el selector; no hizo
+falta tocar la pantalla.
+
+**Datos en producción (hechos a mano, no están en el código).**
+- `ad_accounts`: alta de `act_2303097890447888` («Tarot astro») imputada al
+  funnel 7 (astratarot), con el mismo INSERT que hace Config → Publicidad. **El
+  token de Meta del panel todavía NO ve esa cuenta** (`/me/adaccounts` lista sólo
+  HIlvanapp, Gelxiin y Protocolo reset): hasta que se le dé acceso al usuario del
+  sistema en el Business Manager, la sync va a dejar error en
+  `last_sync_error` y no va a haber gasto. Moneda y zona quedan NULL hasta
+  entonces.
+- `funnels.timezone = Europe/Lisbon` en reset y astratarot (los demás ya
+  estaban). `recompute-days` movió 1153 filas de día (2026-08-14..09-20) y se
+  reconstruyó el rollup de 60 días. La cuenta de Meta de reset sigue en hora
+  argentina: su gasto y sus ventas cortan el día distinto (el panel lo avisa).
+- `DASHBOARD_TZ=Europe/Lisbon` en `/srv/panel/shared/.env.production` (backup
+  `.env.production.bak-20260930`) y crontab de `deploy` con fetch-fx y rollup
+  nocturno a 01:10/01:25 (backup `/home/deploy/crontab.bak-20260930`).
+
 ## 2026-09-30 (4) — Rediseño "iris sobre tinta", ganancia por hora con un solo reloj, y el panel en hora de Lisboa
 
 **Pedido.** "Hacemelo más piola en general todas las pantallas, cambiá colores",
