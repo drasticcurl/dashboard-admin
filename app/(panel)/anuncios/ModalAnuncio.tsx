@@ -1,0 +1,148 @@
+'use client';
+
+/**
+ * ModalAnuncio — el popup «Ver anuncio» del menú de la fila: el preview oficial
+ * de Meta (el mismo que muestra el Administrador de anuncios), con el video
+ * reproducible, el copy y el botón, sin salir del panel.
+ *
+ * El preview lo arma Meta en un iframe propio (`/{ad_id}/previews`). El panel
+ * sólo pide el `src` a `/api/ads/preview` y lo monta: no inyecta HTML de afuera.
+ *
+ * Las pestañas de formato existen porque un mismo anuncio se ve distinto en
+ * feed y en stories/reels, y cuando un ad «la rompe» lo que se quiere ver es
+ * dónde. Si el creativo no es apto para un formato, Meta devuelve error y se
+ * muestra el motivo en lugar del iframe.
+ *
+ * El link a Meta lleva sólo `act` y `selected_ad_ids`: el `business_id` y las
+ * fechas del link que copia el Administrador son opcionales y Meta los completa.
+ */
+
+import { useEffect, useState } from 'react';
+import { ArrowSquareOut } from '@phosphor-icons/react';
+import { Modal } from '../finanzas/Modal';
+
+const FORMATOS = [
+  { clave: 'MOBILE_FEED_STANDARD', rotulo: 'Feed Facebook' },
+  { clave: 'INSTAGRAM_STANDARD', rotulo: 'Feed Instagram' },
+  { clave: 'INSTAGRAM_STORY', rotulo: 'Stories' },
+  { clave: 'INSTAGRAM_REELS', rotulo: 'Reels' },
+] as const;
+
+type Formato = (typeof FORMATOS)[number]['clave'];
+
+type Estado =
+  | { tipo: 'cargando' }
+  | { tipo: 'listo'; src: string }
+  | { tipo: 'error'; detalle: string };
+
+/** El link al anuncio en el Administrador de anuncios de Meta. */
+export function linkAnuncioMeta(accountId: string, adId: string): string {
+  const act = accountId.replace(/^act_/, '');
+  return `https://adsmanager.facebook.com/adsmanager/manage/ads/edit/standalone?act=${encodeURIComponent(act)}&selected_ad_ids=${encodeURIComponent(adId)}`;
+}
+
+export function ModalAnuncio({
+  adId,
+  accountId,
+  nombre,
+  onCerrar,
+}: {
+  adId: string;
+  accountId: string;
+  nombre: string | null;
+  onCerrar: () => void;
+}): JSX.Element {
+  const [formato, setFormato] = useState<Formato>('MOBILE_FEED_STANDARD');
+  const [estado, setEstado] = useState<Estado>({ tipo: 'cargando' });
+
+  useEffect(() => {
+    const ctl = new AbortController();
+    setEstado({ tipo: 'cargando' });
+    fetch(`/api/ads/preview?adId=${encodeURIComponent(adId)}&formato=${formato}`, {
+      signal: ctl.signal,
+      cache: 'no-store',
+    })
+      .then(async (r) => {
+        const b = (await r.json().catch(() => null)) as
+          | { ok: true; src: string }
+          | { ok: false; detail?: string }
+          | null;
+        if (b && b.ok) setEstado({ tipo: 'listo', src: b.src });
+        else setEstado({ tipo: 'error', detalle: b?.detail ?? `HTTP ${r.status}` });
+      })
+      .catch((e: unknown) => {
+        if (ctl.signal.aborted) return;
+        setEstado({ tipo: 'error', detalle: e instanceof Error ? e.message : 'no se pudo pedir el preview' });
+      });
+    return () => ctl.abort();
+  }, [adId, formato]);
+
+  return (
+    <Modal
+      titulo={nombre ?? '(sin nombre)'}
+      descripcion="Preview oficial de Meta: así se ve el anuncio en cada ubicación."
+      onCerrar={onCerrar}
+      pie={
+        <div className="flex justify-end">
+          <a
+            href={linkAnuncioMeta(accountId, adId)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="tap press inline-flex items-center gap-1.5 rounded-md bg-gradient-to-b from-acento-400 to-acento-500 px-3 py-1.5 text-xs font-semibold text-canvas shadow-glow-acento transition-[filter] duration-250 hover:brightness-110"
+          >
+            <ArrowSquareOut size={14} weight="bold" aria-hidden />
+            Abrir en Meta
+          </a>
+        </div>
+      }
+    >
+      <div
+        role="group"
+        aria-label="Ubicación del preview"
+        className="mb-4 flex flex-wrap gap-0.5 rounded-md bg-canvas/60 p-0.5"
+      >
+        {FORMATOS.map((f) => (
+          <button
+            key={f.clave}
+            type="button"
+            onClick={() => setFormato(f.clave)}
+            aria-pressed={formato === f.clave}
+            className={`flex-1 whitespace-nowrap rounded px-2 py-1.5 text-xs transition-colors duration-250 ${
+              formato === f.clave
+                ? 'bg-acento-900 font-medium text-acento-100'
+                : 'text-neutral-400 hover:text-neutral-100'
+            }`}
+          >
+            {f.rotulo}
+          </button>
+        ))}
+      </div>
+
+      {/* Alto fijo mientras carga para que el modal no salte al llegar el
+          iframe. El iframe de Meta mide 540×690 en feed y más en stories. */}
+      <div className="flex min-h-[560px] items-start justify-center">
+        {estado.tipo === 'cargando' && (
+          <p className="pt-24 text-sm text-neutral-500" aria-live="polite">
+            Pidiendo el preview a Meta…
+          </p>
+        )}
+        {estado.tipo === 'error' && (
+          <div className="max-w-sm pt-20 text-center" aria-live="polite">
+            <p className="text-sm text-warn-300">No hay preview para esta ubicación.</p>
+            <p className="mt-1.5 text-xs text-neutral-500">{estado.detalle}</p>
+          </div>
+        )}
+        {estado.tipo === 'listo' && (
+          <iframe
+            key={estado.src}
+            src={estado.src}
+            title={`Preview de ${nombre ?? adId}`}
+            className="h-[720px] w-full max-w-[540px] rounded-lg border-0 bg-white"
+            // Meta necesita scripts y su propio origen para reproducir el video.
+            sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+          />
+        )}
+      </div>
+    </Modal>
+  );
+}
