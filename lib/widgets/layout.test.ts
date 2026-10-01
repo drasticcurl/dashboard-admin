@@ -132,7 +132,7 @@ describe('parseLayout con basura', () => {
     ['string json', '{}'],
     ['versión desconocida', { v: 99, widgets: [] }],
     ['widgets que no es array', { v: 1, widgets: 'x' }],
-    ['placement con w inválido', { v: 1, widgets: [{ id: 'a', w: 3, h: 1 }] }],
+    ['placement con w inválido', { v: 1, widgets: [{ id: 'a', w: 4, h: 1 }] }],
     ['placement con h inválido', { v: 1, widgets: [{ id: 'a', w: 1, h: 9 }] }],
     ['placement sin id', { v: 1, widgets: [{ w: 1, h: 1 }] }],
     ['un número', 42],
@@ -286,7 +286,7 @@ describe('widgetLayoutSchema (el que usa el POST)', () => {
 
   it('rechaza pantallas falsas, versiones y tamaños inválidos', () => {
     expect(widgetLayoutSchema.safeParse({ v: 99, widgets: [] }).success).toBe(false);
-    expect(widgetLayoutSchema.safeParse({ v: 1, widgets: [{ id: 'x', w: 3, h: 1 }] }).success).toBe(false);
+    expect(widgetLayoutSchema.safeParse({ v: 1, widgets: [{ id: 'x', w: 4, h: 1 }] }).success).toBe(false);
     expect(widgetLayoutSchema.safeParse({ v: 1, widgets: null }).success).toBe(false);
   });
 });

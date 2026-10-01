@@ -839,8 +839,12 @@ export const catalogoResumen: WidgetCatalogo<OverviewData> = {
     // cae solo a 2×1: `resolveLayout` manda los tamaños que ya no están
     // permitidos al `tamañoPorDefecto`. 1×2 queda como alternativa.
     tamañoPorDefecto: { w: 2, h: 1 },
+    // 3×1 y todo el ancho desde el 2026-10-01: para llenar el hueco que queda
+    // al lado en una fila de 4 o 5 columnas.
     tamañosPermitidos: [
       { w: 2, h: 1 },
+      { w: 3, h: 1 },
+      { w: 'full', h: 1 },
       { w: 1, h: 2 },
     ],
     render: (d, size) => <FunnelsElegidos data={d} size={size} />,

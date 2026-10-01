@@ -23,7 +23,7 @@
  *   del router (que no dispara `beforeunload`).
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import {
   DndContext,
@@ -70,6 +70,7 @@ const TAMAÑO_LABEL: Record<string, string> = {
   '2x1': '2 × 1 · ancho',
   '1x2': '1 × 2 · alto',
   '2x2': '2 × 2 · grande',
+  '3x1': '3 × 1 · más ancho',
   'fullx1': 'Todo el ancho',
   'fullx2': 'Todo el ancho · alto',
 };
@@ -88,7 +89,19 @@ function spanClases(placement: WidgetPlacement): string {
   // `full` va sin prefijo: en una columna sola ya es todo el ancho, y
   // `col-span-full` (1 / -1) es exactamente eso en cualquier cantidad de
   // columnas que arme el auto-fill.
-  const ancho = placement.w === 'full' ? 'col-span-full' : placement.w === 2 ? 'panel:col-span-2' : '';
+  //
+  // `3` no puede ser `col-span-3` desde 760: con 2 columnas el auto-fill crearía
+  // una tercera implícita y la grilla se desbordaría. Tres columnas de 210px
+  // + 2 gaps de 16 son 662px de grilla, que con el sidebar (220) y el padding
+  // del <main> (2×40) aparecen a los 962px de viewport. Hasta ahí ocupa 2.
+  const ancho =
+    placement.w === 'full'
+      ? 'col-span-full'
+      : placement.w === 3
+        ? 'panel:col-span-2 min-[962px]:col-span-3'
+        : placement.w === 2
+          ? 'panel:col-span-2'
+          : '';
   const alto = placement.h === 2 ? 'row-span-2' : '';
   return `${ancho} ${alto}`.trim();
 }
@@ -285,6 +298,130 @@ function TarjetaWidget<T>({
   );
 }
 
+/**
+ * Cuántas columnas ocupa DE VERDAD un ancho con `cols` columnas en la grilla:
+ * el mismo cálculo que hace `spanClases` con CSS, pero en JS para el asa.
+ */
+function columnasEfectivas(w: WidgetSize['w'], cols: number): number {
+  if (w === 'full') return cols;
+  if (w === 3) return cols >= 3 ? 3 : Math.min(2, cols);
+  return Math.min(w, cols);
+}
+
+/**
+ * El asa de la esquina inferior derecha para estirar un widget con el mouse
+ * (o el dedo). No hay ancho libre: mientras se arrastra, el widget salta al
+ * tamaño PERMITIDO (regla 5 del §4) que más se acerca a donde está el puntero,
+ * así que lo que se ve durante el arrastre es exactamente lo que queda.
+ *
+ * El tamaño de una celda se mide de la grilla real al empezar (`auto-fill`
+ * cambia la cantidad de columnas con la pantalla) y no se adivina.
+ */
+function AsaEstirar({
+  labelWidget,
+  sizes,
+  actual,
+  onChange,
+}: {
+  labelWidget: string;
+  sizes: WidgetSize[];
+  actual: WidgetSize;
+  onChange: (size: WidgetSize) => void;
+}): JSX.Element | null {
+  const inicio = useRef<{
+    x: number;
+    y: number;
+    ancho: number;
+    alto: number;
+    col: number;
+    fila: number;
+    cols: number;
+    gap: number;
+    ultimo: string;
+  } | null>(null);
+  const [activo, setActivo] = useState(false);
+
+  if (sizes.length < 2) return null;
+
+  function empezar(e: React.PointerEvent<HTMLButtonElement>): void {
+    const celda = e.currentTarget.closest<HTMLElement>('[data-widget-celda]');
+    const grilla = celda?.parentElement;
+    if (!celda || !grilla) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const estilo = getComputedStyle(grilla);
+    const columnas = estilo.gridTemplateColumns.split(' ').filter(Boolean);
+    const gap = parseFloat(estilo.columnGap) || 0;
+    const anchoCol = parseFloat(columnas[0]) || celda.offsetWidth;
+    const r = celda.getBoundingClientRect();
+    inicio.current = {
+      x: e.clientX,
+      y: e.clientY,
+      ancho: r.width,
+      alto: r.height,
+      col: anchoCol + gap,
+      fila: (r.height + gap) / actual.h,
+      cols: columnas.length,
+      gap,
+      ultimo: `${actual.w}x${actual.h}`,
+    };
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setActivo(true);
+  }
+
+  function mover(e: React.PointerEvent<HTMLButtonElement>): void {
+    const i = inicio.current;
+    if (!i) return;
+    // Cuántas celdas "pide" el puntero, en fracciones: se compara contra
+    // cada tamaño permitido y gana el más cercano.
+    const quiereW = (i.ancho + (e.clientX - i.x) + i.gap) / i.col;
+    const quiereH = (i.alto + (e.clientY - i.y) + i.gap) / i.fila;
+    let mejor = sizes[0];
+    let mejorDist = Infinity;
+    for (const s of sizes) {
+      const dw = columnasEfectivas(s.w, i.cols) - quiereW;
+      const dh = s.h - quiereH;
+      const dist = dw * dw + dh * dh;
+      if (dist < mejorDist) {
+        mejor = s;
+        mejorDist = dist;
+      }
+    }
+    const clave = `${mejor.w}x${mejor.h}`;
+    if (clave !== i.ultimo) {
+      i.ultimo = clave;
+      onChange(mejor);
+    }
+  }
+
+  function terminar(e: React.PointerEvent<HTMLButtonElement>): void {
+    if (!inicio.current) return;
+    inicio.current = null;
+    setActivo(false);
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
+  }
+
+  return (
+    <button
+      type="button"
+      tabIndex={-1}
+      aria-hidden="true"
+      title={`Arrastrar para cambiar el tamaño de ${labelWidget}`}
+      onPointerDown={empezar}
+      onPointerMove={mover}
+      onPointerUp={terminar}
+      onPointerCancel={terminar}
+      className={`absolute bottom-1 right-1 z-10 hidden h-6 w-6 touch-none cursor-nwse-resize items-end justify-end rounded-br-xl p-1 panel:flex ${
+        activo ? 'text-acento-200' : 'text-acento-700 hover:text-acento-300'
+      }`}
+    >
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+        <path d="M11 4L4 11M11 8L8 11" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      </svg>
+    </button>
+  );
+}
+
 /** Un widget dentro del SortableContext: el asa es el único elemento con
  *  listeners de arrastre, y todo el movimiento se anuncia al lector de
  *  pantalla desde el DndContext padre. */
@@ -309,6 +446,7 @@ function WidgetOrdenable<T>({
     <div
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition }}
+      data-widget-celda
       className={`relative ${spanClases(placement)} ${isDragging ? 'z-10' : ''}`}
     >
       <TarjetaWidget
@@ -326,6 +464,14 @@ function WidgetOrdenable<T>({
             listenersArrastre={listeners}
           />
         }
+      />
+      {/* El menú de tamaño sigue existiendo (y es el camino con teclado); el
+          asa es el atajo con el mouse. */}
+      <AsaEstirar
+        labelWidget={def.label}
+        sizes={def.tamañosPermitidos}
+        actual={placement}
+        onChange={onCambiarTamaño}
       />
     </div>
   );

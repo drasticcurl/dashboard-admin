@@ -36,8 +36,12 @@ import type { ReactNode } from 'react';
  * columnas en un monitor ancho y 1 en un teléfono, así que "5" sería mentira en
  * cualquier otra pantalla. `'full'` es `grid-column: 1 / -1`: todas las que haya.
  * Es una AMPLIACIÓN: todo layout guardado antes sigue siendo válido tal cual.
+ *
+ * `3` se agregó el 2026-10-01 (pedido del usuario: estirar "Funnels" para
+ * llenar el hueco que dejaba al lado en una fila de 4). Recién ocupa 3 columnas
+ * cuando la grilla TIENE 3 (ver `spanClases` en WidgetGrid); antes ocupa 2.
  */
-export type WidgetAncho = 1 | 2 | 'full';
+export type WidgetAncho = 1 | 2 | 3 | 'full';
 
 /** Los tamaños de D-R03 más el ancho completo. `w` y `h` en celdas de la grilla. */
 export type WidgetSize = { w: WidgetAncho; h: 1 | 2 };
