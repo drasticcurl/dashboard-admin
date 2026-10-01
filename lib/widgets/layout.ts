@@ -21,7 +21,7 @@ const MAX_WIDGETS = 100;
 const placementSchema = z.object({
   id: z.string().min(1),
   // 'full' = todo el ancho de la grilla (ver WidgetAncho en tipos.ts).
-  w: z.union([z.literal(1), z.literal(2), z.literal('full')]),
+  w: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal('full')]),
   h: z.union([z.literal(1), z.literal(2)]),
 });
 
