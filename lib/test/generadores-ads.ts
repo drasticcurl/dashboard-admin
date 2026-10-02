@@ -511,6 +511,8 @@ export function genRegla(): fc.Arbitrary<Regla> {
           metricsLevel: 'object' as const,
           windowStart: b.ventana?.[0] ?? null,
           windowEnd: b.ventana?.[1] ?? null,
+          window2Start: null,
+          window2End: null,
         }));
     });
 }

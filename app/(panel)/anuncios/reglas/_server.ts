@@ -41,6 +41,8 @@ type FilaReglaRaw = {
   every_minutes: number;
   window_start: string | null;
   window_end: string | null;
+  window2_start: string | null;
+  window2_end: string | null;
   max_runs_per_day: number | null;
   cooldown_minutes: number;
   max_actions_per_object_per_day: number;
@@ -59,7 +61,7 @@ export async function listarReglas(): Promise<ReglaFila[]> {
       `SELECT id, grupo, name, enabled, dry_run, account_id, level, status_filter,
               name_filter, name_filter_mode, action, action_value, action_unit,
               budget_max, budget_min, set_budget_eur, period, metrics_level, every_minutes,
-              window_start, window_end, max_runs_per_day, cooldown_minutes,
+              window_start, window_end, window2_start, window2_end, max_runs_per_day, cooldown_minutes,
               max_actions_per_object_per_day, created_at, updated_at,
               last_run_at, last_run_error
          FROM ad_rules
@@ -103,6 +105,8 @@ export async function listarReglas(): Promise<ReglaFila[]> {
     everyMinutes: f.every_minutes,
     windowStart: soloHora(f.window_start),
     windowEnd: soloHora(f.window_end),
+    window2Start: soloHora(f.window2_start),
+    window2End: soloHora(f.window2_end),
     maxRunsPerDay: f.max_runs_per_day,
     cooldownMinutes: f.cooldown_minutes,
     maxActionsPerObjectPerDay: f.max_actions_per_object_per_day,

@@ -48,7 +48,7 @@ import { MONEDA_REPORTE, SIMBOLO_REPORTE } from '@/lib/moneda-reporte';
 
 // ─── Etiquetas y formateadores ───────────────────────────────────────────────
 
-type Accion = 'pause' | 'activate' | 'budget_increase' | 'budget_decrease';
+type Accion = 'pause' | 'activate' | 'budget_increase' | 'budget_decrease' | 'budget_set';
 type StatusFilter = 'active' | 'paused' | 'any';
 
 const ACCION_LABEL: Record<Accion, string> = {
@@ -56,6 +56,7 @@ const ACCION_LABEL: Record<Accion, string> = {
   activate: 'Activar',
   budget_increase: 'Subir presupuesto',
   budget_decrease: 'Bajar presupuesto',
+  budget_set: 'Fijar presupuesto',
 };
 
 const NIVEL_LABEL: Record<NivelAds, string> = {
@@ -477,6 +478,9 @@ type FormEstado = {
   everyMinutes: number;
   windowStart: string;
   windowEnd: string;
+  /** Segunda franja horaria (041). '' = sin segunda franja. */
+  window2Start: string;
+  window2End: string;
   maxRunsPerDay: string;
   cooldownMinutes: number;
   maxActionsPerObjectPerDay: number;
@@ -501,6 +505,8 @@ function formVacio(accountIds: string[] = []): FormEstado {
     everyMinutes: 15,
     windowStart: '',
     windowEnd: '',
+    window2Start: '',
+    window2End: '',
     maxRunsPerDay: '',
     cooldownMinutes: 60,
     maxActionsPerObjectPerDay: 4,
@@ -526,6 +532,8 @@ function formDeRegla(r: ReglaGeneral): FormEstado {
     everyMinutes: r.everyMinutes,
     windowStart: r.windowStart ?? '',
     windowEnd: r.windowEnd ?? '',
+    window2Start: r.window2Start ?? '',
+    window2End: r.window2End ?? '',
     maxRunsPerDay: r.maxRunsPerDay != null ? String(r.maxRunsPerDay) : '',
     cooldownMinutes: r.cooldownMinutes,
     maxActionsPerObjectPerDay: r.maxActionsPerObjectPerDay,
@@ -728,6 +736,12 @@ export function problemaAlcance(
  * estado nombrado no se puede volver a escribir.
  */
 export function problemaAccion(f: FormEstado): string | null {
+  if (f.action === 'budget_set') {
+    const fijo = numeroDeCampo(f.actionValue);
+    if (fijo.estado === 'error') return problemaDeCampo('El presupuesto a fijar', f.actionValue.trim(), fijo);
+    if (fijo.estado === 'vacio' || fijo.valor <= 0) return 'Falta el presupuesto a fijar.';
+    return null;
+  }
   if (!esPresupuesto(f.action)) {
     if (f.setBudget === '') return null;
     const fijo = numeroDeCampo(f.setBudget);
@@ -823,6 +837,8 @@ export function problemaCondiciones(f: FormEstado): string | null {
 export function problemaProgramacion(f: FormEstado): string | null {
   const mv = motivoVentanaInvalida(f.windowStart, f.windowEnd);
   if (mv !== null) return mv;
+  const mv2 = motivoVentanaInvalida(f.window2Start, f.window2End);
+  if (mv2 !== null) return `Segunda franja: ${mv2}`;
 
   // El `Number(tope)` crudo se fue: era el otro lugar donde `1.000` pasaba como
   // 1 y `Number.isInteger(1)` lo bendecía (1.9). Ahora valida y arma el payload
@@ -990,15 +1006,17 @@ export function payloadDeForm(f: FormEstado, id?: number): Record<string, unknow
     nameFilter: f.nameFilter.trim() || null,
     nameFilterMode: f.nameFilterMode,
     action: f.action,
-    actionValue: ep ? valorONull(numeroDeCampo(f.actionValue)) : null,
-    actionUnit: ep ? f.actionUnit : null,
+    actionValue: ep || f.action === 'budget_set' ? valorONull(numeroDeCampo(f.actionValue)) : null,
+    actionUnit: ep ? f.actionUnit : f.action === 'budget_set' ? 'fixed' : null,
     budgetMax: ep ? valorONull(numeroDeCampo(f.budgetMax)) : null,
     budgetMin: ep ? valorONull(numeroDeCampo(f.budgetMin)) : null,
-    setBudgetEur: !ep && f.setBudget !== '' && f.level !== 'ad' ? valorONull(numeroDeCampo(f.setBudget)) : null,
+    setBudgetEur: !ep && f.action !== 'budget_set' && f.setBudget !== '' && f.level !== 'ad' ? valorONull(numeroDeCampo(f.setBudget)) : null,
     period: f.period,
     everyMinutes: f.everyMinutes,
     windowStart: f.windowStart || null,
     windowEnd: f.windowEnd || null,
+    window2Start: (f.windowStart && f.window2Start) || null,
+    window2End: (f.windowStart && f.window2End) || null,
     maxRunsPerDay: valorONull(numeroDeCampo(f.maxRunsPerDay)),
     cooldownMinutes: f.cooldownMinutes,
     maxActionsPerObjectPerDay: f.maxActionsPerObjectPerDay,
@@ -1042,6 +1060,8 @@ function payloadDeRegla(r: ReglaGeneral, over: { enabled?: boolean } = {}): Reco
     everyMinutes: r.everyMinutes,
     windowStart: r.windowStart,
     windowEnd: r.windowEnd,
+    window2Start: r.window2Start,
+    window2End: r.window2End,
     maxRunsPerDay: r.maxRunsPerDay,
     cooldownMinutes: r.cooldownMinutes,
     maxActionsPerObjectPerDay: r.maxActionsPerObjectPerDay,
@@ -1293,6 +1313,7 @@ export function ReglasView({
           ? ` (escalar al ${r.actionValue}% del presupuesto)`
           : ` (${r.action === 'budget_increase' ? 'sumar' : 'restar'} ${eur(r.actionValue ?? 0)})`;
     }
+    if (r.action === 'budget_set') a += ` en ${eur(r.actionValue ?? 0)}`;
     if (r.setBudgetEur != null) a += ` + fijar presupuesto en ${eur(r.setBudgetEur)}`;
     const cond =
       r.condiciones.length === 0
@@ -1306,6 +1327,7 @@ export function ReglasView({
   const frecuencia = (r: ReglaGeneral): string =>
     `${frecuenciaLabel(r.everyMinutes)} · ${PERIODO_LABEL[r.period]}${
       r.windowStart && r.windowEnd ? ` · ${r.windowStart}-${r.windowEnd}` : ''
+    }${r.window2Start && r.window2End ? ` y ${r.window2Start}-${r.window2End}` : ''
     }`;
 
   // ── Una lista de reglas generales (037): cada una dice a qué cuentas se
@@ -2018,9 +2040,13 @@ function resumenForm(f: FormEstado): string {
           .map((c) => `${METRICA_LABEL[c.metric]} ${OP_LABEL[c.op]} ${c.value === '' ? '—' : c.value}`)
           .join(' y ');
   const ventana =
-    f.windowStart !== '' && f.windowEnd !== '' ? `${f.windowStart}–${f.windowEnd}` : 'a toda hora';
+    f.windowStart !== '' && f.windowEnd !== ''
+      ? `${f.windowStart}–${f.windowEnd}${f.window2Start !== '' && f.window2End !== '' ? ` y ${f.window2Start}–${f.window2End}` : ''}`
+      : 'a toda hora';
   const segunda =
-    !esPresupuesto(f.action) && f.setBudget !== '' && f.level !== 'ad'
+    f.action === 'budget_set'
+      ? ` en ${SIMBOLO_REPORTE}${f.actionValue || '—'}`
+      : !esPresupuesto(f.action) && f.setBudget !== '' && f.level !== 'ad'
       ? ` y fijar su presupuesto en ${SIMBOLO_REPORTE}${f.setBudget}`
       : '';
   return `${ACCION_LABEL[f.action]} ${NIVEL_LABEL[f.level].toLowerCase()} ${STATUS_LABEL[f.statusFilter]}${filtro}${segunda} si ${cond} · ${PERIODO_LABEL[f.period]} · ${frecuenciaLabel(f.everyMinutes)} · ${ventana}`;
@@ -2323,6 +2349,7 @@ function FormularioRegla({
               <option value="activate">Activar</option>
               {f.level !== 'ad' && <option value="budget_increase">Subir presupuesto</option>}
               {f.level !== 'ad' && <option value="budget_decrease">Bajar presupuesto</option>}
+              {f.level !== 'ad' && <option value="budget_set">Fijar presupuesto en un importe</option>}
             </select>
             {f.level === 'ad' && (
               <span className="text-[11px] max-panel:text-xs text-neutral-600">
@@ -2331,7 +2358,23 @@ function FormularioRegla({
             )}
           </label>
 
-          {!ep && (
+          {f.action === 'budget_set' && (
+            <label className="flex flex-col gap-1 text-xs text-neutral-500 sm:col-span-2">
+              Dejar el presupuesto diario en ({SIMBOLO_REPORTE})
+              <input
+                className={`${inputCls} tabular-nums`}
+                inputMode="decimal"
+                value={f.actionValue}
+                onChange={(e) => set({ actionValue: e.target.value })}
+                placeholder="10"
+              />
+              <span className="text-[11px] max-panel:text-xs text-neutral-600">
+                Sube o baja lo que haga falta para quedar en ese importe. Si ya está ahí, no hace nada.
+              </span>
+            </label>
+          )}
+
+          {!ep && f.action !== 'budget_set' && (
             <p className="text-[11px] max-panel:text-xs leading-snug text-neutral-600 sm:col-span-2">
               {f.action === 'pause'
                 ? 'Pausar no necesita más configuración. Es idempotente: un objeto ya pausado se descarta solo.'
@@ -2340,7 +2383,7 @@ function FormularioRegla({
           )}
 
           {/* Segunda acción (040): además de pausar/activar, fijar el presupuesto. */}
-          {!ep && f.level !== 'ad' && (
+          {!ep && f.action !== 'budget_set' && f.level !== 'ad' && (
             <div className="flex flex-col gap-2 rounded-md border border-neutral-800 p-3 sm:col-span-2">
               <label className="flex items-center gap-2 text-xs text-neutral-400">
                 <input
@@ -2594,7 +2637,7 @@ function FormularioRegla({
               value={ventanaPersonalizada ? 'personalizado' : 'cualquiera'}
               onChange={(e) =>
                 e.target.value === 'cualquiera'
-                  ? set({ windowStart: '', windowEnd: '' })
+                  ? set({ windowStart: '', windowEnd: '', window2Start: '', window2End: '' })
                   : set({ windowStart: '08:00', windowEnd: '23:00' })
               }
             >
@@ -2644,6 +2687,50 @@ function FormularioRegla({
                   ? ' El inicio es posterior al fin, así que la ventana cruza la medianoche.'
                   : ''}
               </span>
+
+              {/* Segunda franja (041): corre si la hora cae en cualquiera de las dos. */}
+              <label className="flex items-center gap-2 text-xs text-neutral-400 sm:col-span-2">
+                <input
+                  type="checkbox"
+                  checked={f.window2Start !== '' || f.window2End !== ''}
+                  onChange={(e) =>
+                    set(e.target.checked ? { window2Start: '13:00', window2End: '23:59' } : { window2Start: '', window2End: '' })
+                  }
+                />
+                Agregar una segunda franja horaria
+              </label>
+              {(f.window2Start !== '' || f.window2End !== '') && (
+                <>
+                  <label className="flex flex-col gap-1 text-xs text-neutral-500">
+                    Segunda franja — inicio
+                    <select
+                      className={`${inputCls} tabular-nums`}
+                      value={f.window2Start}
+                      onChange={(e) => set({ window2Start: e.target.value })}
+                    >
+                      {opcionesHora(f.window2Start).map((h) => (
+                        <option key={h} value={h}>
+                          {h}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="flex flex-col gap-1 text-xs text-neutral-500">
+                    Segunda franja — fin
+                    <select
+                      className={`${inputCls} tabular-nums`}
+                      value={f.window2End}
+                      onChange={(e) => set({ window2End: e.target.value })}
+                    >
+                      {opcionesHora(f.window2End).map((h) => (
+                        <option key={h} value={h}>
+                          {h}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </>
+              )}
             </>
           )}
 

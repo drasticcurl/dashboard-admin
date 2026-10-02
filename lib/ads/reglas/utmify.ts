@@ -229,6 +229,8 @@ const ACCION_INVERSA: Record<Regla['action'], string> = {
   pause: 'Pause',
   budget_increase: 'IncreaseBudget',
   budget_decrease: 'ReduceBudget',
+  // UTMify no tiene «fijar»: se exporta como subida fija (no se reimporta igual).
+  budget_set: 'IncreaseBudget',
 };
 
 const OPERADOR: Record<string, Condicion['op']> = {

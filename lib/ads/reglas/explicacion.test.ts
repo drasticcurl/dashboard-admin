@@ -67,6 +67,8 @@ function regla(overrides: Partial<Regla> = {}): Regla {
     budgetMax: 25,
     budgetMin: 10,
     setBudgetEur: null,
+    window2Start: null,
+    window2End: null,
     period: 'today',
     metricsLevel: 'object',
     everyMinutes: 15,

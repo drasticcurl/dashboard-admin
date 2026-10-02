@@ -156,7 +156,10 @@ export async function correrRegla(
   // Mínimo de presupuesto por cuenta (sólo para reglas de presupuesto). null =
   // "no sé el mínimo", no "el mínimo es 0" (D-A10). Se pide una vez por cuenta.
   const esPresupuesto =
-    regla.action === 'budget_increase' || regla.action === 'budget_decrease' || regla.setBudgetEur !== null;
+    regla.action === 'budget_increase' ||
+    regla.action === 'budget_decrease' ||
+    regla.action === 'budget_set' ||
+    regla.setBudgetEur !== null;
   const minimoPorCuenta = new Map<string, number | null>();
   if (esPresupuesto) {
     const cuentas = Array.from(new Set(filas.map((f) => f.accountId)));
@@ -239,7 +242,7 @@ export async function correrRegla(
     //     acumulador de la cuenta del objeto, y un rechazo lo deja intacto.
     let decisionFinal = decision;
     //     Fijar el presupuesto (040) suma cuando sube; cuando baja no se cuenta.
-    const sube = regla.action === 'budget_increase' || regla.setBudgetEur !== null;
+    const sube = regla.action === 'budget_increase' || regla.action === 'budget_set' || regla.setBudgetEur !== null;
     const delta = (decision.presupuestoDespues ?? 0) - (decision.presupuestoAntes ?? 0);
     if (sube && decision.aplicar && delta > 0) {
       if (!aplicarDelta(acumulador, delta)) {

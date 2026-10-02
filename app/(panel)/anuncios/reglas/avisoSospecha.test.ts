@@ -45,6 +45,8 @@ const FILA_LIMPIA: ReglaFila = {
   budgetMax: null,
   budgetMin: null,
   setBudgetEur: null,
+  window2Start: null,
+  window2End: null,
   period: 'today',
   metricsLevel: 'object',
   everyMinutes: 60,
