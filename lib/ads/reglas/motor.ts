@@ -41,10 +41,12 @@ export function debeCorrer(
 ): ResultadoDebeCorrer {
   if (!regla.enabled) return { correr: false, motivo: 'apagada' };
 
-  if (regla.windowStart !== null && regla.windowEnd !== null) {
-    if (!dentroDeVentana(ctx.horaLocal, regla.windowStart, regla.windowEnd)) {
-      return { correr: false, motivo: 'fuera_de_ventana_horaria' };
-    }
+  // Hasta dos ventanas (041): corre si la hora cae en cualquiera de las dos.
+  const ventanas: [string, string][] = [];
+  if (regla.windowStart !== null && regla.windowEnd !== null) ventanas.push([regla.windowStart, regla.windowEnd]);
+  if (regla.window2Start !== null && regla.window2End !== null) ventanas.push([regla.window2Start, regla.window2End]);
+  if (ventanas.length > 0 && !ventanas.some(([s, e]) => dentroDeVentana(ctx.horaLocal, s, e))) {
+    return { correr: false, motivo: 'fuera_de_ventana_horaria' };
   }
 
   // Cadencia: no correr antes de que se cumpla el intervalo desde la última.
@@ -162,7 +164,7 @@ export function evaluar(
   }
 
   // ── Paso 3: ¿el presupuesto se maneja en este nivel, de forma escribible? ─
-  if (regla.action === 'budget_increase' || regla.action === 'budget_decrease') {
+  if (regla.action === 'budget_increase' || regla.action === 'budget_decrease' || regla.action === 'budget_set') {
     // El presupuesto vive donde `budgetLevel` dice. Un conjunto de una campaña
     // CBO tiene budgetLevel 'campaign': escribir en el conjunto falla.
     if (fila.budgetLevel !== fila.level) {
@@ -200,7 +202,7 @@ export function evaluar(
   }
 
   // ── Paso 6: presupuesto nuevo (sólo acciones de presupuesto) ─────────────
-  if (regla.action === 'budget_increase' || regla.action === 'budget_decrease') {
+  if (regla.action === 'budget_increase' || regla.action === 'budget_decrease' || regla.action === 'budget_set') {
     return evaluarPresupuesto(regla, fila, metrics, minimoPresupuesto, maxDailyBudgetEur);
   }
 
@@ -266,6 +268,22 @@ function evaluarPresupuesto(
   // `actionValue`/`budgetMax`/`budgetMin` vienen en EUR → ×100 UNA vez.
   const actual = Math.round((fila.dailyBudgetEur as number) * 100);
   const presupuestoAntes = actual;
+
+  // 'budget_set' (041): el importe ES el destino. Sin techo ni piso de regla;
+  // el mínimo de la cuenta y el tope absoluto aplican igual.
+  if (regla.action === 'budget_set') {
+    const fijo = Math.round((regla.actionValue as number) * 100);
+    if (fijo === actual) {
+      return decidir(fila, true, false, 'ya_esta_en_ese_estado', presupuestoAntes, null, metrics);
+    }
+    if (minimoPresupuesto !== null && fijo < minimoPresupuesto) {
+      return decidir(fila, true, false, 'presupuesto_bajo_el_minimo', presupuestoAntes, null, metrics);
+    }
+    if (maxDailyBudgetEur !== undefined && fijo > Math.round(maxDailyBudgetEur * 100)) {
+      return decidir(fila, true, false, 'tope_absoluto', presupuestoAntes, null, metrics);
+    }
+    return decidir(fila, true, true, null, presupuestoAntes, fijo, metrics);
+  }
 
   // D-A9: el porcentaje es un FACTOR sobre el presupuesto actual, NO un
   // incremento. 250% = actual × 2,5. Verificado contra el export real del

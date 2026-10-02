@@ -25,7 +25,7 @@ import { z } from 'zod';
 import { q, q1, tx } from '@/lib/db';
 import { guard, json } from '@/app/api/config/_lib';
 import { correrRegla } from '@/lib/ads/reglas/ejecutor';
-import { motivoIncoherente } from '@/lib/ads/reglas/coherencia';
+import { motivoIncoherente, motivoVentanaInvalida } from '@/lib/ads/reglas/coherencia';
 import { interruptores, reglaPorId } from '@/lib/ads/reglas/repo';
 import { listarReglas } from '@/app/(panel)/anuncios/reglas/_server';
 import { MONEDA_REPORTE, SIMBOLO_REPORTE } from '@/lib/moneda-reporte';
@@ -38,7 +38,7 @@ const METRICAS = [
   'budget', 'impressions', 'clicks', 'ctr', 'cpc',
 ] as const;
 const OPS = ['>', '>=', '<', '<=', '=', '!='] as const;
-const ACCIONES = ['pause', 'activate', 'budget_increase', 'budget_decrease'] as const;
+const ACCIONES = ['pause', 'activate', 'budget_increase', 'budget_decrease', 'budget_set'] as const;
 
 const condicionSchema = z.object({
   metric: z.enum(METRICAS),
@@ -89,6 +89,9 @@ const reglaSchema = z
     everyMinutes: z.number().int().min(1).max(1440).optional().default(15),
     windowStart: z.string().regex(HORA, 'La hora de inicio tiene que ser HH:MM').nullable().optional(),
     windowEnd: z.string().regex(HORA, 'La hora de fin tiene que ser HH:MM').nullable().optional(),
+    // Segunda franja horaria (041), opcional.
+    window2Start: z.string().regex(HORA, 'La hora de inicio de la segunda franja tiene que ser HH:MM').nullable().optional(),
+    window2End: z.string().regex(HORA, 'La hora de fin de la segunda franja tiene que ser HH:MM').nullable().optional(),
     maxRunsPerDay: z.number().int().positive().nullable().optional(),
     cooldownMinutes: z.number().int().min(0).optional().default(60),
     // 0 = sin tope (migración 024). El default sigue en 4: sólo se abre la
@@ -109,6 +112,7 @@ const reglaSchema = z
     }
 
     const esPresupuesto = d.action === 'budget_increase' || d.action === 'budget_decrease';
+    const esFijar = d.action === 'budget_set';
 
     // §4.6: 'parent' no está implementado (la base lo rechaza con
     // ad_rules_mlevel_valido). El formulario no lo ofrece; si el payload lo
@@ -122,7 +126,7 @@ const reglaSchema = z
     }
 
     // D-A5: en Meta los anuncios no tienen presupuesto.
-    if (esPresupuesto && d.level === 'ad') {
+    if ((esPresupuesto || esFijar) && d.level === 'ad') {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: 'En Meta los anuncios no tienen presupuesto: una regla de presupuesto no puede ser de nivel "ad"',
@@ -174,9 +178,31 @@ const reglaSchema = z
       }
     }
 
+    // 'budget_set' (041): un importe fijo, sin techo ni piso.
+    if (esFijar && (d.actionValue == null || d.actionValue <= 0)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Falta el presupuesto a fijar (un importe mayor a 0)',
+        path: ['actionValue'],
+      });
+    }
+
+    // Segunda franja (041): completa o vacía, con horas distintas, y sólo si hay primera.
+    const v2 = motivoVentanaInvalida(d.window2Start, d.window2End);
+    if (v2 !== null) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: `Segunda franja: ${v2}`, path: ['window2Start'] });
+    }
+    if (d.window2Start && !d.windowStart) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'La segunda franja horaria necesita una primera',
+        path: ['window2Start'],
+      });
+    }
+
     // Segunda acción (040): sólo con pausar/activar y nunca a nivel anuncio.
     if (d.setBudgetEur != null) {
-      if (esPresupuesto) {
+      if (esPresupuesto || esFijar) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           message: 'Fijar el presupuesto como segunda acción sólo va con pausar o activar',
@@ -366,14 +392,17 @@ export async function POST(req: NextRequest): Promise<Response> {
       // Con pause/activate el valor, la unidad y los límites no aplican: se
       // fuerzan a NULL igual que el formulario los deja (no escondidos, vacíos).
       const esPresupuesto = d.action === 'budget_increase' || d.action === 'budget_decrease';
-      const actionValue = esPresupuesto ? d.actionValue ?? null : null;
-      const actionUnit = esPresupuesto ? d.actionUnit ?? null : null;
+      const esFijar = d.action === 'budget_set';
+      const actionValue = esPresupuesto || esFijar ? d.actionValue ?? null : null;
+      const actionUnit = esPresupuesto ? d.actionUnit ?? null : esFijar ? 'fixed' : null;
       const budgetMax = esPresupuesto ? d.budgetMax ?? null : null;
       const budgetMin = esPresupuesto ? d.budgetMin ?? null : null;
-      const setBudgetEur = esPresupuesto ? null : d.setBudgetEur ?? null;
+      const setBudgetEur = esPresupuesto || esFijar ? null : d.setBudgetEur ?? null;
       const nameFilter = d.nameFilter ?? null;
       const windowStart = d.windowStart ?? null;
       const windowEnd = d.windowEnd ?? null;
+      const window2Start = windowStart ? d.window2Start ?? null : null;
+      const window2End = windowStart ? d.window2End ?? null : null;
 
       let grupo: string | null = null;
       let existentes: { id: number; account_id: string; enabled: boolean }[] = [];
@@ -409,6 +438,7 @@ export async function POST(req: NextRequest): Promise<Response> {
           d.action, actionValue, actionUnit, budgetMax, budgetMin, d.period,
           d.everyMinutes, windowStart, windowEnd, d.maxRunsPerDay ?? null,
           d.cooldownMinutes, d.maxActionsPerObjectPerDay, enabled, setBudgetEur,
+          window2Start, window2End,
         ];
         let id: number;
         if (propia) {
@@ -421,6 +451,7 @@ export async function POST(req: NextRequest): Promise<Response> {
                max_runs_per_day = $17, cooldown_minutes = $18,
                max_actions_per_object_per_day = $19,
                enabled = $20, dry_run = false, set_budget_eur = $21,
+               window2_start = $22::time, window2_end = $23::time,
                updated_at = now()
              WHERE id = $1`,
             [propia.id, ...valores],
@@ -433,10 +464,12 @@ export async function POST(req: NextRequest): Promise<Response> {
                 name_filter_mode, action, action_value, action_unit, budget_max, budget_min,
                 period, every_minutes, window_start, window_end,
                 max_runs_per_day, cooldown_minutes, max_actions_per_object_per_day,
-                enabled, set_budget_eur, dry_run, metrics_level, grupo)
+                enabled, set_budget_eur, window2_start, window2_end,
+                dry_run, metrics_level, grupo)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-                     $13, $14::time, $15::time, $16, $17, $18, $19, $20, false, 'object',
-                     COALESCE($21::uuid, gen_random_uuid()))
+                     $13, $14::time, $15::time, $16, $17, $18, $19, $20,
+                     $21::time, $22::time, false, 'object',
+                     COALESCE($23::uuid, gen_random_uuid()))
              RETURNING id, grupo`,
             [...valores, grupo],
           );

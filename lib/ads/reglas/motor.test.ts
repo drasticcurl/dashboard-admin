@@ -73,6 +73,8 @@ function regla(overrides: Partial<Regla> = {}): Regla {
     budgetMax: null,
     budgetMin: null,
     setBudgetEur: null,
+    window2Start: null,
+    window2End: null,
     period: 'today',
     metricsLevel: 'object',
     everyMinutes: 15,
@@ -649,4 +651,47 @@ describe('evaluar — segunda acción: activar y fijar el presupuesto (040)', ()
     const d = evaluar(reactivar({ period: '7d_excl_today' }), c, fila({ status: 'PAUSED', roi: 1.2 }), ctx());
     expect(d.cumple).toBe(false);
   });
+});
+
+describe('evaluar — fijar el presupuesto como acción principal (041)', () => {
+  const fijar = (valor: number) => regla({ action: 'budget_set', actionValue: valor, actionUnit: 'fixed' });
+
+  it('baja de €40 a €10', () => {
+    const d = evaluar(fijar(10), [], fila({ dailyBudgetEur: 40 }), ctx());
+    expect(d.aplicar).toBe(true);
+    expect(d.presupuestoAntes).toBe(4000);
+    expect(d.presupuestoDespues).toBe(1000);
+  });
+
+  it('sube de €10 a €20', () => {
+    const d = evaluar(fijar(20), [], fila({ dailyBudgetEur: 10 }), ctx());
+    expect(d.presupuestoDespues).toBe(2000);
+  });
+
+  it('ya en el importe: no hace nada', () => {
+    const d = evaluar(fijar(10), [], fila({ dailyBudgetEur: 10 }), ctx());
+    expect(d.aplicar).toBe(false);
+    expect(d.motivo).toBe('ya_esta_en_ese_estado');
+  });
+
+  it('presupuesto en la campaña: no lo toca', () => {
+    const d = evaluar(fijar(10), [], fila({ budgetLevel: 'campaign' }), ctx());
+    expect(d.motivo).toBe('sin_presupuesto_en_este_nivel');
+  });
+
+  it('por encima del tope absoluto: rechaza', () => {
+    const d = evaluar(fijar(5000), [], fila(), ctx({ maxDailyBudgetEur: 1600 }));
+    expect(d.motivo).toBe('tope_absoluto');
+  });
+});
+
+describe('debeCorrer — dos franjas horarias (041)', () => {
+  const r = regla({ windowStart: '02:00', windowEnd: '06:00', window2Start: '13:00', window2End: '23:59' });
+  const correr = (hora: string) =>
+    debeCorrer(r, { ahora: new Date(), horaLocal: hora, ultimaCorridaAt: null, corridasHoy: 0 });
+
+  it('corre en la primera', () => expect(correr('03:00').correr).toBe(true));
+  it('corre en la segunda', () => expect(correr('18:30').correr).toBe(true));
+  it('no corre entre las dos', () => expect(correr('09:00').motivo).toBe('fuera_de_ventana_horaria'));
+  it('no corre de madrugada fuera de las dos', () => expect(correr('00:30').correr).toBe(false));
 });

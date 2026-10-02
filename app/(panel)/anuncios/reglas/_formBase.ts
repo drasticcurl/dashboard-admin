@@ -55,6 +55,8 @@ export function formBase(over: Partial<FormEstado> = {}): FormEstado {
     everyMinutes: 15,
     windowStart: '',
     windowEnd: '',
+    window2Start: '',
+    window2End: '',
     maxRunsPerDay: '',
     cooldownMinutes: 60,
     maxActionsPerObjectPerDay: 4,

@@ -73,6 +73,7 @@ const VERBO_OMISION: Record<Regla['action'], string> = {
   activate: 'activar',
   budget_increase: 'subir el presupuesto',
   budget_decrease: 'bajar el presupuesto',
+  budget_set: 'fijar el presupuesto',
 };
 
 /**
@@ -237,6 +238,7 @@ function motivoTexto(motivo: MotivoOmision, regla: Regla): string {
     case 'sin_presupuesto_en_este_nivel':
       return 'el presupuesto no se maneja en este nivel (vive en la campaña, que es CBO)';
     case 'ya_esta_en_ese_estado': {
+      if (regla.action === 'budget_set') return `ya tiene presupuesto ${formatearEur(regla.actionValue ?? 0)}`;
       const destino = regla.action === 'pause' ? 'PAUSED' : 'ACTIVE';
       return regla.setBudgetEur !== null
         ? `ya está en ese estado (${destino}) y con presupuesto ${formatearEur(regla.setBudgetEur)}`

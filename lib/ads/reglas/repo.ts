@@ -40,6 +40,8 @@ type FilaRegla = {
   every_minutes: number;
   window_start: string | null;
   window_end: string | null;
+  window2_start: string | null;
+  window2_end: string | null;
   max_runs_per_day: number | null;
   cooldown_minutes: number;
   max_actions_per_object_per_day: number;
@@ -49,7 +51,7 @@ const SELECT_REGLA = `
   SELECT id, name, enabled, dry_run, account_id, level, status_filter,
          name_filter, name_filter_mode, action, action_value, action_unit,
          budget_max, budget_min, set_budget_eur, period, metrics_level, every_minutes,
-         window_start, window_end, max_runs_per_day, cooldown_minutes,
+         window_start, window_end, window2_start, window2_end, max_runs_per_day, cooldown_minutes,
          max_actions_per_object_per_day
     FROM ad_rules`;
 
@@ -78,6 +80,8 @@ function mapearRegla(r: FilaRegla): Regla {
     everyMinutes: r.every_minutes,
     windowStart: soloHora(r.window_start),
     windowEnd: soloHora(r.window_end),
+    window2Start: soloHora(r.window2_start),
+    window2End: soloHora(r.window2_end),
     maxRunsPerDay: r.max_runs_per_day,
     cooldownMinutes: r.cooldown_minutes,
     maxActionsPerObjectPerDay: r.max_actions_per_object_per_day,

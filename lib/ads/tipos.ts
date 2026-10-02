@@ -324,7 +324,8 @@ export type Regla = {
   statusFilter: 'active' | 'paused' | 'any';
   nameFilter: string | null;
   nameFilterMode: 'contains' | 'not_contains';
-  action: 'pause' | 'activate' | 'budget_increase' | 'budget_decrease';
+  /** 'budget_set' (041): dejar el presupuesto en `actionValue` EUR exactos. */
+  action: 'pause' | 'activate' | 'budget_increase' | 'budget_decrease' | 'budget_set';
   actionValue: number | null;
   actionUnit: 'percent' | 'fixed' | null;
   budgetMax: number | null;
@@ -341,6 +342,9 @@ export type Regla = {
   everyMinutes: number;
   windowStart: string | null; // 'HH:MM'
   windowEnd: string | null; // 'HH:MM'
+  /** Segunda ventana opcional (041): corre si cae en cualquiera de las dos. */
+  window2Start: string | null;
+  window2End: string | null;
   maxRunsPerDay: number | null;
   cooldownMinutes: number;
   maxActionsPerObjectPerDay: number;
