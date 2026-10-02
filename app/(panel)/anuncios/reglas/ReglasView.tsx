@@ -1084,7 +1084,10 @@ export function ReglasView({
   // Import / export de CSV
   const [importando, setImportando] = useState(false);
   const [resultadoImport, setResultadoImport] = useState<RespuestaImport | null>(null);
-  const [vaciando, setVaciando] = useState(false);
+  // Borrado en lote: la lista que confirma el modal (todas, o las tildadas).
+  const [aBorrar, setABorrar] = useState<ReglaGeneral[] | null>(null);
+  // Las tildadas con el cuadradito de cada fila, por id de la regla general.
+  const [elegidas, setElegidas] = useState<number[]>([]);
 
   const show = useCallback((tone: 'good' | 'bad', text: string) => setFlash({ tone, text }), []);
 
@@ -1242,7 +1245,7 @@ export function ReglasView({
     }
   }
 
-  async function vaciarTodas() {
+  async function borrarVarias(lista: ReglaGeneral[]) {
     setBusy(true);
     try {
       // No hay endpoint de borrado en lote: se usa el DELETE por id, que ya está
@@ -1251,11 +1254,12 @@ export function ReglasView({
       // de conexiones y no se gana nada en una acción que se hace una vez.
       // Una por regla general: el DELETE borra el grupo entero.
       let n = 0;
-      for (const r of generales) {
+      for (const r of lista) {
         await api(`/api/ads/reglas?id=${r.id}`, { method: 'DELETE' });
         n += 1;
       }
-      setVaciando(false);
+      setABorrar(null);
+      setElegidas([]);
       await refrescar();
       show('good', `${n} regla(s) borradas — el historial se conserva`);
     } catch (e) {
@@ -1307,6 +1311,8 @@ export function ReglasView({
   // ── Una lista de reglas generales (037): cada una dice a qué cuentas se
   //    aplica en su columna «Aplicado a». ────────────────────────────────────
   const generales = agruparReglas(reglas, cuentas);
+  // Sólo las que siguen existiendo: una regla borrada o refrescada se cae sola.
+  const tildadas = generales.filter((r) => elegidas.includes(r.id));
 
   return (
     <div className="space-y-4">
@@ -1367,7 +1373,7 @@ export function ReglasView({
                   {
                     label: `Vaciar las ${generales.length} reglas…`,
                     peligro: true,
-                    onSelect: () => setVaciando(true),
+                    onSelect: () => setABorrar(generales),
                   },
                 ]
               : []),
@@ -1405,9 +1411,50 @@ export function ReglasView({
         ) : generales.length === 0 ? (
           <EmptyState title="Todavía no hay reglas" hint="Creá la primera con «Crear regla»." />
         ) : (
+          <>
+          {/* Selección para borrar varias de una. */}
+          <div className="mb-3 flex flex-wrap items-center gap-3 text-xs text-neutral-400">
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={tildadas.length === generales.length}
+                ref={(el) => {
+                  if (el) el.indeterminate = tildadas.length > 0 && tildadas.length < generales.length;
+                }}
+                onChange={(e) => setElegidas(e.target.checked ? generales.map((r) => r.id) : [])}
+              />
+              Seleccionar todas
+            </label>
+            {tildadas.length > 0 && (
+              <>
+                <span>{tildadas.length} seleccionada(s)</span>
+                <button type="button" className={btnDanger} disabled={busy} onClick={() => setABorrar(tildadas)}>
+                  Borrar seleccionadas
+                </button>
+                <button type="button" className={btnGhost} disabled={busy} onClick={() => setElegidas([])}>
+                  Deseleccionar
+                </button>
+              </>
+            )}
+          </div>
           <Table
             rows={generales}
+            sticky={false}
             columns={[
+              {
+                key: 'elegir',
+                header: 'Elegir',
+                render: (r) => (
+                  <input
+                    type="checkbox"
+                    aria-label={`Seleccionar ${r.name}`}
+                    checked={elegidas.includes(r.id)}
+                    onChange={(e) =>
+                      setElegidas((prev) => (e.target.checked ? [...prev, r.id] : prev.filter((id) => id !== r.id)))
+                    }
+                  />
+                ),
+              },
               {
                 key: 'enabled',
                 header: 'Estado',
@@ -1418,6 +1465,7 @@ export function ReglasView({
               {
                 key: 'nombre',
                 header: 'Nombre',
+                titulo: true,
                 render: (r) => (
                   <span className="font-medium text-neutral-100">
                     {r.name}
@@ -1488,6 +1536,7 @@ export function ReglasView({
               },
             ]}
           />
+          </>
         )}
       </Card>
 
@@ -1634,22 +1683,30 @@ export function ReglasView({
       )}
 
       {/* ── Vaciar todas las reglas ── */}
-      {vaciando && (
-        <Modal title="Vaciar todas las reglas" onClose={() => setVaciando(false)}>
+      {aBorrar && (
+        <Modal
+          title={aBorrar.length === generales.length ? 'Vaciar todas las reglas' : 'Borrar reglas seleccionadas'}
+          onClose={() => setABorrar(null)}
+        >
           <div className="space-y-3 text-sm text-neutral-200">
             <p>
-              Se van a borrar las <strong className="text-neutral-100">{generales.length}</strong> reglas, en todas
-              sus cuentas.
+              Se van a borrar <strong className="text-neutral-100">{aBorrar.length}</strong> regla(s), en todas sus
+              cuentas:
             </p>
+            <ul className="max-h-48 list-disc space-y-0.5 overflow-y-auto pl-5 text-xs text-neutral-300">
+              {aBorrar.map((r) => (
+                <li key={r.id}>{r.name}</li>
+              ))}
+            </ul>
             <p className="text-xs text-neutral-400">
               El historial de corridas y de acciones NO se borra: queda con el nombre de la regla congelado. Si tenés el
               CSV, se puede volver a importar.
             </p>
             <div className="flex gap-2">
-              <button type="button" className={btnDanger} disabled={busy} onClick={vaciarTodas}>
-                {busy ? 'Borrando…' : `Sí, borrar las ${generales.length}`}
+              <button type="button" className={btnDanger} disabled={busy} onClick={() => borrarVarias(aBorrar)}>
+                {busy ? 'Borrando…' : `Sí, borrar ${aBorrar.length}`}
               </button>
-              <button type="button" className={btnGhost} disabled={busy} onClick={() => setVaciando(false)}>
+              <button type="button" className={btnGhost} disabled={busy} onClick={() => setABorrar(null)}>
                 Cancelar
               </button>
             </div>
