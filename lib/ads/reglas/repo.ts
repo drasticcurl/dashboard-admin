@@ -34,6 +34,7 @@ type FilaRegla = {
   action_unit: string | null;
   budget_max: string | null;
   budget_min: string | null;
+  set_budget_eur: string | null;
   period: string;
   metrics_level: string;
   every_minutes: number;
@@ -47,7 +48,7 @@ type FilaRegla = {
 const SELECT_REGLA = `
   SELECT id, name, enabled, dry_run, account_id, level, status_filter,
          name_filter, name_filter_mode, action, action_value, action_unit,
-         budget_max, budget_min, period, metrics_level, every_minutes,
+         budget_max, budget_min, set_budget_eur, period, metrics_level, every_minutes,
          window_start, window_end, max_runs_per_day, cooldown_minutes,
          max_actions_per_object_per_day
     FROM ad_rules`;
@@ -71,6 +72,7 @@ function mapearRegla(r: FilaRegla): Regla {
     actionUnit: r.action_unit as Regla['actionUnit'],
     budgetMax: r.budget_max === null ? null : Number(r.budget_max),
     budgetMin: r.budget_min === null ? null : Number(r.budget_min),
+    setBudgetEur: r.set_budget_eur === null ? null : Number(r.set_budget_eur),
     period: r.period as Regla['period'],
     metricsLevel: 'object',
     everyMinutes: r.every_minutes,
@@ -260,7 +262,7 @@ export type FilaAccion = {
   level: NivelAds;
   objectId: string;
   objectName: string | null;
-  action: 'pause' | 'activate' | 'budget_increase' | 'budget_decrease';
+  action: 'pause' | 'activate' | 'budget_increase' | 'budget_decrease' | 'budget_set';
   beforeValue: string | null;
   afterValue: string | null;
   dryRun: boolean;

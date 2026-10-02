@@ -35,6 +35,7 @@ type FilaReglaRaw = {
   action_unit: string | null;
   budget_max: string | null;
   budget_min: string | null;
+  set_budget_eur: string | null;
   period: string;
   metrics_level: string;
   every_minutes: number;
@@ -57,7 +58,7 @@ export async function listarReglas(): Promise<ReglaFila[]> {
     q<FilaReglaRaw>(
       `SELECT id, grupo, name, enabled, dry_run, account_id, level, status_filter,
               name_filter, name_filter_mode, action, action_value, action_unit,
-              budget_max, budget_min, period, metrics_level, every_minutes,
+              budget_max, budget_min, set_budget_eur, period, metrics_level, every_minutes,
               window_start, window_end, max_runs_per_day, cooldown_minutes,
               max_actions_per_object_per_day, created_at, updated_at,
               last_run_at, last_run_error
@@ -96,6 +97,7 @@ export async function listarReglas(): Promise<ReglaFila[]> {
     actionUnit: f.action_unit as Regla['actionUnit'],
     budgetMax: f.budget_max === null ? null : Number(f.budget_max),
     budgetMin: f.budget_min === null ? null : Number(f.budget_min),
+    setBudgetEur: f.set_budget_eur === null ? null : Number(f.set_budget_eur),
     period: f.period as Regla['period'],
     metricsLevel: 'object',
     everyMinutes: f.every_minutes,

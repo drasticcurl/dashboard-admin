@@ -96,7 +96,11 @@ export function explicar(
   }
 
   // Cumple pero un freno lo detuvo: "cumple para X, pero no se tocó: <por qué>".
-  return `${prefijo}${objeto}: ${resumen} → cumple para ${VERBO_OMISION[regla.action]}, pero no se tocó: ${motivoTexto(d.motivo, regla)}.`;
+  const verbo =
+    regla.setBudgetEur !== null
+      ? `${VERBO_OMISION[regla.action]} y fijar el presupuesto en ${formatearEur(regla.setBudgetEur)}`
+      : VERBO_OMISION[regla.action];
+  return `${prefijo}${objeto}: ${resumen} → cumple para ${verbo}, pero no se tocó: ${motivoTexto(d.motivo, regla)}.`;
 }
 
 // ─── Piezas ─────────────────────────────────────────────────────────────────
@@ -172,11 +176,27 @@ function accionAplicada(
   d: Omit<Decision, 'explicacion'>,
   dryRun: boolean,
 ): string {
-  if (regla.action === 'pause') {
-    return dryRun ? 'se habría pausado' : 'se pausó';
-  }
-  if (regla.action === 'activate') {
-    return dryRun ? 'se habría activado' : 'se activó';
+  if (regla.action === 'pause' || regla.action === 'activate') {
+    const estado =
+      regla.action === 'pause'
+        ? dryRun ? 'se habría pausado' : 'se pausó'
+        : dryRun ? 'se habría activado' : 'se activó';
+    // Segunda acción (040): fijar el presupuesto. Cada parte se nombra sólo si
+    // cambia algo: un conjunto ya activo con presupuesto viejo sólo se resetea.
+    if (regla.setBudgetEur === null || d.presupuestoDespues === null) return estado;
+    const destino = regla.action === 'pause' ? 'PAUSED' : 'ACTIVE';
+    const partes: string[] = [];
+    if (fila.status !== destino) partes.push(estado);
+    if (d.presupuestoAntes !== d.presupuestoDespues) {
+      const antes = formatearEur((d.presupuestoAntes ?? 0) / 100);
+      const despues = formatearEur(d.presupuestoDespues / 100);
+      partes.push(
+        dryRun
+          ? `el presupuesto habría pasado de ${antes} a ${despues}`
+          : `el presupuesto pasó de ${antes} a ${despues}`,
+      );
+    }
+    return partes.join(' y ');
   }
   // Presupuesto: de €X a €Y (+Z%).
   const antes = formatearEur((d.presupuestoAntes ?? 0) / 100);
@@ -218,7 +238,9 @@ function motivoTexto(motivo: MotivoOmision, regla: Regla): string {
       return 'el presupuesto no se maneja en este nivel (vive en la campaña, que es CBO)';
     case 'ya_esta_en_ese_estado': {
       const destino = regla.action === 'pause' ? 'PAUSED' : 'ACTIVE';
-      return `ya está en ese estado (${destino})`;
+      return regla.setBudgetEur !== null
+        ? `ya está en ese estado (${destino}) y con presupuesto ${formatearEur(regla.setBudgetEur)}`
+        : `ya está en ese estado (${destino})`;
     }
     case 'metrica_indefinida':
       return 'una métrica de la condición no se puede calcular (por ejemplo, sin gasto no hay ROI)';

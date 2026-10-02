@@ -507,6 +507,7 @@ export function genRegla(): fc.Arbitrary<Regla> {
           actionUnit,
           budgetMax,
           budgetMin,
+          setBudgetEur: null,
           metricsLevel: 'object' as const,
           windowStart: b.ventana?.[0] ?? null,
           windowEnd: b.ventana?.[1] ?? null,

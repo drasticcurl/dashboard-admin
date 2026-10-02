@@ -82,6 +82,8 @@ const reglaSchema = z
     actionUnit: z.enum(['percent', 'fixed']).nullable().optional(),
     budgetMax: z.number().finite().nullable().optional(),
     budgetMin: z.number().finite().nullable().optional(),
+    // Segunda acción (040): además de pausar/activar, fijar el presupuesto diario.
+    setBudgetEur: z.number().finite().nullable().optional(),
     period: z.enum(['today', 'yesterday', '7d', '7d_excl_today']).optional().default('today'),
     metricsLevel: z.string().optional(),
     everyMinutes: z.number().int().min(1).max(1440).optional().default(15),
@@ -169,6 +171,27 @@ const reglaSchema = z
             path: ['actionValue'],
           });
         }
+      }
+    }
+
+    // Segunda acción (040): sólo con pausar/activar y nunca a nivel anuncio.
+    if (d.setBudgetEur != null) {
+      if (esPresupuesto) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Fijar el presupuesto como segunda acción sólo va con pausar o activar',
+          path: ['setBudgetEur'],
+        });
+      }
+      if (d.level === 'ad') {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'En Meta los anuncios no tienen presupuesto: no se puede fijar a nivel "ad"',
+          path: ['setBudgetEur'],
+        });
+      }
+      if (d.setBudgetEur <= 0) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'El presupuesto a fijar tiene que ser mayor a 0', path: ['setBudgetEur'] });
       }
     }
 
@@ -347,6 +370,7 @@ export async function POST(req: NextRequest): Promise<Response> {
       const actionUnit = esPresupuesto ? d.actionUnit ?? null : null;
       const budgetMax = esPresupuesto ? d.budgetMax ?? null : null;
       const budgetMin = esPresupuesto ? d.budgetMin ?? null : null;
+      const setBudgetEur = esPresupuesto ? null : d.setBudgetEur ?? null;
       const nameFilter = d.nameFilter ?? null;
       const windowStart = d.windowStart ?? null;
       const windowEnd = d.windowEnd ?? null;
@@ -384,7 +408,7 @@ export async function POST(req: NextRequest): Promise<Response> {
           d.name, cuenta, d.level, d.statusFilter, nameFilter, d.nameFilterMode,
           d.action, actionValue, actionUnit, budgetMax, budgetMin, d.period,
           d.everyMinutes, windowStart, windowEnd, d.maxRunsPerDay ?? null,
-          d.cooldownMinutes, d.maxActionsPerObjectPerDay, enabled,
+          d.cooldownMinutes, d.maxActionsPerObjectPerDay, enabled, setBudgetEur,
         ];
         let id: number;
         if (propia) {
@@ -396,7 +420,7 @@ export async function POST(req: NextRequest): Promise<Response> {
                every_minutes = $14, window_start = $15::time, window_end = $16::time,
                max_runs_per_day = $17, cooldown_minutes = $18,
                max_actions_per_object_per_day = $19,
-               enabled = $20, dry_run = false,
+               enabled = $20, dry_run = false, set_budget_eur = $21,
                updated_at = now()
              WHERE id = $1`,
             [propia.id, ...valores],
@@ -409,10 +433,10 @@ export async function POST(req: NextRequest): Promise<Response> {
                 name_filter_mode, action, action_value, action_unit, budget_max, budget_min,
                 period, every_minutes, window_start, window_end,
                 max_runs_per_day, cooldown_minutes, max_actions_per_object_per_day,
-                enabled, dry_run, metrics_level, grupo)
+                enabled, set_budget_eur, dry_run, metrics_level, grupo)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-                     $13, $14::time, $15::time, $16, $17, $18, $19, false, 'object',
-                     COALESCE($20::uuid, gen_random_uuid()))
+                     $13, $14::time, $15::time, $16, $17, $18, $19, $20, false, 'object',
+                     COALESCE($21::uuid, gen_random_uuid()))
              RETURNING id, grupo`,
             [...valores, grupo],
           );

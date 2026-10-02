@@ -471,6 +471,8 @@ type FormEstado = {
   actionUnit: 'percent' | 'fixed';
   budgetMax: string;
   budgetMin: string;
+  /** Segunda acción (040): fijar el presupuesto diario. '' = sin segunda acción. */
+  setBudget: string;
   period: PeriodoAds;
   everyMinutes: number;
   windowStart: string;
@@ -494,6 +496,7 @@ function formVacio(accountIds: string[] = []): FormEstado {
     actionUnit: 'percent',
     budgetMax: '',
     budgetMin: '',
+    setBudget: '',
     period: 'today',
     everyMinutes: 15,
     windowStart: '',
@@ -518,6 +521,7 @@ function formDeRegla(r: ReglaGeneral): FormEstado {
     actionUnit: r.actionUnit ?? 'percent',
     budgetMax: r.budgetMax != null ? String(r.budgetMax) : '',
     budgetMin: r.budgetMin != null ? String(r.budgetMin) : '',
+    setBudget: r.setBudgetEur != null ? String(r.setBudgetEur) : '',
     period: r.period,
     everyMinutes: r.everyMinutes,
     windowStart: r.windowStart ?? '',
@@ -724,7 +728,14 @@ export function problemaAlcance(
  * estado nombrado no se puede volver a escribir.
  */
 export function problemaAccion(f: FormEstado): string | null {
-  if (!esPresupuesto(f.action)) return null;
+  if (!esPresupuesto(f.action)) {
+    if (f.setBudget === '') return null;
+    const fijo = numeroDeCampo(f.setBudget);
+    if (fijo.estado === 'error') return problemaDeCampo('El presupuesto a fijar', f.setBudget.trim(), fijo);
+    if (fijo.estado === 'vacio' || fijo.valor <= 0) return 'Falta el presupuesto a fijar.';
+    if (f.level === 'ad') return 'En Meta los anuncios no tienen presupuesto: a nivel anuncio no se puede fijar.';
+    return null;
+  }
   const valor = numeroDeCampo(f.actionValue);
   const techo = numeroDeCampo(f.budgetMax);
   const piso = numeroDeCampo(f.budgetMin);
@@ -983,6 +994,7 @@ export function payloadDeForm(f: FormEstado, id?: number): Record<string, unknow
     actionUnit: ep ? f.actionUnit : null,
     budgetMax: ep ? valorONull(numeroDeCampo(f.budgetMax)) : null,
     budgetMin: ep ? valorONull(numeroDeCampo(f.budgetMin)) : null,
+    setBudgetEur: !ep && f.setBudget !== '' && f.level !== 'ad' ? valorONull(numeroDeCampo(f.setBudget)) : null,
     period: f.period,
     everyMinutes: f.everyMinutes,
     windowStart: f.windowStart || null,
@@ -1025,6 +1037,7 @@ function payloadDeRegla(r: ReglaGeneral, over: { enabled?: boolean } = {}): Reco
     actionUnit: r.actionUnit,
     budgetMax: r.budgetMax,
     budgetMin: r.budgetMin,
+    setBudgetEur: r.setBudgetEur,
     period: r.period,
     everyMinutes: r.everyMinutes,
     windowStart: r.windowStart,
@@ -1276,6 +1289,7 @@ export function ReglasView({
           ? ` (escalar al ${r.actionValue}% del presupuesto)`
           : ` (${r.action === 'budget_increase' ? 'sumar' : 'restar'} ${eur(r.actionValue ?? 0)})`;
     }
+    if (r.setBudgetEur != null) a += ` + fijar presupuesto en ${eur(r.setBudgetEur)}`;
     const cond =
       r.condiciones.length === 0
         ? 'sin condiciones'
@@ -1948,7 +1962,11 @@ function resumenForm(f: FormEstado): string {
           .join(' y ');
   const ventana =
     f.windowStart !== '' && f.windowEnd !== '' ? `${f.windowStart}–${f.windowEnd}` : 'a toda hora';
-  return `${ACCION_LABEL[f.action]} ${NIVEL_LABEL[f.level].toLowerCase()} ${STATUS_LABEL[f.statusFilter]}${filtro} si ${cond} · ${PERIODO_LABEL[f.period]} · ${frecuenciaLabel(f.everyMinutes)} · ${ventana}`;
+  const segunda =
+    !esPresupuesto(f.action) && f.setBudget !== '' && f.level !== 'ad'
+      ? ` y fijar su presupuesto en ${SIMBOLO_REPORTE}${f.setBudget}`
+      : '';
+  return `${ACCION_LABEL[f.action]} ${NIVEL_LABEL[f.level].toLowerCase()} ${STATUS_LABEL[f.statusFilter]}${filtro}${segunda} si ${cond} · ${PERIODO_LABEL[f.period]} · ${frecuenciaLabel(f.everyMinutes)} · ${ventana}`;
 }
 
 function FormularioRegla({
@@ -2241,7 +2259,7 @@ function FormularioRegla({
                 const a = e.target.value as Accion;
                 // Al cambiar de acción se limpian valor/techo/piso para no arrastrar
                 // un número de otra acción (los campos no se esconden, se vacían).
-                set({ action: a, actionValue: '', budgetMax: '', budgetMin: '' });
+                set({ action: a, actionValue: '', budgetMax: '', budgetMin: '', setBudget: '' });
               }}
             >
               <option value="pause">Pausar</option>
@@ -2262,6 +2280,36 @@ function FormularioRegla({
                 ? 'Pausar no necesita más configuración. Es idempotente: un objeto ya pausado se descarta solo.'
                 : 'Activar no necesita más configuración.'}
             </p>
+          )}
+
+          {/* Segunda acción (040): además de pausar/activar, fijar el presupuesto. */}
+          {!ep && f.level !== 'ad' && (
+            <div className="flex flex-col gap-2 rounded-md border border-neutral-800 p-3 sm:col-span-2">
+              <label className="flex items-center gap-2 text-xs text-neutral-400">
+                <input
+                  type="checkbox"
+                  checked={f.setBudget !== ''}
+                  onChange={(e) => set({ setBudget: e.target.checked ? '10' : '' })}
+                />
+                Segunda acción: fijar el presupuesto diario
+              </label>
+              {f.setBudget !== '' && (
+                <label className="flex flex-col gap-1 text-xs text-neutral-500">
+                  Presupuesto diario a fijar ({SIMBOLO_REPORTE})
+                  <input
+                    className={`${inputCls} tabular-nums`}
+                    inputMode="decimal"
+                    value={f.setBudget}
+                    onChange={(e) => set({ setBudget: e.target.value })}
+                    placeholder="10"
+                  />
+                  <span className="text-[11px] max-panel:text-xs text-neutral-600">
+                    Se manda junto con {f.action === 'pause' ? 'la pausa' : 'la activación'} en el mismo cambio: si el
+                    presupuesto no se puede fijar (por ejemplo, vive en la campaña CBO), no se hace ninguna de las dos.
+                  </span>
+                </label>
+              )}
+            </div>
           )}
 
           {ep && (

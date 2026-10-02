@@ -329,6 +329,12 @@ export type Regla = {
   actionUnit: 'percent' | 'fixed' | null;
   budgetMax: number | null;
   budgetMin: number | null;
+  /**
+   * Segunda acción opcional (migración 040): además de pausar/activar, fijar el
+   * presupuesto diario en este importe EUR. null = una sola acción. Sólo con
+   * pause/activate y nunca a nivel anuncio (lo fuerza el CHECK).
+   */
+  setBudgetEur: number | null;
   period: PeriodoAds;
   /** Sólo 'object' en esta versión (el CHECK ad_rules_mlevel_valido lo fuerza). */
   metricsLevel: 'object';
