@@ -50,6 +50,7 @@ export function formBase(over: Partial<FormEstado> = {}): FormEstado {
     actionUnit: 'percent',
     budgetMax: '',
     budgetMin: '',
+    setBudget: '',
     period: 'today',
     everyMinutes: 15,
     windowStart: '',

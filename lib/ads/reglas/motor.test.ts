@@ -72,6 +72,7 @@ function regla(overrides: Partial<Regla> = {}): Regla {
     actionUnit: null,
     budgetMax: null,
     budgetMin: null,
+    setBudgetEur: null,
     period: 'today',
     metricsLevel: 'object',
     everyMinutes: 15,
@@ -596,5 +597,56 @@ describe('Property 6: la Decision no depende de la cuenta de la Regla', () => {
       ),
       { numRuns: 100 },
     );
+  });
+});
+
+describe('evaluar — segunda acción: activar y fijar el presupuesto (040)', () => {
+  const reactivar = (over: Partial<Regla> = {}) =>
+    regla({ action: 'activate', statusFilter: 'paused', setBudgetEur: 10, ...over });
+
+  it('pausado con €23: activa y deja el presupuesto en €10', () => {
+    const d = evaluar(reactivar(), [], fila({ status: 'PAUSED', dailyBudgetEur: 23 }), ctx());
+    expect(d.aplicar).toBe(true);
+    expect(d.presupuestoAntes).toBe(2300);
+    expect(d.presupuestoDespues).toBe(1000);
+  });
+
+  it('activo con otro presupuesto: igual lo resetea', () => {
+    const d = evaluar(reactivar(), [], fila({ status: 'ACTIVE', dailyBudgetEur: 40 }), ctx());
+    expect(d.aplicar).toBe(true);
+    expect(d.presupuestoDespues).toBe(1000);
+  });
+
+  it('activo y ya en €10: no hay nada que hacer', () => {
+    const d = evaluar(reactivar(), [], fila({ status: 'ACTIVE', dailyBudgetEur: 10 }), ctx());
+    expect(d.aplicar).toBe(false);
+    expect(d.motivo).toBe('ya_esta_en_ese_estado');
+  });
+
+  it('presupuesto en la campaña (CBO): no hace ninguna de las dos', () => {
+    const d = evaluar(reactivar(), [], fila({ status: 'PAUSED', budgetLevel: 'campaign' }), ctx());
+    expect(d.aplicar).toBe(false);
+    expect(d.motivo).toBe('sin_presupuesto_en_este_nivel');
+  });
+
+  it('presupuesto total (lifetime): no hace ninguna de las dos', () => {
+    const d = evaluar(reactivar(), [], fila({ status: 'PAUSED', budgetMode: 'lifetime' }), ctx());
+    expect(d.motivo).toBe('presupuesto_lifetime_no_soportado');
+  });
+
+  it('por encima del tope absoluto: rechaza', () => {
+    const d = evaluar(reactivar({ setBudgetEur: 500 }), [], fila({ status: 'PAUSED' }), ctx({ maxDailyBudgetEur: 200 }));
+    expect(d.motivo).toBe('tope_absoluto');
+  });
+
+  it('por debajo del mínimo de la cuenta: rechaza', () => {
+    const d = evaluar(reactivar({ setBudgetEur: 1 }), [], fila({ status: 'PAUSED' }), ctx({ minimoPresupuesto: 200 }));
+    expect(d.motivo).toBe('presupuesto_bajo_el_minimo');
+  });
+
+  it('las condiciones siguen mandando: ROI 7d ≤ 1,5 no toca nada', () => {
+    const c: Condicion[] = [{ metric: 'roi', op: '>', value: 1.5 }];
+    const d = evaluar(reactivar({ period: '7d_excl_today' }), c, fila({ status: 'PAUSED', roi: 1.2 }), ctx());
+    expect(d.cumple).toBe(false);
   });
 });

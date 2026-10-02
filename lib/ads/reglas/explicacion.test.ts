@@ -66,6 +66,7 @@ function regla(overrides: Partial<Regla> = {}): Regla {
     actionUnit: 'percent',
     budgetMax: 25,
     budgetMin: 10,
+    setBudgetEur: null,
     period: 'today',
     metricsLevel: 'object',
     everyMinutes: 15,

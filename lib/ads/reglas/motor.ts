@@ -146,11 +146,19 @@ export function evaluar(
   if ((regla.action === 'pause' || regla.action === 'activate') && fila.status === null) {
     return decidir(fila, true, false, 'estado_desconocido', null, null, metrics);
   }
-  if (regla.action === 'pause' && fila.status === 'PAUSED') {
+  const yaEnEstado =
+    (regla.action === 'pause' && fila.status === 'PAUSED') ||
+    (regla.action === 'activate' && fila.status === 'ACTIVE');
+  if (yaEnEstado && regla.setBudgetEur === null) {
     return decidir(fila, true, false, 'ya_esta_en_ese_estado', null, null, metrics);
   }
-  if (regla.action === 'activate' && fila.status === 'ACTIVE') {
-    return decidir(fila, true, false, 'ya_esta_en_ese_estado', null, null, metrics);
+
+  // ── Paso 2b: segunda acción, fijar el presupuesto (migración 040) ────────
+  // Las dos acciones van en UN POST: si el presupuesto no se puede fijar, no se
+  // hace ninguna de las dos. «Reactivar y resetear a €10» activando con el
+  // presupuesto viejo es justo lo que la regla quería evitar.
+  if (regla.setBudgetEur !== null) {
+    return evaluarConPresupuestoFijo(regla, fila, metrics, contexto, yaEnEstado);
   }
 
   // ── Paso 3: ¿el presupuesto se maneja en este nivel, de forma escribible? ─
@@ -198,6 +206,53 @@ export function evaluar(
 
   // ── Paso 7: aplicar (pause / activate) ───────────────────────────────────
   return decidir(fila, true, true, null, null, null, metrics);
+}
+
+/**
+ * pause/activate + fijar el presupuesto diario en `setBudgetEur`. Los frenos son
+ * los mismos que para cualquier escritura de presupuesto (nivel, lifetime, tope
+ * absoluto, mínimo de la cuenta) más cooldown y máximo por objeto. Si el estado
+ * ya es el destino y el presupuesto ya es el pedido, no hay nada que hacer.
+ */
+function evaluarConPresupuestoFijo(
+  regla: Regla,
+  fila: MetricasObjeto,
+  metrics: Record<string, number | null>,
+  contexto: ContextoMotor,
+  yaEnEstado: boolean,
+): Decision {
+  const { accionesRealesHoy, ultimaAccionRealAt, minimoPresupuesto, maxDailyBudgetEur, ahora } = contexto;
+
+  if (fila.budgetLevel !== fila.level || fila.dailyBudgetEur === null) {
+    return decidir(fila, true, false, 'sin_presupuesto_en_este_nivel', null, null, metrics);
+  }
+  if (fila.budgetMode === 'lifetime') {
+    return decidir(fila, true, false, 'presupuesto_lifetime_no_soportado', null, null, metrics);
+  }
+
+  const antes = Math.round(fila.dailyBudgetEur * 100);
+  const nuevo = Math.round((regla.setBudgetEur as number) * 100);
+  if (yaEnEstado && antes === nuevo) {
+    return decidir(fila, true, false, 'ya_esta_en_ese_estado', antes, null, metrics);
+  }
+
+  if (regla.cooldownMinutes > 0 && ultimaAccionRealAt !== null) {
+    if (ahora.getTime() < ultimaAccionRealAt.getTime() + regla.cooldownMinutes * 60_000) {
+      return decidir(fila, true, false, 'cooldown', antes, null, metrics);
+    }
+  }
+  if (regla.maxActionsPerObjectPerDay > 0 && accionesRealesHoy >= regla.maxActionsPerObjectPerDay) {
+    return decidir(fila, true, false, 'max_por_objeto', antes, null, metrics);
+  }
+
+  if (minimoPresupuesto !== null && nuevo < minimoPresupuesto) {
+    return decidir(fila, true, false, 'presupuesto_bajo_el_minimo', antes, null, metrics);
+  }
+  if (maxDailyBudgetEur !== undefined && nuevo > Math.round(maxDailyBudgetEur * 100)) {
+    return decidir(fila, true, false, 'tope_absoluto', antes, null, metrics);
+  }
+
+  return decidir(fila, true, true, null, antes, nuevo, metrics);
 }
 
 function evaluarPresupuesto(

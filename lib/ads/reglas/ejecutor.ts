@@ -155,7 +155,8 @@ export async function correrRegla(
 
   // Mínimo de presupuesto por cuenta (sólo para reglas de presupuesto). null =
   // "no sé el mínimo", no "el mínimo es 0" (D-A10). Se pide una vez por cuenta.
-  const esPresupuesto = regla.action === 'budget_increase' || regla.action === 'budget_decrease';
+  const esPresupuesto =
+    regla.action === 'budget_increase' || regla.action === 'budget_decrease' || regla.setBudgetEur !== null;
   const minimoPorCuenta = new Map<string, number | null>();
   if (esPresupuesto) {
     const cuentas = Array.from(new Set(filas.map((f) => f.accountId)));
@@ -237,8 +238,10 @@ export async function correrRegla(
     // 4c. tope agregado por tick (D-A9c), POR CUENTA: sólo las subidas suman al
     //     acumulador de la cuenta del objeto, y un rechazo lo deja intacto.
     let decisionFinal = decision;
-    if (regla.action === 'budget_increase' && decision.aplicar) {
-      const delta = (decision.presupuestoDespues ?? 0) - (decision.presupuestoAntes ?? 0);
+    //     Fijar el presupuesto (040) suma cuando sube; cuando baja no se cuenta.
+    const sube = regla.action === 'budget_increase' || regla.setBudgetEur !== null;
+    const delta = (decision.presupuestoDespues ?? 0) - (decision.presupuestoAntes ?? 0);
+    if (sube && decision.aplicar && delta > 0) {
       if (!aplicarDelta(acumulador, delta)) {
         decisionFinal = { ...decision, aplicar: false, motivo: 'tope_absoluto', presupuestoDespues: null };
       }
@@ -272,57 +275,70 @@ export async function correrRegla(
       continue;
     }
 
+    // Lo que cambia en el objeto: una parte, o dos con la segunda acción (040).
+    // Cada parte es una fila de ad_actions; todas viajan en el mismo POST.
+    const partes = partesDeAccion(regla, fila, decisionFinal);
+
     // Modo sombra: fila 'simulado', NUNCA se llama a Meta.
     if (dryRunEfectivo) {
-      await repo.registrarAccion({
-        runId,
-        ruleId: regla.id,
-        ruleName: regla.name,
-        accountId: fila.accountId,
-        level: fila.level,
-        objectId: fila.objectId,
-        objectName: fila.objectName,
-        action: regla.action,
-        beforeValue: before,
-        afterValue: after,
-        dryRun: dryRunEfectivo,
-        ok: true,
-        estado: 'simulado',
-        explicacion: texto,
-        metrics: decisionFinal.metrics,
-      });
+      for (const parte of partes) {
+        await repo.registrarAccion({
+          runId,
+          ruleId: regla.id,
+          ruleName: regla.name,
+          accountId: fila.accountId,
+          level: fila.level,
+          objectId: fila.objectId,
+          objectName: fila.objectName,
+          action: parte.action,
+          beforeValue: parte.before,
+          afterValue: parte.after,
+          dryRun: dryRunEfectivo,
+          ok: true,
+          estado: 'simulado',
+          explicacion: texto,
+          metrics: decisionFinal.metrics,
+        });
+      }
       resultado.simuladas += 1;
       resultado.acciones.push({ objectId: fila.objectId, explicacion: texto, ok: true });
       continue;
     }
 
     // REAL: abrir la fila ANTES del POST (§6c), después POST, después cerrar.
-    const accionId = await repo.abrirAccion({
-      runId,
-      ruleId: regla.id,
-      ruleName: regla.name,
-      accountId: fila.accountId,
-      level: fila.level,
-      objectId: fila.objectId,
-      objectName: fila.objectName,
-      action: regla.action,
-      beforeValue: before,
-      afterValue: after,
-      dryRun: false,
-      ok: false,
-      explicacion: texto,
-      metrics: decisionFinal.metrics,
-    });
+    const accionIds: number[] = [];
+    for (const parte of partes) {
+      accionIds.push(
+        await repo.abrirAccion({
+          runId,
+          ruleId: regla.id,
+          ruleName: regla.name,
+          accountId: fila.accountId,
+          level: fila.level,
+          objectId: fila.objectId,
+          objectName: fila.objectName,
+          action: parte.action,
+          beforeValue: parte.before,
+          afterValue: parte.after,
+          dryRun: false,
+          ok: false,
+          explicacion: texto,
+          metrics: decisionFinal.metrics,
+        }),
+      );
+    }
+    const cerrarTodas = (r: Parameters<typeof repo.cerrarAccion>[1]) =>
+      Promise.all(accionIds.map((id) => repo.cerrarAccion(id, r)));
 
     try {
-      const rMeta = await enviar(fila.objectId, camposMeta(regla, decisionFinal));
+      const rMeta = await enviar(fila.objectId, Object.assign({}, ...partes.map((p) => p.campos)));
       if (rMeta.estado === 'confirmado') {
-        await repo.cerrarAccion(accionId, { estado: 'confirmado', ok: true });
+        await cerrarTodas({ estado: 'confirmado', ok: true });
         await refrescarTrasEscribir(fila);
         resultado.ejecutadas += 1;
         resultado.acciones.push({ objectId: fila.objectId, explicacion: texto, ok: true });
       } else if (rMeta.estado === 'fallido') {
-        await repo.cerrarAccion(accionId, { estado: 'fallido', ok: false, error: mensajeError(rMeta.error) });
+        await cerrarTodas({ estado: 'fallido', ok: false, error: mensajeError(rMeta.error) });
         resultado.acciones.push({ objectId: fila.objectId, explicacion: texto, ok: false });
         // Token vencido (190): van a fallar todos, cortar la corrida entera.
         if (rMeta.error?.code === 190) {
@@ -332,13 +348,13 @@ export async function correrRegla(
         }
       } else {
         // Timeout o error de red: NO SE SABE si se aplicó. Consume cupo.
-        await repo.cerrarAccion(accionId, { estado: 'indeterminado', ok: false, error: mensajeError(rMeta.error) });
+        await cerrarTodas({ estado: 'indeterminado', ok: false, error: mensajeError(rMeta.error) });
         resultado.acciones.push({ objectId: fila.objectId, explicacion: texto, ok: false });
       }
     } catch (e) {
       // Error inesperado: la fila queda 'indeterminado' (consume cupo) y la cierra
       // el reconciliador, que le pregunta a Meta.
-      await repo.cerrarAccion(accionId, {
+      await cerrarTodas({
         estado: 'indeterminado',
         ok: false,
         error: e instanceof Error ? e.message : String(e),
@@ -466,6 +482,38 @@ function camposMeta(regla: Regla, d: Decision): Record<string, string> {
   if (regla.action === 'pause') return { status: 'PAUSED' };
   if (regla.action === 'activate') return { status: 'ACTIVE' };
   return { daily_budget: String(d.presupuestoDespues ?? 0) };
+}
+
+type ParteAccion = {
+  action: 'pause' | 'activate' | 'budget_increase' | 'budget_decrease' | 'budget_set';
+  before: string | null;
+  after: string | null;
+  campos: Record<string, string>;
+};
+
+/**
+ * Lo que se le cambia al objeto. Con una sola acción es una parte; con la
+ * segunda acción (040) son hasta dos —estado y presupuesto—, cada una sólo si
+ * cambia algo: un conjunto ya activo con otro presupuesto sólo se resetea.
+ */
+function partesDeAccion(regla: Regla, fila: MetricasObjeto, d: Decision): ParteAccion[] {
+  const { before, after } = valoresAntesDespues(regla, fila, d);
+  if (regla.setBudgetEur === null || d.presupuestoDespues === null) {
+    return [{ action: regla.action, before, after, campos: camposMeta(regla, d) }];
+  }
+  const partes: ParteAccion[] = [];
+  if (fila.status !== after) {
+    partes.push({ action: regla.action, before: fila.status, after, campos: camposMeta(regla, d) });
+  }
+  if (d.presupuestoAntes !== d.presupuestoDespues) {
+    partes.push({
+      action: 'budget_set',
+      before: d.presupuestoAntes !== null ? formatearEur(d.presupuestoAntes / 100) : null,
+      after: formatearEur(d.presupuestoDespues / 100),
+      campos: { daily_budget: String(d.presupuestoDespues) },
+    });
+  }
+  return partes;
 }
 
 function mensajeError(e: MetaAdsError | undefined): string {
