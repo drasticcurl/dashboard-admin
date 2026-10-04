@@ -10,6 +10,24 @@ Lo más nuevo va arriba. Las reglas de cómo se escribe una entrada están en
 
 ---
 
+## 2026-10-04 (2) — Reglas de escala R06–R10 cada 30 minutos (dato de producción)
+
+**Pedido.** "Que chequee cada 30 minutos en vez de cada 1 hora."
+
+**Qué se hizo.** `UPDATE ad_rules SET every_minutes = 30` en las 15 reglas
+`budget_increase` R06–R10 (5 por cuenta: Tarot astro, HIlvanapp, Gelxiin). No se
+tocó código.
+
+**Por qué es seguro.** El cooldown (60 min) es por OBJETO y cuenta las acciones
+de cualquier regla del día (`repo.ts`, historial por `object_id`): una campaña
+sigue sin poder escalar más de una vez por hora. Lo que cambia es la detección:
+una campaña que cruza el umbral se escala en promedio ~15 min antes (máx. 30).
+**No bajar el cooldown a 30** sin pensarlo: duplicaría dos veces por hora
+mirando un ROI que todavía es del presupuesto anterior (Meta tarda en gastar el
+nuevo y su gasto llega con atraso).
+
+---
+
 ## 2026-10-04 — Resumen General + un tablero por funnel, cada uno con el día de su zona; Anuncios contaba como «sin atribuir» ventas de otros funnels (`3b4367e`, release `20261004094441`)
 
 **Pedido.** Empezó con "pasame las 15 ventas sin UTM (92,78 €) que muestra el
