@@ -15,18 +15,54 @@
  * exacto, y restar en el float de JS deja colas de 0.000000000002 en el
  * JSON.
  *
- * D12: todo en EUR para poder sumar. D19: el rango del Resumen se resuelve
+ * D12: todo en EUR para poder sumar. D19: el rango del General se resuelve
  * con DASHBOARD_TZ (no hay funnel que lo defina).
+ *
+ * ── General y tablero por funnel ───────────────────────────────────────────
+ *
+ * El Resumen tiene dos alcances (`?f=` en la URL, ver `resolverAlcanceResumen`):
+ *
+ *  · General: todos los funnels, con "hoy" resuelto en DASHBOARD_TZ (Lisboa).
+ *    Cada funnel aporta SU día, el de su zona: daily_metrics guarda el día de
+ *    cada funnel en la zona del funnel, así que sumar `day = hoy` junta el hoy
+ *    de cada uno. Con Astra en Buenos Aires, entre las 00:00 y las 04:00 de
+ *    Lisboa su "hoy" todavía no empezó (no suma nada) y lo que vende sigue
+ *    cayendo en "ayer". Es lo pedido: que ningún funnel mezcle ventas de un día
+ *    con gasto de otro.
+ *  · Un funnel: sólo ese, con "hoy", la hora en curso y las 24 horas en SU
+ *    zona. Es el mismo tablero, con el reloj del funnel.
  */
 
 import { q, q1 } from '@/lib/db';
-import { listFunnels } from '@/lib/funnels';
+import { getFunnelBySlug, listFunnels, type Funnel } from '@/lib/funnels';
+import { nombreVisible } from '@/lib/funnel-nombre';
 import { leerInsightVigente, type InsightGuardado } from '@/lib/ia/insights';
 import { MONEDA_REPORTE, type MonedaReporte } from '@/lib/moneda-reporte';
 import { UNATTRIBUTED_FUNNEL, getDashboardTimezone } from './sales';
-import { tramosGastoDelDia, volcarEnHoras, type LecturaGasto } from './gasto-hora';
+import { tramosGastoDelDia, volcarEnHorasLocales, type LecturaGasto } from './gasto-hora';
 
-export type OverviewFilters = { from: string; to: string }; // en DASHBOARD_TZ
+/** En la zona del alcance: DASHBOARD_TZ en el General, la del funnel si hay uno. */
+export type OverviewFilters = { from: string; to: string };
+
+/**
+ * Qué está mirando el Resumen. Viaja en `OverviewData` para que la pantalla diga
+ * con qué reloj se cortó el día ("hora de Buenos Aires"): con dos zonas en juego,
+ * un "hoy" sin la zona al lado es justo lo que confunde.
+ */
+export type AlcanceResumen = {
+  /** null = el General (todos los funnels). */
+  funnel: { id: number; slug: string; nombre: string } | null;
+  /** La zona con la que se resolvió el rango y se cuentan las horas. */
+  timezone: string;
+  /**
+   * Sólo en el General: los funnels que cortan el día en OTRA zona que la del
+   * panel, y a qué hora del reloj del panel arranca hoy su día ('04:00' para
+   * Buenos Aires visto desde Lisboa). Es lo que la pantalla necesita para
+   * explicar por qué Astra no suma nada en "hoy" a la 01:00. Vacío en el
+   * tablero de un funnel.
+   */
+  otrasZonas: { slug: string; nombre: string; timezone: string; arrancaA: string }[];
+};
 
 export type FunnelSummary = {
   funnelId: number;
@@ -96,6 +132,8 @@ export type CotizacionVista = {
 };
 
 export type OverviewData = {
+  /** General o un funnel, y con qué zona se cortó el día (ver AlcanceResumen). */
+  alcance: AlcanceResumen;
   /**
    * En qué moneda están TODOS los importes de este objeto. Los campos se
    * siguen llamando `*Eur` por lo mismo que las columnas (ver
@@ -185,7 +223,7 @@ export type OverviewData = {
    * igual largo, para la sombra de comparación. null con el rango 'all'.
    */
   byHour: HourPoint[];
-  /** Día y hora de ahora en DASHBOARD_TZ: el widget marca la hora en curso. */
+  /** Día y hora de ahora en la zona del alcance: el widget marca la hora en curso. */
   ahora: { day: string; hour: number };
   alerts: Alert[];
   generatedAt: string;
@@ -359,9 +397,20 @@ function daySql(convierte: boolean): string {
  * costos de las aprobadas, menos el importe de las devueltas. Sumadas las 24
  * horas dan el Neto del KPI.
  *
- * La hora es la del reloj del dashboard (DASHBOARD_TZ, D19), que es el mismo
- * reloj con el que se resuelve el rango. Las órdenes sin funnel quedan afuera,
- * igual que en daily_metrics.
+ * QUÉ ÓRDENES ENTRAN lo decide `o.day`, el día de la orden en la zona de SU
+ * funnel: el mismo corte que daily_metrics, así que las 24 horas cierran con
+ * los KPIs. La HORA en la que se dibuja es la del reloj del alcance (Lisboa en
+ * el General, la del funnel en su tablero). En el General, el día argentino de
+ * Astra va de 04:00 a 04:00 de Lisboa y sus últimas cuatro horas se dibujan en
+ * las 00..03 (ver `volcarEnHorasLocales`, que hace lo mismo con el gasto).
+ *
+ * Hasta el 2026-10-04 el corte era por `purchased_at` en el reloj del panel. Se
+ * cambió porque con funnels en zonas distintas el gráfico contaba un día y los
+ * KPIs otro: a las 02:00 de Lisboa mostraba ventas de Astra que su "hoy" todavía
+ * no tiene. El problema que ese corte arreglaba (ventas de anoche dibujadas en
+ * "las 23 de hoy", una hora del futuro) sólo aparece con un funnel ADELANTADO al
+ * reloj del panel; hoy todos están en la zona del panel o detrás (Buenos Aires).
+ * Las órdenes sin funnel quedan afuera, igual que en daily_metrics.
  */
 function hourSql(convierte: boolean): string {
   const tz = convierte ? '$5' : '$3';
@@ -376,26 +425,19 @@ function hourSql(convierte: boolean): string {
   FROM orders o
   ${joinFactor(convierte, 'o.day')}
   WHERE o.funnel_id IS NOT NULL
-    -- El rango se corta con el reloj del PANEL (purchased_at en ${tz}) y NO
-    -- con o.day, que está en la zona de la TIENDA: con una tienda en Lisboa, el
-    -- día de hoy de la tienda arranca a las 20:00 de ayer en Argentina y esas
-    -- ventas de anoche aparecían como "las 23 de hoy" (una hora del futuro).
-    -- El filtro por o.day ±1 queda para usar el índice (funnel_id, day).
-    AND o.day BETWEEN $1::date - 1 AND $2::date + 1
-    AND o.purchased_at >= ($1::date)::timestamp AT TIME ZONE ${tz}
-    AND o.purchased_at <  ($2::date + 1)::timestamp AT TIME ZONE ${tz}
+    -- El día de cada funnel, el mismo que suma daily_metrics (ver el docblock).
+    AND o.day BETWEEN $1::date AND $2::date
   GROUP BY 1, 2`;
 }
 
 type HourRowRaw = { hour: number; funnelId: number; orders: number; grossEur: string; netEur: string };
 
 /**
- * El gasto total de cada funnel y día DE META que toca el rango, con el
- * arranque y el fin de ese día en la zona de la CUENTA publicitaria (migración
- * 015: `ad_spend.day` es el día de la cuenta, no el del panel). Se piden los
- * días de Meta de un día antes a uno después del rango, porque con zonas
- * distintas un día del panel cae repartido entre dos días de Meta; lo que cae
- * fuera del rango lo recorta `volcarEnHoras`.
+ * El gasto total de cada funnel y día DE META del rango, con el arranque y el
+ * fin de ese día en la zona de la CUENTA publicitaria (migración 015:
+ * `ad_spend.day` es el día de la cuenta). Son los mismos días que suma
+ * daily_metrics, así que el gasto de las 24 horas cierra con el KPI de Ads;
+ * `volcarEnHorasLocales` los dibuja en el reloj del alcance sin recortarlos.
  *
  * Si un funnel tuviera cuentas en zonas distintas, se toma una (MIN): las
  * lecturas de `ad_spend_hora` son por funnel y día, no por cuenta, así que no
@@ -411,7 +453,7 @@ function spendDaySql(convierte: boolean): string {
     FROM ad_spend a
     LEFT JOIN ad_accounts ac ON ac.account_id = a.account_id
     ${joinFactor(convierte, 'a.day')}
-    WHERE a.funnel_id IS NOT NULL AND a.day BETWEEN $1::date - 1 AND $2::date + 1
+    WHERE a.funnel_id IS NOT NULL AND a.day BETWEEN $1::date AND $2::date
     GROUP BY a.funnel_id, a.day
   )
   SELECT funnel_id AS "funnelId", day::text AS day, total::text AS total,
@@ -428,19 +470,15 @@ function spendLecturasSql(convierte: boolean): string {
          (s.spend_eur_acum * fx.k)::text AS acum
   FROM ad_spend_hora s
   ${joinFactor(convierte, 's.day')}
-  WHERE s.day BETWEEN $1::date - 1 AND $2::date + 1`;
+  WHERE s.day BETWEEN $1::date AND $2::date`;
 }
-
-/** El rango del panel en ms: de las 00:00 de `from` a las 00:00 del día después de `to`. */
-const RANGO_MS_SQL = `
-  SELECT (EXTRACT(EPOCH FROM ($1::date)::timestamp AT TIME ZONE $3) * 1000)::text AS desde,
-         (EXTRACT(EPOCH FROM ($2::date + 1)::timestamp AT TIME ZONE $3) * 1000)::text AS hasta`;
 
 type HorasFunnel = { orders: number[]; gross: number[]; net: number[]; spend: number[] };
 
 /**
  * Las 24 horas de cada funnel en un rango: órdenes, bruto, neto y gasto. En un
- * rango de varios días cada hora suma todos los días.
+ * rango de varios días cada hora suma todos los días. `timezone` es el reloj en
+ * el que se dibujan las horas; qué días entran lo decide el día de cada funnel.
  */
 async function leerHoras(
   from: string,
@@ -450,7 +488,7 @@ async function leerHoras(
 ): Promise<Map<number, HorasFunnel>> {
   const convierte = moneda !== MONEDA_REPORTE;
   const params = [...paramsRango(from, to, moneda), timezone];
-  const [ventas, gastoDia, lecturas, rango] = await Promise.all([
+  const [ventas, gastoDia, lecturas] = await Promise.all([
     q<HourRowRaw>(hourSql(convierte), params),
     q<{ funnelId: number; day: string; total: string; inicioMs: string; finMs: string }>(
       spendDaySql(convierte),
@@ -460,10 +498,7 @@ async function leerHoras(
       spendLecturasSql(convierte),
       paramsRango(from, to, moneda),
     ),
-    q1<{ desde: string; hasta: string }>(RANGO_MS_SQL, [from, to, timezone]),
   ]);
-  const rangoDesde = Number(rango?.desde ?? 0);
-  const rangoHasta = Number(rango?.hasta ?? 0);
 
   const porFunnel = new Map<number, HorasFunnel>();
   const de = (id: number): HorasFunnel => {
@@ -500,12 +535,12 @@ async function leerHoras(
       total: MONEY(g.total),
       lecturas: lecturasDe.get(`${g.funnelId}:${g.day}`) ?? [],
     });
-    volcarEnHoras(tramos, rangoDesde, rangoHasta, de(g.funnelId).spend);
+    volcarEnHorasLocales(tramos, timezone, de(g.funnelId).spend);
   }
   return porFunnel;
 }
 
-/** El día y la hora de ahora en la TZ del dashboard, para marcar "ahora". */
+/** El día y la hora de ahora en la zona del alcance, para marcar "ahora". */
 const AHORA_SQL = `
   SELECT (now() AT TIME ZONE $1)::date::text AS day,
          EXTRACT(HOUR FROM now() AT TIME ZONE $1)::int AS hour`;
@@ -548,6 +583,13 @@ type CountRow = { n: number };
 type RollupRow = { computedAt: Date | null };
 type LastEventRow = { funnelId: number; lastEventAt: Date };
 
+/** A qué hora del reloj $1 arranca HOY el día de cada zona de $2 ('HH:MM'). */
+const ARRANQUE_ZONAS_SQL = `
+  SELECT z.tz,
+         to_char(((((now() AT TIME ZONE z.tz)::date)::timestamp AT TIME ZONE z.tz) AT TIME ZONE $1),
+                 'HH24:MI') AS "arrancaA"
+    FROM unnest($2::text[]) AS z(tz)`;
+
 const UNATTRIBUTED_SQL = `
   SELECT count(*)::int AS n
   FROM orders
@@ -555,11 +597,15 @@ const UNATTRIBUTED_SQL = `
 
 // fx_stale y tier unknown van SIN filtro de rango a propósito: son alarmas
 // del sistema, no del período que se mira. Una orden sin convertir de hace
-// dos semanas sigue haciendo que el total en EUR esté corto hoy.
+// dos semanas sigue haciendo que el total en EUR esté corto hoy. En el tablero
+// de un funnel ($1) cuentan sólo las suyas: las de otro funnel no le mueven
+// ningún número.
 const FX_STALE_SQL = `
-  SELECT count(*)::int AS n FROM orders WHERE fx_stale OR amount_eur IS NULL`;
+  SELECT count(*)::int AS n FROM orders
+   WHERE (fx_stale OR amount_eur IS NULL) AND ($1::int IS NULL OR funnel_id = $1)`;
 const UNKNOWN_TIER_SQL = `
-  SELECT count(*)::int AS n FROM orders WHERE tier = 'unknown'`;
+  SELECT count(*)::int AS n FROM orders
+   WHERE tier = 'unknown' AND ($1::int IS NULL OR funnel_id = $1)`;
 const INGEST_ERRORS_SQL = `
   SELECT count(*)::int AS n FROM ingest_errors WHERE received_at >= now() - interval '24 hours'`;
 const LATEST_ROLLUP_SQL = `
@@ -587,8 +633,14 @@ function dayCount(from: string, to: string): number {
   )) / 86_400_000) + 1;
 }
 
-async function computePrev(from: string, to: string, moneda: MonedaReporte): Promise<PrevTotals> {
-  const rows = await q<SummaryRow>(summarySql(moneda !== MONEDA_REPORTE), paramsRango(from, to, moneda));
+async function computePrev(
+  from: string,
+  to: string,
+  moneda: MonedaReporte,
+  funnelId: number | null,
+): Promise<PrevTotals> {
+  const todas = await q<SummaryRow>(summarySql(moneda !== MONEDA_REPORTE), paramsRango(from, to, moneda));
+  const rows = funnelId === null ? todas : todas.filter((r) => r.funnelId === funnelId);
   let netEur = 0;
   let orders = 0;
   let sessions = 0;
@@ -609,9 +661,8 @@ async function computePrev(from: string, to: string, moneda: MonedaReporte): Pro
   };
 }
 
-/** El reloj '14:20' de los alerts, en la TZ del dashboard (D19). */
-function fmtClock(iso: string): string {
-  const tz = process.env.DASHBOARD_TZ ?? 'America/Argentina/Buenos_Aires';
+/** El reloj '14:20' de los alerts, en la zona del alcance. */
+function fmtClock(iso: string, tz: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '—';
   return new Intl.DateTimeFormat('es-AR', { hour: '2-digit', minute: '2-digit', timeZone: tz }).format(d);
@@ -621,15 +672,69 @@ const intFmt = new Intl.NumberFormat('es-AR');
 const fmtInt = (n: number): string => intFmt.format(n);
 
 /**
+ * El alcance del Resumen a partir del `?f=` de la URL: el funnel (activo) con
+ * ese slug y su zona, o el General con DASHBOARD_TZ si no viene o no existe.
+ *
+ * La página y el route lo resuelven ANTES de pedir los datos porque el rango
+ * ("hoy", "ayer", "7 días") se calcula con esta zona: el hoy de Astra no es el
+ * hoy de Lisboa entre las 00:00 y las 04:00.
+ *
+ * Un slug que no existe cae en el General y no en un 404: el `?f=` lo comparten
+ * todas las pantallas, y un funnel desactivado no tiene por qué romper el link.
+ */
+export async function resolverAlcanceResumen(slug: string | null | undefined): Promise<{
+  funnel: Funnel | null;
+  timezone: string;
+}> {
+  const fn = slug ? await getFunnelBySlug(slug) : null;
+  if (fn && fn.active) return { funnel: fn, timezone: fn.timezone };
+  return { funnel: null, timezone: getDashboardTimezone() };
+}
+
+/**
  * `moneda` es la moneda en la que se quieren ver los importes (el switch
  * EUR/USD). Por defecto la de reporte, que es lo que siguen pidiendo el brief
  * de IA y los tests: para ellos no cambia nada.
+ *
+ * `funnelId` elige el tablero de un funnel; sin él (o null) es el General. El
+ * rango `f` tiene que venir resuelto en la zona del alcance
+ * (`resolverAlcanceResumen`).
  */
 export async function getOverviewData(
   f: OverviewFilters,
   monedaPedida: MonedaReporte = MONEDA_REPORTE,
+  opts: { funnelId?: number | null } = {},
 ): Promise<OverviewData> {
   const now = Date.now();
+
+  // El alcance va primero porque de él sale la zona con la que se cuentan las
+  // horas y "ahora". Un id que no es de un funnel activo deja el tablero vacío
+  // en vez de caer en el General: mostrar todos los funnels bajo el nombre de
+  // uno sería peor que mostrar ceros.
+  const todosLosFunnels = await listFunnels();
+  const funnelAlcance =
+    opts.funnelId == null ? null : todosLosFunnels.find((x) => x.id === opts.funnelId) ?? null;
+  const filtraFunnel = opts.funnelId != null;
+  const timezone = funnelAlcance?.timezone ?? getDashboardTimezone();
+  const alcance: AlcanceResumen = {
+    funnel: funnelAlcance
+      ? { id: funnelAlcance.id, slug: funnelAlcance.slug, nombre: nombreVisible(funnelAlcance) }
+      : null,
+    timezone,
+    otrasZonas: [],
+  };
+  const conOtraZona = filtraFunnel ? [] : todosLosFunnels.filter((x) => x.timezone !== timezone);
+  if (conOtraZona.length > 0) {
+    const zonas = Array.from(new Set(conOtraZona.map((x) => x.timezone)));
+    const arranques = await q<{ tz: string; arrancaA: string }>(ARRANQUE_ZONAS_SQL, [timezone, zonas]);
+    const arrancaDe = new Map(arranques.map((r) => [r.tz, r.arrancaA]));
+    alcance.otrasZonas = conOtraZona.map((x) => ({
+      slug: x.slug,
+      nombre: nombreVisible(x),
+      timezone: x.timezone,
+      arrancaA: arrancaDe.get(x.timezone) ?? '',
+    }));
+  }
 
   // Primero la cotización: sin ninguna fila del par no se convierte (un factor
   // NULL daría todos los importes en 0, creíbles y falsos), se sigue en la
@@ -651,10 +756,10 @@ export async function getOverviewData(
     }
   }
   const convierte = moneda !== MONEDA_REPORTE;
-  const timezone = getDashboardTimezone();
+  const funnelRows = filtraFunnel ? (funnelAlcance ? [funnelAlcance] : []) : todosLosFunnels;
+  const idFiltro = filtraFunnel ? opts.funnelId! : null;
 
   const [
-    funnelRows,
     summaryRows,
     dayRows,
     unattRow,
@@ -667,12 +772,12 @@ export async function getOverviewData(
     horasActual,
     ahoraRow,
   ] = await Promise.all([
-    listFunnels(),
     q<SummaryRow>(summarySql(convierte), paramsRango(f.from, f.to, moneda)),
     q<DayRowRaw>(daySql(convierte), paramsRango(f.from, f.to, moneda)),
-    q1<CountRow>(UNATTRIBUTED_SQL, [f.from, f.to]),
-    q1<CountRow>(FX_STALE_SQL),
-    q1<CountRow>(UNKNOWN_TIER_SQL),
+    // Las ventas sin funnel no son de ningún tablero: sólo las cuenta el General.
+    filtraFunnel ? Promise.resolve(null) : q1<CountRow>(UNATTRIBUTED_SQL, [f.from, f.to]),
+    q1<CountRow>(FX_STALE_SQL, [idFiltro]),
+    q1<CountRow>(UNKNOWN_TIER_SQL, [idFiltro]),
     q1<CountRow>(INGEST_ERRORS_SQL),
     q1<RollupRow>(LATEST_ROLLUP_SQL),
     q<LastEventRow>(LAST_EVENT_SQL),
@@ -690,7 +795,10 @@ export async function getOverviewData(
   const prevTo = shiftDay(f.from, -1);
   const hayPrev = f.from > '2000-01-01';
   const [prev, horasPrev] = hayPrev
-    ? await Promise.all([computePrev(prevFrom, prevTo, moneda), leerHoras(prevFrom, prevTo, moneda, timezone)])
+    ? await Promise.all([
+        computePrev(prevFrom, prevTo, moneda, idFiltro),
+        leerHoras(prevFrom, prevTo, moneda, timezone),
+      ])
     : [null, null];
 
   const summaryByFunnel = new Map(summaryRows.map((r) => [r.funnelId, r]));
@@ -888,7 +996,7 @@ export async function getOverviewData(
   const alerts: Alert[] = [];
   for (const fn of funnels) {
     if (fn.lastEventAt && now - new Date(fn.lastEventAt).getTime() > 6 * 3600 * 1000) {
-      alerts.push({ tone: 'bad', text: `${fn.name} no reporta desde las ${fmtClock(fn.lastEventAt)}` });
+      alerts.push({ tone: 'bad', text: `${fn.name} no reporta desde las ${fmtClock(fn.lastEventAt, timezone)}` });
     }
   }
   if ((unattRow?.n ?? 0) > 0) {
@@ -917,12 +1025,13 @@ export async function getOverviewData(
     alerts.push({
       tone: 'bad',
       text: lastRollupAt
-        ? `el rollup no corre desde las ${fmtClock(lastRollupAt)}`
+        ? `el rollup no corre desde las ${fmtClock(lastRollupAt, timezone)}`
         : 'el rollup no corrió nunca — corré npm run rollup',
     });
   }
 
   return {
+    alcance,
     moneda,
     cotizacion,
     monedaSinCotizacion,

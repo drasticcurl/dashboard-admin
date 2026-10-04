@@ -657,4 +657,152 @@ describe.skipIf(!(dbAvailable && schemaReady))('getOverviewData (integración)',
       await q(`DELETE FROM fx_rates WHERE base = 'USD' AND source = $1`, [FUENTE]);
     }
   });
+
+  // ─── General y tablero por funnel (2026-10-04) ──────────────────────────
+  //
+  // El caso real: Astra (funnel y cuenta en Buenos Aires) dentro de un General
+  // en hora de Lisboa. Una venta a las 01:30 de Lisboa del 04/08 son las 21:30
+  // del 03/08 en Buenos Aires: es del 03/08 de Astra. El General del 04/08 no
+  // la puede sumar (el "hoy" de Astra todavía no empezó) y el del 03/08 sí.
+
+  /** Una orden con su `day` explícito, como lo calcula el ingest con la zona del funnel. */
+  async function seedOrderEn(
+    funnelId: number,
+    o: { externalId: string; amountEur: number; purchasedAt: string; day: string },
+  ): Promise<void> {
+    await q(
+      `INSERT INTO orders (funnel_id, source, external_id, status, tier, amount, currency,
+                           amount_eur, fx_stale, utm_campaign, purchased_at, day)
+       VALUES ($1::smallint, 'manual', $2, 'approved', 'front', 1000, 'ARS',
+               $3::numeric, false, '(directo)', $4::timestamptz, $5::date)`,
+      [funnelId, o.externalId, o.amountEur, o.purchasedAt, o.day],
+    );
+  }
+
+  /** Corre `fn` con el panel en hora de Lisboa, como producción. */
+  async function enLisboa<T>(fn: () => Promise<T>): Promise<T> {
+    const antes = process.env.DASHBOARD_TZ;
+    process.env.DASHBOARD_TZ = 'Europe/Lisbon';
+    try {
+      return await fn();
+    } finally {
+      if (antes === undefined) delete process.env.DASHBOARD_TZ;
+      else process.env.DASHBOARD_TZ = antes;
+    }
+  }
+
+  it('14. tablero de un funnel → sólo ese funnel, con su zona, y sin el aviso de ventas sin funnel', async () => {
+    await seedOrder(chau.id, { externalId: 'ov-t14-a', amount: 7790, amountEur: 4.51 });
+    await seedOrder(reset.id, { externalId: 'ov-t14-b', amount: 20000, amountEur: 10 });
+    // Una venta sin funnel: el General la avisa, el tablero de un funnel no.
+    await q(
+      `INSERT INTO orders (funnel_id, source, external_id, status, tier, amount, currency,
+                           amount_eur, fx_stale, utm_campaign, purchased_at, day)
+       VALUES (NULL, 'manual', 'ov-t14-c', 'approved', 'front', 1, 'ARS', 1, false, '(directo)',
+               $1::timestamptz, $2::date)`,
+      [`${DAY}T12:00:00Z`, DAY],
+    );
+    await rollupRange({ from: DAY, to: DAY });
+
+    const general = await getOverviewData({ from: DAY, to: DAY });
+    expect(general.alcance.funnel).toBeNull();
+    expect(general.totals.netEur).toBe(14.51);
+    expect(general.alerts.some((a) => a.text.includes('sin funnel'))).toBe(true);
+
+    const soloReset = await getOverviewData({ from: DAY, to: DAY }, 'EUR', { funnelId: reset.id });
+    expect(soloReset.alcance.funnel?.slug).toBe('reset');
+    expect(soloReset.alcance.timezone).toBe(reset.timezone);
+    expect(soloReset.alcance.otrasZonas).toEqual([]);
+    expect(soloReset.funnels.map((f) => f.funnelId)).toEqual([reset.id]);
+    expect(soloReset.totals.netEur).toBe(10);
+    expect(soloReset.totals.orders).toBe(1);
+    expect(Object.keys(soloReset.byDay[0]!.perFunnel)).toEqual(['reset']);
+    expect(soloReset.alerts.some((a) => a.text.includes('sin funnel'))).toBe(false);
+    // El gráfico por hora tampoco trae ventas de otro funnel.
+    expect(soloReset.byHour.reduce((a, h) => a + h.orders, 0)).toBe(1);
+  });
+
+  it('15. General en Lisboa con un funnel en Buenos Aires: cada uno suma SU día y las horas cierran con los KPIs', async () => {
+    const astra = await seedFunnel('test-ov-astra', 'Astra de prueba');
+    await q(`UPDATE funnels SET timezone = 'America/Argentina/Buenos_Aires' WHERE id = $1`, [astra.id]);
+
+    // 01:30 de Lisboa del 04/08 = 21:30 del 03/08 en Buenos Aires → día 03/08 de Astra.
+    await seedOrderEn(astra.id, {
+      externalId: 'ov-t15-a',
+      amountEur: 8.05,
+      purchasedAt: `${DAY_EMPTY}T00:30:00Z`,
+      day: DAY,
+    });
+    // Chau, en Lisboa, vende a la misma hora: es del 04/08 de Chau. La zona se
+    // fija para el test y se devuelve al final (en `panel_test` puede ser otra).
+    await q(`UPDATE funnels SET timezone = 'Europe/Lisbon' WHERE id = $1`, [chau.id]);
+    try {
+      await seedOrderEn(chau.id, {
+        externalId: 'ov-t15-b',
+        amountEur: 5,
+        purchasedAt: `${DAY_EMPTY}T00:30:00Z`,
+        day: DAY_EMPTY,
+      });
+      await rollupRange({ from: DAY, to: DAY_EMPTY });
+
+      await enLisboa(async () => {
+        // "Hoy" = 04/08 en Lisboa: Chau suma su venta; Astra todavía no empezó su 04/08.
+        const hoy = await getOverviewData({ from: DAY_EMPTY, to: DAY_EMPTY });
+        expect(hoy.alcance.timezone).toBe('Europe/Lisbon');
+        expect(hoy.funnels.find((f) => f.funnelId === astra.id)!.orders).toBe(0);
+        expect(hoy.funnels.find((f) => f.funnelId === chau.id)!.orders).toBe(1);
+        expect(hoy.totals.orders).toBe(1);
+        // El gráfico por hora cuenta el MISMO día que los KPIs: a la 01 de Lisboa
+        // está sólo la venta de Chau, no la de Astra.
+        expect(hoy.byHour.reduce((a, h) => a + h.orders, 0)).toBe(hoy.totals.orders);
+        expect(hoy.byHour[1]!.perFunnel['test-ov-astra']).toBe(0);
+        expect(hoy.byHour[1]!.perFunnel.chauhinchazon).toBe(5);
+        // La pantalla puede explicar por qué: Astra corta el día en otra zona.
+        const nota = hoy.alcance.otrasZonas.find((z) => z.slug === 'test-ov-astra');
+        expect(nota?.timezone).toBe('America/Argentina/Buenos_Aires');
+        // 04:00 con Lisboa en verano, 03:00 en invierno (depende del día en que corre).
+        expect(['03:00', '04:00']).toContain(nota?.arrancaA);
+
+        // "Ayer" = 03/08: ahí está la venta de Astra, dibujada a la 01 de Lisboa.
+        const ayer = await getOverviewData({ from: DAY, to: DAY });
+        expect(ayer.funnels.find((f) => f.funnelId === astra.id)!.orders).toBe(1);
+        expect(ayer.byHour.reduce((a, h) => a + h.orders, 0)).toBe(ayer.totals.orders);
+        expect(ayer.byHour[1]!.perFunnel['test-ov-astra']).toBeCloseTo(8.05, 6);
+      });
+
+      // El tablero de Astra corta y dibuja en SU reloj: la venta es de las 21 del 03/08.
+      const tablero = await getOverviewData({ from: DAY, to: DAY }, 'EUR', { funnelId: astra.id });
+      expect(tablero.alcance.timezone).toBe('America/Argentina/Buenos_Aires');
+      expect(tablero.totals.orders).toBe(1);
+      expect(tablero.byHour[21]!.orders).toBe(1);
+      expect(tablero.byHour[1]!.orders).toBe(0);
+    } finally {
+      await q(`UPDATE funnels SET timezone = $2 WHERE id = $1`, [chau.id, chau.timezone]);
+    }
+  });
+
+  it('16. una venta que se muda de día (cambio de zona) no deja el día viejo con números: rollup con purga', async () => {
+    await seedOrder(chau.id, { externalId: 'ov-t16-a', amount: 7790, amountEur: 4.51 });
+    await rollupRange({ from: DAY, to: DAY_EMPTY });
+    const filaDe = async (day: string) =>
+      (
+        await q<{ orders: number }>(
+          `SELECT orders_count AS orders FROM daily_metrics WHERE funnel_id = $1 AND day = $2 AND variant = '*'`,
+          [chau.id, day],
+        )
+      )[0] ?? null;
+    expect((await filaDe(DAY))?.orders).toBe(1);
+
+    // Lo que hace recompute-days al cambiar la zona: la venta pasa al día siguiente.
+    await q(`UPDATE orders SET day = $2::date WHERE external_id = $1`, ['ov-t16-a', DAY_EMPTY]);
+
+    // El rollup de siempre sólo pisa las claves con datos: el día viejo queda colgado.
+    await rollupRange({ from: DAY, to: DAY_EMPTY });
+    expect((await filaDe(DAY))?.orders).toBe(1);
+
+    // Con la purga del funnel, el día que se quedó sin datos desaparece y el nuevo tiene la venta.
+    await rollupRange({ from: DAY, to: DAY_EMPTY, purgarFunnels: [chau.id] });
+    expect(await filaDe(DAY)).toBeNull();
+    expect((await filaDe(DAY_EMPTY))?.orders).toBe(1);
+  });
 });

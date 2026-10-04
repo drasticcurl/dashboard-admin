@@ -121,6 +121,58 @@ export function volcarEnHoras(
 }
 
 /**
+ * La hora de reloj (0..23) de un instante en `zona`, con un cache por hora UTC:
+ * en un rango de un mes son ~720 llamadas a Intl y no una por tramo.
+ *
+ * Por hora UTC alcanza porque las zonas que usa el panel (Lisboa, Buenos Aires)
+ * tienen desplazamientos de horas enteras: cada hora UTC cae entera en una sola
+ * hora local, también el día del cambio de horario. Con una zona de media hora
+ * (India) la hora se tomaría de su arranque.
+ */
+function relojLocal(zona: string): (t: number) => number {
+  const fmt = new Intl.DateTimeFormat('en-US', { timeZone: zona, hour: 'numeric', hourCycle: 'h23' });
+  const cache = new Map<number, number>();
+  return (t) => {
+    const k = Math.floor(t / HORA_MS);
+    let h = cache.get(k);
+    if (h === undefined) {
+      h = Number(fmt.format(new Date(k * HORA_MS))) % 24;
+      cache.set(k, h);
+    }
+    return h;
+  };
+}
+
+/**
+ * Suma los tramos en las horas de reloj de `zona`, SIN recortar a un rango: qué
+ * días entran lo decide quien elige los tramos (el día de cada funnel, el mismo
+ * que suma daily_metrics). Es lo que hace que las 24 horas del Resumen cierren
+ * con sus KPIs aunque cada funnel corte el día en su propia zona.
+ *
+ * Consecuencia buscada: en el General (reloj de Lisboa) el día de un funnel en
+ * Buenos Aires va de las 04:00 a las 04:00 del día siguiente, y esas últimas
+ * cuatro horas caen en las 00..03 del gráfico. En un rango de varios días es lo
+ * mismo que ya pasaba (cada hora suma todos los días); en "ayer" se ve como la
+ * cola de la noche argentina al principio del eje.
+ *
+ * A diferencia de `volcarEnHoras`, la hora sale del reloj de verdad (Intl) y no
+ * de contar horas desde el arranque del rango, así que el día del cambio de
+ * horario tampoco corre ninguna.
+ */
+export function volcarEnHorasLocales(tramos: TramoGasto[], zona: string, horas: number[]): void {
+  const horaDe = relojLocal(zona);
+  for (const { desde, hasta, monto } of tramos) {
+    const largo = hasta - desde;
+    if (!(largo > 0) || monto === 0) continue;
+    for (let k = Math.floor(desde / HORA_MS); k * HORA_MS < hasta; k++) {
+      const a = Math.max(desde, k * HORA_MS);
+      const b = Math.min(hasta, (k + 1) * HORA_MS);
+      if (b > a) horas[horaDe(k * HORA_MS)]! += (monto * (b - a)) / largo;
+    }
+  }
+}
+
+/**
  * Atajo para el caso en que el día de Meta y el del panel coinciden: las 24
  * horas de ese día. Lo usan los tests de las tres reglas.
  */

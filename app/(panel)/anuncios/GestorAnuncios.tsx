@@ -2038,8 +2038,9 @@ export function GestorAnuncios({
 
       {data.sinAtribuir.sales > 0 && (
         <Banner tone={sinAtribuirPct > 0.2 ? 'warn' : 'info'} title="Ventas sin atribuir a un anuncio">
-          {fmtInt(data.sinAtribuir.sales)} ventas ({money(data.sinAtribuir.revenueEur)}) entraron en el período pero sus UTMs no
-          matchean ningún {NIVEL_LABEL[nivel].toLowerCase()}. Es plata real que esta tabla no explica.
+          {fmtInt(data.sinAtribuir.sales)} ventas de este funnel ({money(data.sinAtribuir.revenueEur)}) entraron en el período
+          sin UTMs que matcheen ningún {NIVEL_LABEL[nivel].toLowerCase()} de esta cuenta. Es plata real que esta tabla no
+          explica.
         </Banner>
       )}
 

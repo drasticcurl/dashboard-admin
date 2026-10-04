@@ -112,6 +112,7 @@ function funnel(over: Partial<FunnelSummary> = {}): FunnelSummary {
 
 function overview(over: Partial<OverviewData> = {}): OverviewData {
   return {
+    alcance: { funnel: null, timezone: 'Europe/Lisbon', otrasZonas: [] },
     moneda: 'EUR',
     cotizacion: null,
     monedaSinCotizacion: null,

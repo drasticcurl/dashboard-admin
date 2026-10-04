@@ -31,7 +31,10 @@
  * el panel avisa cuando no coincide con la de la tienda.
  *
  * Uso: tsx scripts/recompute-days.ts [--funnel=slug] [--dry-run]
- * Después hay que correr el rollup (lo avisa al final; la UI lo hace sola).
+ * Sin --dry-run reconstruye también el rollup del rango afectado, borrando los
+ * días que quedaron sin datos (`rollupRange` con `purgarFunnels`). Hasta el
+ * 2026-10-04 sólo avisaba que había que correrlo, y el rollup a mano no borraba
+ * esos días: quedaban con los números del corte viejo.
  */
 
 import { existsSync } from 'node:fs';
@@ -39,6 +42,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { getPool, q, q1, tx } from '../lib/db';
 import { listFunnels } from '../lib/funnels';
+import { rollupRange } from './rollup';
 
 // tsx no carga .env solo; en dev el env vive en el archivo, en producción
 // viene de PM2 y no existe (process.loadEnvFile es de Node >= 20.12).
@@ -57,6 +61,8 @@ const TABLAS = [
 export type TablaCambio = { etiqueta: string; movidas: number };
 
 export type FunnelCambio = {
+  /** null = las ventas sin funnel (no tienen filas en daily_metrics). */
+  funnelId: number | null;
   slug: string;
   timezone: string;
   tablas: TablaCambio[];
@@ -105,7 +111,7 @@ async function recomputeUno(
   timezone: string,
   dryRun: boolean,
 ): Promise<FunnelCambio> {
-  const cambio: FunnelCambio = { slug, timezone, tablas: [], minDay: null, maxDay: null };
+  const cambio: FunnelCambio = { funnelId, slug, timezone, tablas: [], minDay: null, maxDay: null };
   const cond = funnelId === null ? 'funnel_id IS NULL' : 'funnel_id = $2';
   const params = funnelId === null ? [timezone] : [timezone, funnelId];
 
@@ -206,10 +212,17 @@ async function main(args: string[] = process.argv.slice(2)): Promise<void> {
     return;
   }
   console.log(`\nSe ${verbo} ${res.totalMovidas} filas de día (rango ${res.minDay}..${res.maxDay}).`);
-  if (!dryRun) {
-    console.log('Ahora reconstruí el rollup para que el Resumen use los días nuevos:');
-    console.log(`  npm run rollup -- --from=${res.minDay} --to=${res.maxDay}`);
+  if (!dryRun && res.minDay && res.maxDay) {
+    const r = await rollupRange({ from: res.minDay, to: res.maxDay, purgarFunnels: idsConCambios(res) });
+    console.log(`Rollup reconstruido: ${r.rows} filas (${res.minDay} → ${res.maxDay}).`);
   }
+}
+
+/** Los funnels a los que se les movió algún día: son los únicos que se purgan. */
+export function idsConCambios(res: RecomputeResult): number[] {
+  return res.funnels
+    .filter((c) => c.funnelId !== null && c.tablas.some((t) => t.movidas > 0))
+    .map((c) => c.funnelId!);
 }
 
 const isMain =

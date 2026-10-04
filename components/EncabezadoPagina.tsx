@@ -32,6 +32,7 @@ export function EncabezadoPagina({
   subtitulo,
   funnels,
   conFunnel = true,
+  conGeneral = false,
   conPeriodo = true,
   children,
   chip,
@@ -42,6 +43,8 @@ export function EncabezadoPagina({
   /** Si no viene, no se dibuja el selector de funnel. */
   funnels?: Funnel[];
   conFunnel?: boolean;
+  /** Suma «General» (todos los funnels) al selector: sólo el Resumen. */
+  conGeneral?: boolean;
   conPeriodo?: boolean;
   /** Controles propios de la pantalla, a la izquierda de los filtros. */
   children?: ReactNode;
@@ -82,7 +85,9 @@ export function EncabezadoPagina({
 
       <div className="flex flex-wrap items-center gap-2">
         {children}
-        {conFunnel && funnels && funnels.length > 0 && <SelectorFunnel funnels={funnels} />}
+        {conFunnel && funnels && funnels.length > 0 && (
+          <SelectorFunnel funnels={funnels} conGeneral={conGeneral} />
+        )}
         {conPeriodo && <RangePicker />}
       </div>
     </div>

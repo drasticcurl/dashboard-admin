@@ -21,7 +21,7 @@ import { z } from 'zod';
 import { q } from '@/lib/db';
 import { getFunnelBySlug, listFunnels } from '@/lib/funnels';
 import { rollupRange } from '@/scripts/rollup';
-import { runRecompute } from '@/scripts/recompute-days';
+import { idsConCambios, runRecompute } from '@/scripts/recompute-days';
 import { guard, isValidTimezone, json, parseJson } from '../_lib';
 
 export const runtime = 'nodejs';
@@ -153,12 +153,16 @@ export async function PATCH(req: NextRequest) {
   // de una comisión.
   //
   // El rollup se reconstruye solo del rango afectado: el Resumen lee de
-  // daily_metrics y sin esto seguiría agrupado por los días viejos.
+  // daily_metrics y sin esto seguiría agrupado por los días viejos. Con
+  // `purgarFunnels`, porque un día que se quedó sin datos al mudarse sus ventas
+  // no lo pisa ningún upsert y conservaba los números del corte viejo.
   let diasRecalculados: { filas: number; from: string | null; to: string | null } | null = null;
   if (antes && fields.timezone && antes.timezone !== fields.timezone) {
     const r = await runRecompute({ slug, dryRun: false });
     diasRecalculados = { filas: r.totalMovidas, from: r.minDay, to: r.maxDay };
-    if (r.minDay && r.maxDay) await rollupRange({ from: r.minDay, to: r.maxDay });
+    if (r.minDay && r.maxDay) {
+      await rollupRange({ from: r.minDay, to: r.maxDay, purgarFunnels: idsConCambios(r) });
+    }
   }
 
   return json(200, { ok: true, funnel: res[0], diasRecalculados });

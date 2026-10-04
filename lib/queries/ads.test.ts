@@ -340,6 +340,31 @@ describe.skipIf(!dbAvailable)('getMetricasAds (integración)', () => {
       await q(`DELETE FROM ad_accounts WHERE account_id = $1`, [CUENTA_BSAS]);
     }
   });
+
+  it('sin atribuir cuenta sólo las ventas del funnel de la cuenta, no las de otros funnels', async () => {
+    // 2026-10-04: mirando la cuenta de Astra, el aviso decía 15 ventas y 92,78 €
+    // sin atribuir; 13 eran de Alma Gemela, bien atribuidas a anuncios de SU
+    // cuenta (HIlvanapp). Sólo 2 eran de Astra. Se mide la diferencia contra
+    // una lectura previa porque la base de desarrollo puede tener ventas de hoy.
+    const filtros = { level: 'campaign' as const, period: 'today' as const, accountIds: [CUENTA_TEST] };
+    const antes = await getMetricasAds(filtros);
+    const ahora = new Date().toISOString();
+
+    // Del funnel de la cuenta (1), sin UTMs: es de esta tabla y no matchea nada.
+    await sembrarOrden({ externalId: 't15-sin-1', amountEur: 7, purchasedAt: ahora, day: ahora.slice(0, 10) });
+    // De OTRO funnel (2), también sin anuncio en esta cuenta: no es de esta tabla.
+    await q(
+      `INSERT INTO orders (funnel_id, source, external_id, email, status, tier, amount, currency,
+                           amount_eur, purchased_at, day)
+       VALUES (2, 't15-test', 't15-sin-2', 't15@test', 'approved', 'front', 100, 'EUR',
+               11, $1::timestamptz, $2::date)`,
+      [ahora, ahora.slice(0, 10)],
+    );
+
+    const despues = await getMetricasAds(filtros);
+    expect(despues.sinAtribuir.sales - antes.sinAtribuir.sales).toBe(1);
+    expect(despues.sinAtribuir.revenueEur - antes.sinAtribuir.revenueEur).toBeCloseTo(7, 6);
+  });
 });
 
 // ─── Límites de la query (task 15.5): total, páginas, recorte y hayMas ──────

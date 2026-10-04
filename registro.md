@@ -10,6 +10,103 @@ Lo más nuevo va arriba. Las reglas de cómo se escribe una entrada están en
 
 ---
 
+## 2026-10-04 — Resumen General + un tablero por funnel, cada uno con el día de su zona; Anuncios contaba como «sin atribuir» ventas de otros funnels
+
+**Pedido.** Empezó con "pasame las 15 ventas sin UTM (92,78 €) que muestra el
+panel de Astra", siguió con "registro 23 órdenes en Astra y en Anuncios cuento
+8" y "¿es así el ROI ×3 con 23 órdenes o es la zona horaria?", y terminó en:
+"un dashboard por quiz, cada uno en su zona horaria, incluyendo anuncios, y uno
+general como ahora en hora de Lisboa, donde Astra hasta las 4 am no registra
+nada en hoy pero sigue registrando en ayer".
+
+**Qué pasaba.**
+- Astra tenía el funnel en Europe/Lisbon (se puso el 30/09, cuando su cuenta de
+  Meta todavía no sincronizaba) y la cuenta «Tarot astro» está en
+  America/Argentina/Buenos_Aires. El 04/10 a las 08:12 la tarjeta decía 23
+  órdenes, 150,70 € de neto y ROI 3,09×: las órdenes eran del día de Lisboa
+  (desde las 20:00 argentinas del 03) y los 48,84 € de gasto, del día de Meta
+  (desde las 00:00 argentinas). Con el mismo corte de los dos lados era ≈1,54×
+  (día argentino: 11 órdenes, 75,24 € de neto) o ≈1,85× (día de Lisboa con el
+  gasto de las 20–24 argentinas sacado de `ad_spend_hora`). El 03/10 pasaba al
+  revés: 0,96× en la tarjeta contra 1,31× real.
+- El aviso «Ventas sin atribuir a un anuncio» de Anuncios contaba las órdenes de
+  TODOS los funnels que no matcheaban un anuncio de la cuenta mirada: en Astra
+  dijo 15 ventas y 92,78 €, de las que 13 eran de Alma Gemela (bien atribuidas a
+  sus anuncios de HIlvanapp). Las de Astra eran 2 (16,10 €), las dos de checkout
+  propio en `(directo)` y sin fbclid.
+- El Resumen ignoraba `?f=` pero mostraba el selector de funnel igual: decía un
+  funnel y la pantalla sumaba todos.
+- `rollupRange` sólo pisa las claves que tienen datos. Cuando un cambio de zona
+  muda las ventas de día, el día que queda vacío conserva los números del corte
+  viejo (pasaba también con el PATCH de Config → Funnels).
+
+**Cómo se resolvió.**
+- El modelo ya era "cada funnel corta el día en su zona": `orders.day`,
+  `sessions.day` y `events.day` se guardan con la zona del funnel y
+  daily_metrics es por (funnel, día). El General suma por fecha, o sea el "hoy"
+  de cada funnel. Lo que faltaba era que la zona del funnel coincidiera con la de
+  su cuenta de Meta (el gasto llega por día de la cuenta y no se reexpresa) →
+  Astra pasa a Buenos Aires (dato de producción, abajo).
+- Resumen con dos alcances por `?f=` (`resolverAlcanceResumen`): sin él, el
+  General con el rango en DASHBOARD_TZ; con un funnel, su tablero con "hoy", la
+  hora en curso y las 24 horas en SU zona (`getOverviewData(…, { funnelId })`).
+  La respuesta trae `alcance` (zona y, en el General, los funnels en otra zona
+  con la hora de Lisboa en que arranca su día). El selector suma «General
+  (todos)» sólo en el Resumen; la pastilla del título dice "Astra Tarot · hora de
+  Buenos Aires" en todas las pantallas por funnel, y el Resumen dice "Día en hora
+  de Lisboa · Astra Tarot: hora de Buenos Aires (su día arranca a las 04:00)".
+- Ganancia por hora: QUÉ ventas y qué gasto entran lo decide el día de cada
+  funnel (`o.day`, `ad_spend.day`), igual que los KPIs; la HORA se dibuja en el
+  reloj del alcance (`volcarEnHorasLocales`, con Intl y sin recortar). Así las 24
+  horas cierran con los KPIs. Consecuencia buscada: en el "ayer" del General las
+  20–24 argentinas de Astra se dibujan en las 00–03. Además el día del cambio de
+  hora (25/10) ya no corre ninguna hora.
+- Anuncios: `sinAtribuir` cuenta sólo las órdenes del funnel imputado a la
+  cuenta. Y si la zona de la cuenta no coincide con la del funnel, la pantalla lo
+  avisa (la tabla usa el día de Meta).
+- `rollupRange({ purgarFunnels })` borra, en la misma transacción que el upsert,
+  las filas del rango que la corrida ya no produce. Lo usan el PATCH de funnels
+  al cambiar la zona y `recompute-days`, que ahora reconstruye el rollup solo en
+  vez de pedir que se corra a mano.
+
+**Lo que se descartó.**
+- Rebucketear el gasto de Meta a la zona del funnel con `ad_spend_hora`: las
+  lecturas son a los :07 y lo anterior a la primera se reparte parejo, así que
+  el número parecería exacto sin serlo; y la tabla de Anuncios seguiría en día de
+  Meta igual. Alinear las zonas es exacto.
+- Un parámetro propio del Resumen en lugar de `f` (para que venir desde Ventas
+  con un funnel elegido no filtre el Resumen): el selector y la pastilla dirían
+  otra cosa que la pantalla, que es el bug que tenía.
+- Seguir cortando el gráfico por hora con el reloj del panel (el arreglo del
+  30/09): a la 01:00 de Lisboa mostraría ventas de Astra que su "hoy" no tiene.
+  El problema que ese corte resolvía (ventas de anoche en "las 23 de hoy") sólo
+  aparece con un funnel ADELANTADO al reloj del panel, y hoy no hay ninguno.
+- Purgar en el rollup del cron: dos corridas solapadas podrían llevarse la fila
+  recién creada de la otra hasta la corrida siguiente.
+- Sumar a «sin atribuir» los funnels con campañas mapeadas en la cuenta: Chau
+  Hinchazón tiene campañas en HIlvanapp pero vende casi todo por Gelxiin, y esas
+  ventas no son de esa tabla.
+
+**Qué se verificó.** `tsc`: sólo el error de base de `tareas/tablero.test.ts`.
+`vitest`: 1797 pasan, más `sales`, `apply` y `day` (se saltan sin el `.env`
+cargado) corridos con el env: 46 pasan. Tests nuevos: `gasto-hora` (día en su
+zona, día argentino en reloj de Lisboa, hoy a las 08:00, cambio de hora del
+25/10), `overview` 14–16 (tablero de un funnel, General con un funnel en Buenos
+Aires que cierra horas contra KPIs, purga del rollup) y `ads` (sin atribuir por
+funnel); el 15 y el de `ads` fallan con el código anterior. `npm run build` OK.
+Panel local con datos de prueba de hoy: General hoy/ayer y tablero de Astra
+contra la API, capturas headless en escritorio y teléfono, y el selector manejado
+por CDP (General saca `?f=` de la URL; la pastilla y el reloj cambian).
+
+**Queda (producción).** Pasar Astra a Buenos Aires: `UPDATE funnels` y
+`recompute-days --funnel=astratarot` (mueve 14 órdenes, 772 sesiones y 7319
+eventos del 30/09 al 04/10, y reconstruye el rollup con purga). Reset sigue en
+Lisboa con su cuenta en Buenos Aires: está sin ventas desde el 25/08; si se
+reactiva, Anuncios lo va a avisar. El análisis con IA del Resumen sigue siendo
+del conjunto también dentro del tablero de un funnel.
+
+---
+
 ## 2026-09-30 (5) — Selector de funnel en Anuncios, cuenta de Astra Tarot y reset/astratarot en hora de Lisboa
 
 **Pedido.** "Agregame el selector de funnel en la parte de anuncios" y "conectame

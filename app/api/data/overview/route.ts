@@ -1,9 +1,10 @@
 /**
- * GET /api/data/overview — el Resumen unificado de todos los funnels.
+ * GET /api/data/overview — el Resumen: el General (todos los funnels) o el
+ * tablero de un funnel.
  *
- * A diferencia de /api/data/funnel y /api/data/sales, no recibe `f`: el
- * Resumen cruza todo, y el rango se resuelve con la TZ del dashboard (D19),
- * no con la de un funnel — no hay funnel que la defina.
+ * `f` elige el alcance igual que en la página (`resolverAlcanceResumen`): sin
+ * él, el rango se resuelve con la TZ del dashboard (D19); con un funnel, con la
+ * zona de ese funnel, para que su "hoy" sea el suyo.
  *
  * Guard de auth y no-store como todos los /api/data/* (plan §9): un curl sin
  * cookie tiene que recibir 401, nunca datos.
@@ -14,8 +15,7 @@ import { today } from '@/lib/day';
 import { guard } from '../../config/_lib';
 import { ensureFreshAdSpend } from '@/lib/ads/live';
 import { resolveFunnelRange } from '@/lib/queries/funnel';
-import { getDashboardTimezone } from '@/lib/queries/sales';
-import { getOverviewData } from '@/lib/queries/overview';
+import { getOverviewData, resolverAlcanceResumen } from '@/lib/queries/overview';
 import { leerMonedaVista } from '@/lib/moneda-reporte';
 
 export const runtime = 'nodejs';
@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
   if (denied) return denied;
 
   const sp = req.nextUrl.searchParams;
-  const tz = getDashboardTimezone();
+  const { funnel, timezone: tz } = await resolverAlcanceResumen(sp.get('f'));
   let range: { from: string; to: string };
   try {
     range = await resolveFunnelRange(
@@ -56,7 +56,9 @@ export async function GET(req: NextRequest) {
 
   // `?moneda=` es el switch EUR/USD del encabezado. Un valor que no se conoce
   // cae en la moneda de reporte (es visualización, no merece un 400).
-  const data = await getOverviewData(range, leerMonedaVista(sp.get('moneda')));
+  const data = await getOverviewData(range, leerMonedaVista(sp.get('moneda')), {
+    funnelId: funnel?.id ?? null,
+  });
 
   return NextResponse.json({ ok: true, ...data, adsFreshness }, {
     headers: { 'Cache-Control': 'no-store' },

@@ -31,7 +31,7 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { getPool, q } from '../lib/db';
+import { getPool, q, tx } from '../lib/db';
 import { today } from '../lib/day';
 import { MONEDA_REPORTE } from '../lib/moneda-reporte';
 
@@ -156,8 +156,27 @@ const UPSERT_SQL = `
     ad_spend_eur = EXCLUDED.ad_spend_eur,
     computed_at = now()`;
 
-/** Recalcula daily_metrics para [from, to]. Devuelve cuántas filas escribió. */
-export async function rollupRange(opts: { from: string; to: string }): Promise<RollupResult> {
+/**
+ * Recalcula daily_metrics para [from, to]. Devuelve cuántas filas escribió.
+ *
+ * `purgarFunnels`: además BORRA las filas de esos funnels en el rango que esta
+ * corrida ya no produce, en la misma transacción que el upsert. Hace falta
+ * cuando los datos se MUDAN de día (cambio de zona del funnel, recompute-days):
+ * el upsert sólo pisa las claves que tienen datos, así que un día que se quedó
+ * sin ventas, sesiones ni gasto conservaba los números viejos. Con Astra
+ * pasando de Lisboa a Buenos Aires, las ventas de 00:00–04:00 de Lisboa del día
+ * de hoy se mudan a ayer, y la fila de hoy (todavía sin datos en el día
+ * argentino) seguía mostrando esas ventas.
+ *
+ * No se usa en el cron: dos corridas solapadas con borrado podrían llevarse la
+ * fila nueva de la otra (el primer día con datos de un funnel) hasta la
+ * corrida siguiente. Va sólo donde se mueven días a propósito.
+ */
+export async function rollupRange(opts: {
+  from: string;
+  to: string;
+  purgarFunnels?: number[];
+}): Promise<RollupResult> {
   const start = Date.now();
   const [variantRows, starRows, orderRows] = await Promise.all([
     q<SessionGroupRow>(SESSION_GROUP_SQL, [opts.from, opts.to]),
@@ -276,14 +295,31 @@ export async function rollupRange(opts: { from: string; to: string }): Promise<R
     adSpendEur.push(isStar ? g?.spendEur ?? '0' : '0');
   }
 
-  if (funnelIds.length > 0) {
-    await q(UPSERT_SQL, [
-      funnelIds, days, variants,
-      sessions, quizStarted, salesViews, checkoutClicks,
-      orders, ordersRefunded,
-      grossOrig, refundedOrig, grossEur, refundedEur,
-      commissions, commissionsEur, costs, costsEur, adSpend, adSpendEur,
-    ]);
+  const valores = [
+    funnelIds, days, variants,
+    sessions, quizStarted, salesViews, checkoutClicks,
+    orders, ordersRefunded,
+    grossOrig, refundedOrig, grossEur, refundedEur,
+    commissions, commissionsEur, costs, costsEur, adSpend, adSpendEur,
+  ];
+  const purgar = opts.purgarFunnels ?? [];
+  if (purgar.length > 0) {
+    // Borrado y upsert juntos: quien lea en el medio ve el estado viejo o el
+    // nuevo, nunca un día sin fila.
+    await tx(async (c) => {
+      await c.query(
+        `DELETE FROM daily_metrics d
+          WHERE d.funnel_id = ANY($1::smallint[])
+            AND d.day BETWEEN $2::date AND $3::date
+            AND NOT EXISTS (
+              SELECT 1 FROM UNNEST($4::smallint[], $5::date[], $6::text[]) AS k(funnel_id, day, variant)
+               WHERE k.funnel_id = d.funnel_id AND k.day = d.day AND k.variant = d.variant)`,
+        [purgar, opts.from, opts.to, funnelIds, days, variants],
+      );
+      if (funnelIds.length > 0) await c.query(UPSERT_SQL, valores);
+    });
+  } else if (funnelIds.length > 0) {
+    await q(UPSERT_SQL, valores);
   }
 
   return { rows: funnelIds.length, ms: Date.now() - start };
