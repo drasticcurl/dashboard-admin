@@ -10,7 +10,7 @@ Lo más nuevo va arriba. Las reglas de cómo se escribe una entrada están en
 
 ---
 
-## 2026-10-04 — Resumen General + un tablero por funnel, cada uno con el día de su zona; Anuncios contaba como «sin atribuir» ventas de otros funnels
+## 2026-10-04 — Resumen General + un tablero por funnel, cada uno con el día de su zona; Anuncios contaba como «sin atribuir» ventas de otros funnels (`3b4367e`, release `20261004094441`)
 
 **Pedido.** Empezó con "pasame las 15 ventas sin UTM (92,78 €) que muestra el
 panel de Astra", siguió con "registro 23 órdenes en Astra y en Anuncios cuento
@@ -98,12 +98,26 @@ Panel local con datos de prueba de hoy: General hoy/ayer y tablero de Astra
 contra la API, capturas headless en escritorio y teléfono, y el selector manejado
 por CDP (General saca `?f=` de la URL; la pastilla y el reloj cambian).
 
-**Queda (producción).** Pasar Astra a Buenos Aires: `UPDATE funnels` y
-`recompute-days --funnel=astratarot` (mueve 14 órdenes, 772 sesiones y 7319
-eventos del 30/09 al 04/10, y reconstruye el rollup con purga). Reset sigue en
-Lisboa con su cuenta en Buenos Aires: está sin ventas desde el 25/08; si se
-reactiva, Anuncios lo va a avisar. El análisis con IA del Resumen sigue siendo
-del conjunto también dentro del tablero de un funnel.
+**Producción (hecho a mano, no está en el código).** Deploy de `main @ 69e1b81`
+(1834 tests en `panel_test`, sin migraciones). Después, `funnels.timezone =
+America/Argentina/Buenos_Aires` en astratarot y `recompute-days
+--funnel=astratarot`: movió 14 órdenes, 772 sesiones y 7319 eventos
+(30/09..04/10) y reconstruyó el rollup con purga. Se corrió dos veces: las
+sesiones y eventos leen el funnel con una caché de 60 s en el ingest, y lo que
+entrara en ese minuto podía quedar con el día de Lisboa (la segunda no movió
+nada; 0 filas fuera de su día argentino). Resultado contra las órdenes crudas
+del día argentino, idéntico: 03/10 = 44 órdenes, 281,01 € de neto, 214,39 € de
+gasto, ROI 1,31× (la tarjeta decía 0,96×); 04/10 a las 04:57 argentinas = 11
+órdenes, 75,24 €, 51,10 €, 1,47× (decía 3,09×). `getOverviewData` corrido en el
+server: el General de hoy suma esas 11 de Astra, las horas cierran con los
+totales en las cuatro vistas (General/Astra × hoy/ayer). Anuncios de Astra hoy:
+9 atribuidas + 2 sin atribuir (16,10 €) = las 11.
+
+**Queda.** Reset sigue en Lisboa con su cuenta en Buenos Aires: está sin
+ventas desde el 25/08; si se reactiva, Anuncios lo va a avisar. El análisis con
+IA del Resumen sigue siendo del conjunto también dentro del tablero de un
+funnel. Infinix recibe el código en su próximo deploy (no tiene valores
+hardcodeados: usa su DASHBOARD_TZ y sus funnels).
 
 ---
 
