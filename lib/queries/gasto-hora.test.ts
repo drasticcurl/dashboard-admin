@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { repartirGastoDelDia, tramosGastoDelDia, volcarEnHoras } from './gasto-hora';
+import { repartirGastoDelDia, tramosGastoDelDia, volcarEnHoras, volcarEnHorasLocales } from './gasto-hora';
 
 const H = 3_600_000;
 const inicio = Date.UTC(2026, 8, 29, 3); // 00:00 en Buenos Aires
@@ -108,5 +108,61 @@ describe('día de Meta en otra zona que el panel (cuenta en Lisboa, panel en Bue
     const horas = Array.from({ length: 24 }, () => 0);
     volcarEnHoras(tramos, inicio, inicio + 24 * H, horas);
     expect(suma(horas)).toBeCloseTo(30);
+  });
+});
+
+describe('volcarEnHorasLocales: cada funnel con su día, el gráfico en el reloj que se pida', () => {
+  // Astra: cuenta y funnel en Buenos Aires (UTC−3). Su día del 04/10 va de las
+  // 03:00 UTC del 04 a las 03:00 UTC del 05, o sea de 04:00 a 04:00 en Lisboa
+  // (UTC+1 en octubre).
+  const inicioAr = Date.UTC(2026, 9, 4, 3);
+  const finAr = inicioAr + 24 * H;
+  const parejo = (ahoraMs: number) =>
+    tramosGastoDelDia({ inicioMs: inicioAr, finMs: finAr, ahoraMs, total: 24, lecturas: [] });
+
+  it('en su propia zona el día cae entero en las 00..23, sin recortar nada', () => {
+    const horas = Array.from({ length: 24 }, () => 0);
+    volcarEnHorasLocales(parejo(finAr + H), 'America/Argentina/Buenos_Aires', horas);
+    expect(horas.every((v) => Math.abs(v - 1) < 1e-9)).toBe(true);
+    expect(suma(horas)).toBeCloseTo(24);
+  });
+
+  it('en el reloj de Lisboa el mismo día arranca a las 04 y sus últimas 4 horas caen en 00..03', () => {
+    const horas = Array.from({ length: 24 }, () => 0);
+    volcarEnHorasLocales(parejo(finAr + H), 'Europe/Lisbon', horas);
+    expect(horas[4]).toBeCloseTo(1);
+    expect(horas[23]).toBeCloseTo(1);
+    // 20:00–23:59 de Buenos Aires = 00:00–03:59 de Lisboa del día siguiente.
+    expect(horas[0]).toBeCloseTo(1);
+    expect(horas[3]).toBeCloseTo(1);
+    // Nada se pierde: el total cierra con el del día (lo que suma el KPI).
+    expect(suma(horas)).toBeCloseTo(24);
+  });
+
+  it('hoy a las 08:00 de Lisboa: el día argentino lleva 4 horas y sólo llena las 04..07', () => {
+    const ahora = Date.UTC(2026, 9, 4, 7); // 08:00 Lisboa = 04:00 Buenos Aires
+    const tramos = tramosGastoDelDia({ inicioMs: inicioAr, finMs: finAr, ahoraMs: ahora, total: 8, lecturas: [] });
+    const horas = Array.from({ length: 24 }, () => 0);
+    volcarEnHorasLocales(tramos, 'Europe/Lisbon', horas);
+    expect(horas[3]).toBe(0);
+    expect(horas[4]).toBeCloseTo(2);
+    expect(horas[7]).toBeCloseTo(2);
+    expect(horas[8]).toBe(0);
+    expect(suma(horas)).toBeCloseTo(8);
+  });
+
+  it('el día del cambio de horario de Lisboa (25/10, 25 horas) no corre ninguna hora', () => {
+    // 25/10/2026 en Lisboa: 00:00 = 23:00 UTC del 24 (verano), y a las 02:00
+    // de verano vuelve a ser la 01:00. El día tiene 25 horas y la 01 se repite.
+    const inicioLx = Date.UTC(2026, 9, 24, 23);
+    const finLx = Date.UTC(2026, 9, 26, 0);
+    const tramos = tramosGastoDelDia({ inicioMs: inicioLx, finMs: finLx, ahoraMs: finLx + H, total: 25, lecturas: [] });
+    const horas = Array.from({ length: 24 }, () => 0);
+    volcarEnHorasLocales(tramos, 'Europe/Lisbon', horas);
+    expect(horas[0]).toBeCloseTo(1);
+    expect(horas[1]).toBeCloseTo(2);
+    expect(horas[2]).toBeCloseTo(1);
+    expect(horas[23]).toBeCloseTo(1);
+    expect(suma(horas)).toBeCloseTo(25);
   });
 });

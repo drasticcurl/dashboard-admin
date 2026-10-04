@@ -457,7 +457,7 @@ function comun(
       LEFT JOIN ad_campaign_funnel m ON m.campaign_id = a.campaign_id
   ),
   ordenes AS (
-    SELECT o.id, o.amount_eur, o.commission_amount_eur, o.cost_amount_eur, o.status, o.purchased_at,
+    SELECT o.id, o.funnel_id, o.amount_eur, o.commission_amount_eur, o.cost_amount_eur, o.status, o.purchased_at,
            ${EXTRAE_SQL('o.utm_campaign')} AS cid,
            ${EXTRAE_SQL('o.utm_medium')} AS sid,
            ${EXTRAE_SQL('o.utm_content')} AS aid
@@ -466,7 +466,7 @@ function comun(
        AND o.purchased_at <  (${pHasta}::date + 2)::timestamptz
   ),
   atribuidas AS (
-    SELECT o.amount_eur, o.commission_amount_eur, o.cost_amount_eur, o.status,
+    SELECT o.funnel_id, o.amount_eur, o.commission_amount_eur, o.cost_amount_eur, o.status,
            COALESCE(ad.campaign_id, s.campaign_id, c.campaign_id) AS campaign_id,
            COALESCE(ad.adset_id, s.adset_id, '') AS adset_id,
            COALESCE(ad.ad_id, '') AS ad_id,
@@ -857,11 +857,21 @@ SELECT COALESCE(sum(m."spendEur"), 0)   AS "spendEur",
   FROM medidas m`;
 
   // ── 5. Ventas sin atribuir (D-A8), para el nivel pedido. ──
+  //
+  // Sólo las ventas del funnel al que está imputada la cuenta (`cuenta`). Antes
+  // contaba las órdenes de TODOS los funnels que no matcheaban un anuncio de
+  // esta cuenta, así que las ventas de Alma Gemela —bien atribuidas a sus
+  // anuncios de HIlvanapp— aparecían como "sin atribuir" mirando la cuenta de
+  // Astra: el 2026-10-04 el aviso decía 15 ventas y 92,78 € cuando las de
+  // Astra eran 2 (16,10 €). No se suman los funnels con campañas mapeadas en la
+  // cuenta (ad_campaign_funnel): Chau Hinchazón tiene campañas en HIlvanapp pero
+  // vende casi todo por Gelxiin, y esas ventas no son de esta tabla.
   const sinSql = `WITH${com}
 SELECT count(*) FILTER (WHERE status = 'approved')::int AS "sales",
        COALESCE(sum(amount_eur) FILTER (WHERE status = 'approved'), 0) AS "revenueEur"
   FROM atribuidas
- WHERE COALESCE(${frag.ventasObjectId}, '') = ''`;
+ WHERE COALESCE(${frag.ventasObjectId}, '') = ''
+   AND funnel_id IN (SELECT "funnelId" FROM cuenta WHERE "funnelId" IS NOT NULL)`;
 
   const sinParams: unknown[] = [accountIds, desde, hasta, tz];
 

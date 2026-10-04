@@ -1,24 +1,26 @@
 /**
  * /resumen — todos los funnels en una pantalla (task T08), ahora con widgets
- * configurables (T05 del rediseño).
+ * configurables (T05 del rediseño), y desde el 2026-10-04 también un tablero
+ * por funnel.
  *
  * Es la página de inicio del panel (T05 redirige acá tras el login). Server
- * component: resuelve el rango en la TZ del dashboard (D19, no hay funnel
- * que la defina), hace el fetch inicial acá para que la primera pintura ya
- * tenga datos, y lee el layout guardado de settings para que NO haya que
- * pedirlo con un fetch desde el client: un fetch dibujaría el layout por
- * defecto y después saltaría al del usuario (parpadeo, T05 §3).
+ * component: resuelve el alcance y el rango, hace el fetch inicial acá para que
+ * la primera pintura ya tenga datos, y lee el layout guardado de settings para
+ * que NO haya que pedirlo con un fetch desde el client: un fetch dibujaría el
+ * layout por defecto y después saltaría al del usuario (parpadeo, T05 §3).
  *
  * El catálogo (lib/widgets/catalogo-resumen.tsx) NO se importa acá a
  * propósito: importa recharts y es de componentes client.
  *
- * A diferencia de Embudo y Ventas, no hay `?f=`: el Resumen es global. El
- * `f` que deja el Nav en el query string se ignora a propósito.
+ * `?f=` elige el alcance (ver `resolverAlcanceResumen`): sin él es el General,
+ * con el rango en DASHBOARD_TZ (D19); con el slug de un funnel es su tablero, y
+ * "hoy" se resuelve en la zona de ESE funnel. Hasta el 2026-10-04 el Resumen
+ * ignoraba el `f` que deja el selector, y el selector se veía igual: decía un
+ * funnel y la pantalla mostraba todos.
  */
 
 import { resolveFunnelRange } from '@/lib/queries/funnel';
-import { getDashboardTimezone } from '@/lib/queries/sales';
-import { getOverviewData } from '@/lib/queries/overview';
+import { getOverviewData, resolverAlcanceResumen } from '@/lib/queries/overview';
 import { resolveRange, today } from '@/lib/day';
 import { ensureFreshAdSpend } from '@/lib/ads/live';
 import { q1 } from '@/lib/db';
@@ -35,7 +37,7 @@ function single(v: string | string[] | undefined): string | undefined {
 }
 
 export default async function ResumenPage({ searchParams }: { searchParams: SearchParams }) {
-  const timezone = getDashboardTimezone();
+  const { funnel, timezone } = await resolverAlcanceResumen(single(searchParams.f));
   let range: { from: string; to: string };
   try {
     range = await resolveFunnelRange(
@@ -70,7 +72,7 @@ export default async function ResumenPage({ searchParams }: { searchParams: Sear
   const [data, layoutRow] = await Promise.all([
     // El switch EUR/USD vive en `?moneda=`: se lee acá también para que la
     // primera pintura ya salga en la moneda elegida y no en euros un instante.
-    getOverviewData(range, leerMonedaVista(single(searchParams.moneda))),
+    getOverviewData(range, leerMonedaVista(single(searchParams.moneda)), { funnelId: funnel?.id ?? null }),
     // Lectura propia de la fila, igual que el GET de /api/config/ui-layout:
     // la whitelist de getSettingsRecord() no incluye los layouts.
     q1<{ value: unknown }>('SELECT value FROM settings WHERE key = $1', ['ui_layout_resumen']),

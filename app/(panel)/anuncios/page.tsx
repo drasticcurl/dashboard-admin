@@ -34,7 +34,8 @@ import type { NivelAds, PeriodoAds } from '@/lib/ads/tipos';
 import { listFunnels, nombreVisible } from '@/lib/funnels';
 import { parseRepoVistas } from '@/lib/ads/vistas';
 import type { Vista } from '@/lib/ads/vistas';
-import { EmptyState } from '@/components/ui';
+import { Banner, EmptyState } from '@/components/ui';
+import { nombreZona } from '@/lib/zona-nombre';
 import { GestorAnuncios } from './GestorAnuncios';
 
 export const dynamic = 'force-dynamic';
@@ -246,28 +247,48 @@ export default async function AnunciosPage({ searchParams }: { searchParams: Sea
     for (const f of filas) if (f.name) nombresCascada[f.id] = f.name;
   }
 
+  // La pastilla del título dice la zona del FUNNEL ("hora de Buenos Aires"),
+  // pero esta tabla corta el día con la de la CUENTA: el gasto viene de Meta ya
+  // agregado por día de la cuenta y no se puede reexpresar (migración 015). Si
+  // no coinciden, se avisa: con Astra en Lisboa y su cuenta en Buenos Aires, el
+  // "hoy" de esta tabla y el del Resumen de Astra eran días distintos.
+  const zonaDistinta = tzCuenta !== funnelActivo.timezone;
+
   return (
-    <GestorAnuncios
-      cuentas={cuentas}
-      initialData={data}
-      adsFreshness={adsFreshness}
-      jerarquiaFreshness={jerarquiaFreshness}
-      nivelInicial={nivel}
-      primerDia={primerDia}
-      filtrosIniciales={{
-        period,
-        rango: custom ? { from: custom.desde, to: custom.hasta } : null,
-        status,
-        account,
-        nombre,
-        campaignIds,
-        adsetIds,
-        ocultarSinDatos,
-        ocultarPadreApagado,
-      }}
-      vistaPorDefecto={vistaPorDefecto}
-      nombresCascada={nombresCascada}
-      frescuraUmbralSegundos={frescuraUmbralSegundos}
-    />
+    <>
+      {zonaDistinta && (
+        <div className="mb-4">
+          <Banner tone="warn" title="La cuenta y el funnel cortan el día a distinta hora">
+            La cuenta «{cuentaActual.name ?? cuentaActual.accountId}» cuenta los días en hora de{' '}
+            {nombreZona(tzCuenta)} y el funnel «{nombreVisible(funnelActivo)}» en hora de{' '}
+            {nombreZona(funnelActivo.timezone)}. Esta tabla usa el día de la cuenta (el de Meta), así que
+            su «hoy» no es el del Resumen ni el de Ventas de este funnel. Para que coincidan, poné el funnel
+            en hora de {nombreZona(tzCuenta)} en Config → Funnels.
+          </Banner>
+        </div>
+      )}
+      <GestorAnuncios
+        cuentas={cuentas}
+        initialData={data}
+        adsFreshness={adsFreshness}
+        jerarquiaFreshness={jerarquiaFreshness}
+        nivelInicial={nivel}
+        primerDia={primerDia}
+        filtrosIniciales={{
+          period,
+          rango: custom ? { from: custom.desde, to: custom.hasta } : null,
+          status,
+          account,
+          nombre,
+          campaignIds,
+          adsetIds,
+          ocultarSinDatos,
+          ocultarPadreApagado,
+        }}
+        vistaPorDefecto={vistaPorDefecto}
+        nombresCascada={nombresCascada}
+        frescuraUmbralSegundos={frescuraUmbralSegundos}
+      />
+    </>
   );
 }

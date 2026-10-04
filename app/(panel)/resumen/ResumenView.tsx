@@ -5,8 +5,9 @@
  * widgets configurables (T05).
  *
  * Recibe los datos iniciales que renderizó el server y se maneja sola de ahí
- * en adelante: un cambio de rango (RangePicker) refetchea /api/data/overview
- * sin recargar la página. El layout guardado también baja del server como
+ * en adelante: un cambio de rango (RangePicker) o de funnel (`?f=`, el General
+ * o el tablero de un funnel) refetchea /api/data/overview sin recargar la
+ * página. El layout guardado también baja del server como
  * prop, así que la primera pintura ya muestra el layout del usuario.
  *
  * Fuera del grid de widgets quedan (T05 §3): el título, el banner de error,
@@ -35,6 +36,7 @@ import type { WidgetLayout } from '@/lib/widgets/tipos';
 import { textoEdad, usePollingGasto } from '@/lib/ads/polling';
 import { Badge, Banner, EmptyState, Skeleton, Spinner, fmtDateTime } from '@/components/ui';
 import { MONEDA_REPORTE, leerMonedaVista } from '@/lib/moneda-reporte';
+import { nombreZona } from '@/lib/zona-nombre';
 
 // El reloj '14:20' de los avisos. La query lo arma con DASHBOARD_TZ en el
 // server; acá se usa la TZ del browser, que es lo que el usuario espera ver.
@@ -99,10 +101,11 @@ export function ResumenView({
   const [error, setError] = useState<string | null>(null);
   const [retryTick, setRetryTick] = useState(0);
 
-  // Lo que define el pedido, separado en sus dos mitades: el rango y la
-  // moneda. Separarlas es lo que permite que el switch no muestre el esqueleto.
-  // Depender de `searchParams` entero, como antes, refetcheaba también cuando
-  // cambiaba el `?f=` que deja el selector de funnel, que el Resumen ignora.
+  // Lo que define el pedido, separado en sus dos mitades: el alcance + el rango,
+  // y la moneda. Separarlas es lo que permite que el switch no muestre el
+  // esqueleto. `?f=` es el alcance (General o un funnel): cambiarlo cambia el
+  // reloj con el que se corta "hoy", así que va con el rango y no con la moneda.
+  const funnelParam = searchParams.get('f');
   const rangeParam = searchParams.get('range');
   const fromParam = searchParams.get('from');
   const toParam = searchParams.get('to');
@@ -137,6 +140,7 @@ export function ResumenView({
       }
 
       const params = new URLSearchParams();
+      if (funnelParam) params.set('f', funnelParam);
       if (fromParam && toParam) {
         params.set('from', fromParam);
         params.set('to', toParam);
@@ -175,13 +179,13 @@ export function ResumenView({
           else setLoading(false);
         });
     },
-    [rangeParam, fromParam, toParam, moneda],
+    [funnelParam, rangeParam, fromParam, toParam, moneda],
   );
 
   // La primera pintura ya trae los datos del server: no refetchear al montar,
   // solo ante cambios de rango, de moneda o retry. Se compara contra lo último
   // que se pidió para saber cuál de los tres cambió.
-  const claveRango = `${rangeParam ?? ''}|${fromParam ?? ''}|${toParam ?? ''}`;
+  const claveRango = `${funnelParam ?? ''}|${rangeParam ?? ''}|${fromParam ?? ''}|${toParam ?? ''}`;
   const ultimo = useRef({ claveRango, moneda, retryTick });
   useEffect(() => {
     const antes = ultimo.current;
@@ -219,6 +223,7 @@ export function ResumenView({
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <RelojAlcance alcance={data.alcance} />
           {(loading || cambiandoMoneda) && (
             <span className="flex items-center gap-2 text-xs text-neutral-500">
               <Spinner /> {cambiandoMoneda ? `Pasando a ${moneda}…` : 'Actualizando…'}
@@ -327,6 +332,26 @@ export function ResumenView({
         )}
       </p>
     </div>
+  );
+}
+
+/**
+ * Con qué reloj se cortó el día que se está viendo. En el General además nombra
+ * a los funnels que cuentan su día en otra zona y a qué hora arranca: sin eso,
+ * que Astra no sume nada en "hoy" a la 01:00 de Lisboa parece un bug.
+ */
+function RelojAlcance({ alcance }: { alcance: OverviewData['alcance'] }): JSX.Element {
+  return (
+    <span className="text-xs text-neutral-500">
+      Día en hora de {nombreZona(alcance.timezone)}
+      {alcance.otrasZonas.map((z) => (
+        <span key={z.slug}>
+          {' '}
+          · {z.nombre}: hora de {nombreZona(z.timezone)}
+          {z.arrancaA && <> (su día arranca a las {z.arrancaA})</>}
+        </span>
+      ))}
+    </span>
   );
 }
 

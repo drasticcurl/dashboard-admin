@@ -20,12 +20,14 @@
  *    icono. Es la fuente de verdad que consume el Shell.
  *  · `SELECT_HEADER`, el estilo compartido de los dos <select> del panel.
  *  · `SelectorFunnel`, el <select> de funnel, que preserva el resto del query
- *    string para que cambiar de funnel no pierda el rango elegido.
+ *    string para que cambiar de funnel no pierda el rango elegido. En el
+ *    Resumen lleva además la opción «General» (todos los funnels), que es no
+ *    tener `?f=`.
  *
  * Los iconos son de Phosphor (D-R11), peso `bold` como el resto del panel.
  */
 
-import { useRouter, useSearchParams } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import {
   CaretDown,
   ChartDonut,
@@ -109,29 +111,66 @@ export function tabActiva(href: string, pathname: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-export function SelectorFunnel({ funnels }: { funnels: Funnel[] }): JSX.Element | null {
+/** El valor de la opción «General» en el <select>: en la URL es NO tener `?f=`. */
+const VALOR_GENERAL = '';
+
+/**
+ * Qué funnel muestra el selector para un `?f=`. Lo usan el selector y la
+ * pastilla del título (Shell) para no decir nunca cosas distintas.
+ *
+ * Con `conGeneral` (el Resumen), un `?f=` ausente o desconocido es el General y
+ * devuelve null. Sin él (las pantallas de un funnel), cae en el primero de la
+ * lista, que es lo que esas pantallas muestran en ese caso.
+ */
+export function funnelElegido(
+  funnels: Funnel[],
+  slug: string | null,
+  conGeneral = false,
+): Funnel | null {
+  const elegido = slug ? funnels.find((f) => f.slug === slug) : undefined;
+  if (elegido) return elegido;
+  return conGeneral ? null : funnels[0] ?? null;
+}
+
+export function SelectorFunnel({
+  funnels,
+  conGeneral = false,
+}: {
+  funnels: Funnel[];
+  /**
+   * Agrega «General» (todos los funnels) como primera opción. Sólo el Resumen:
+   * es la única pantalla que sabe sumar funnels con zonas distintas.
+   */
+  conGeneral?: boolean;
+}): JSX.Element | null {
   const searchParams = useSearchParams();
   const router = useRouter();
+  const pathname = usePathname() ?? '/';
 
   if (funnels.length === 0) return null;
 
-  const seleccionado = searchParams.get('f');
-  const valor =
-    seleccionado && funnels.some((f) => f.slug === seleccionado)
-      ? seleccionado
-      : funnels[0]!.slug;
+  const valor = funnelElegido(funnels, searchParams.get('f'), conGeneral)?.slug ?? VALOR_GENERAL;
 
   const alCambiar = (e: React.ChangeEvent<HTMLSelectElement>): void => {
     // Se preserva TODO el query string actual: `?range=` tiene que sobrevivir a
     // un cambio de funnel, y viceversa.
     const params = new URLSearchParams(searchParams.toString());
-    params.set('f', e.target.value);
-    router.replace(`?${params.toString()}`, { scroll: false });
+    if (e.target.value === VALOR_GENERAL) params.delete('f');
+    else params.set('f', e.target.value);
+    // Con el pathname explícito: sacar el último parámetro dejaría un `?` solo,
+    // y `router.replace('?')` no garantiza limpiar el query string.
+    const qs = params.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
   };
 
   return (
     <div className="relative inline-flex items-center">
       <select value={valor} onChange={alCambiar} aria-label="Funnel" className={SELECT_HEADER}>
+        {conGeneral && (
+          <option value={VALOR_GENERAL} className="bg-surface-raised text-neutral-200">
+            General (todos)
+          </option>
+        )}
         {funnels.map((f) => (
           // El VALUE sigue siendo el slug: el alias es sólo presentación y no
           // puede cambiar lo que viaja en la URL.

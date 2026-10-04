@@ -38,9 +38,10 @@ import type { Funnel } from '@/lib/funnels';
 import type { Seccion } from '@/lib/permisos';
 import { PANEL_TITLE } from '@/lib/brand';
 import { nombreVisible } from '@/lib/funnel-nombre';
+import { nombreZona } from '@/lib/zona-nombre';
 import { PanelLogo } from '@/components/PanelLogo';
 import { EncabezadoPagina } from '@/components/EncabezadoPagina';
-import { SelectorFunnel, tabActiva, tabsVisibles, type Tab } from '@/components/Nav';
+import { funnelElegido, tabActiva, tabsVisibles, type Tab } from '@/components/Nav';
 import { SwitchMoneda } from '@/components/SwitchMoneda';
 
 /** El ancho del sidebar (handoff: 220px). */
@@ -60,16 +61,26 @@ const ANCHO_SIDEBAR = 'w-[220px]';
  * `moneda` es el switch EUR/USD (components/SwitchMoneda.tsx). Por ahora sólo
  * el Resumen sabe convertir al leer; prenderlo en otra pantalla sin que su
  * query lea `?moneda=` dejaría un switch que no hace nada.
+ *
+ * `general` agrega «General» (todos los funnels) al selector. Sólo el Resumen:
+ * es la única pantalla que suma funnels, cada uno con el día de su zona.
+ *
+ * `zona: false` saca "· hora de X" de la pastilla en una pantalla con funnel que
+ * no corta el período por día en la zona del funnel (Creativos es un registro
+ * manual): ahí la zona no diría nada cierto.
  */
-const PANTALLAS: Record<string, { subtitulo: string; funnel: boolean; periodo: boolean; moneda?: boolean }> = {
-  '/resumen':   { subtitulo: 'Cómo viene el período, en una mirada.',        funnel: true,  periodo: true, moneda: true },
+const PANTALLAS: Record<
+  string,
+  { subtitulo: string; funnel: boolean; periodo: boolean; moneda?: boolean; general?: boolean; zona?: boolean }
+> = {
+  '/resumen':   { subtitulo: 'Cómo viene el período, en una mirada.',        funnel: true,  periodo: true, moneda: true, general: true },
   '/embudo':    { subtitulo: 'Dónde se cae la gente, paso por paso.',        funnel: true,  periodo: true },
   '/ventas':    { subtitulo: 'Lo que entró, lo que costó y lo que quedó.',   funnel: true,  periodo: true },
   '/anuncios':  { subtitulo: 'Tocá un presupuesto para editarlo ahí mismo.', funnel: true,  periodo: true },
   '/finanzas':  { subtitulo: 'El patrimonio medido, día por día.',           funnel: false, periodo: false },
   '/leads':     { subtitulo: 'Quiénes dejaron sus datos y en qué estado.',   funnel: true,  periodo: true },
   '/tareas':    { subtitulo: 'Qué hay que hacer y en qué anda cada cosa.',   funnel: false, periodo: false },
-  '/creativos': { subtitulo: 'Qué creativo rinde y cuál no.',                funnel: true,  periodo: true },
+  '/creativos': { subtitulo: 'Qué creativo rinde y cuál no.',                funnel: true,  periodo: true, zona: false },
   '/config':    { subtitulo: 'Funnels, dinero, fuentes y sistema.',          funnel: false, periodo: false },
 };
 
@@ -127,17 +138,23 @@ export function Shell({
   const conf = pantalla ? PANTALLAS[pantalla.href] : undefined;
 
   /**
-   * El nombre del funnel elegido, para la pastilla al lado del título.
+   * La pastilla al lado del título: el funnel elegido y la zona con la que esa
+   * pantalla corta el día ("Astra Tarot · hora de Buenos Aires"), o «General» en
+   * el Resumen sin `?f=`.
    *
-   * Replica el default de `SelectorFunnel` (el primero de la lista cuando `?f=`
-   * no dice nada o dice un slug que no existe): si acá se mostrara otra cosa, la
-   * pastilla diría un funnel y el <select> de al lado otro.
+   * Sale de `funnelElegido`, la misma función que usa el <select>: si acá se
+   * resolviera distinto, la pastilla diría un funnel y el selector otro. La zona
+   * va porque desde el 2026-10-04 no todos los funnels cortan el día a la misma
+   * hora, y un "hoy" sin reloj es lo que confundió el ROI de Astra.
    */
-  const funnelActivo = (() => {
+  const chipFunnel = (() => {
     if (funnels.length === 0) return null;
-    const slug = searchParams.get('f');
-    const elegido = slug ? funnels.find((f) => f.slug === slug) : undefined;
-    return nombreVisible(elegido ?? funnels[0]!);
+    const elegido = funnelElegido(funnels, searchParams.get('f'), conf?.general ?? false);
+    if (!elegido) return { nombre: 'General', zona: null };
+    return {
+      nombre: nombreVisible(elegido),
+      zona: conf?.zona === false ? null : nombreZona(elegido.timezone),
+    };
   })();
 
   // Cierra al navegar (decisión 3). Sin esto la pantalla nueva carga detrás del
@@ -327,11 +344,15 @@ export function Shell({
               subtitulo={conf?.subtitulo}
               funnels={funnels}
               conFunnel={conf?.funnel ?? false}
+              conGeneral={conf?.general ?? false}
               conPeriodo={conf?.periodo ?? false}
               chip={
-                conf?.funnel && funnelActivo ? (
+                conf?.funnel && chipFunnel ? (
                   <span className="rounded-md bg-acento-900 px-2 py-0.5 text-xs font-medium text-acento-200">
-                    {funnelActivo}
+                    {chipFunnel.nombre}
+                    {chipFunnel.zona && (
+                      <span className="font-normal text-acento-300"> · hora de {chipFunnel.zona}</span>
+                    )}
                   </span>
                 ) : null
               }
