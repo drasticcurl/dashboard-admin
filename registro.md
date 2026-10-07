@@ -10,6 +10,47 @@ Lo más nuevo va arriba. Las reglas de cómo se escribe una entrada están en
 
 ---
 
+## 2026-10-08 — Reglas de Gelxiin apagadas y «08/10 gelatina cbo» → Gelatina (dato de producción)
+
+**Pedido.** "Desactivame todas las reglas en la cuenta Gelxiin y atribuí la
+campaña que se llama gelatina al funnel gelatina."
+
+**Reglas.** `UPDATE ad_rules SET enabled = false` en las 23 filas de
+`act_2412127832646347` (R01–R23). Las filas de HIlvanapp (23) y Tarot astro (22)
+siguen prendidas. **Ojo:** cada regla es un grupo de 3 cuentas (migración 037) y
+el POST de `/api/ads/reglas` escribe `enabled` para TODO el grupo
+(`d.enabled ?? existentes.some(e => e.enabled)`): editar cualquiera de esas
+reglas desde la pantalla vuelve a prender la fila de Gelxiin. Si el apagado tiene
+que durar, lo correcto es sacar Gelxiin de «Aplicar a cuentas publicitarias»,
+que no se hizo para no borrar el historial de corridas de esas filas.
+
+**Gelatina.** `08/10 gelatina cbo` (`120250793635050459`, en Gelxiin) →
+`ad_campaign_funnel` funnel 4 (`gelatina`). Se reimputaron sus 7 filas de
+`ad_spend` del 08/10 (€1,20) y se corrió `rollup.ts --days=2`.
+
+---
+
+## 2026-10-07 — Anuncios «08/10 arroz» de la cuenta de Alma Gemela → Chau Hinchazón (dato de producción)
+
+**Pedido.** "En la cuenta de Alma Gemela tengo unos anuncios de mañana que
+contienen 08/10 arroz en el nombre, asignalos a Chau Hinchazón."
+
+**Qué se hizo.** El mapeo es por campaña (migración 033), así que se mapearon a
+`chauhinchazon` en `ad_campaign_funnel` las 7 campañas de HIlvanapp que tienen
+algo «08/10 arroz»:
+- las 4 `08/10 arroz last dance - A.M2.L5.V1/V2/V3` y `- A.M2.L6.V1` (nuevas, sin
+  mapear: iban a caer en Alma Gemela);
+- `03/09 tuppers`, `09/09 deja de scrollear` y `PXN 20/08 No es leche`: campañas
+  viejas de Chau Hinchazón a las que se les sumaron conjuntos «08/10 arroz». Su
+  gasto histórico ya estaba en el funnel 1 (de cuando la cuenta era de Chau
+  Hinchazón), pero sin mapeo el gasto nuevo se iba a imputar a Alma Gemela.
+
+`24/09 a02` y `28/09 a01` también tienen conjuntos «08/10 arroz» y ya estaban
+mapeadas desde el 30/09. `UPDATE ad_spend` movió 0 filas, así que no hizo falta
+rollup.
+
+---
+
 ## 2026-10-04 (2) — Reglas de escala R06–R10 cada 30 minutos (dato de producción)
 
 **Pedido.** "Que chequee cada 30 minutos en vez de cada 1 hora."

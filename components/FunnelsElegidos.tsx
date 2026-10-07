@@ -2,16 +2,17 @@
 
 /**
  * FunnelsElegidos — el widget "Funnels" del Resumen en su versión compacta:
- * hasta TRES funnels elegidos por el usuario, uno debajo del otro en 1×2 o uno
- * al lado del otro en 2×1.
+ * hasta CUATRO funnels elegidos por el usuario, uno debajo del otro en 1×2 o
+ * uno al lado del otro en 2×1.
  *
- * Por qué un tope de 3: el widget antes mostraba TODOS los funnels en 2×2 con
+ * Por qué un tope: el widget antes mostraba TODOS los funnels en 2×2 con
  * scroll, y los que no venden (los que están en 0) empujaban a los que sí fuera
- * de la vista. Con 3 tarjetas el widget entra en 1×2 sin scroll.
+ * de la vista. Era 3 para que entrara en 1×2 sin scroll; el usuario pidió 4
+ * (2026-10-08), y las tarjetas de tres líneas todavía entran.
  *
  * La elección se guarda en localStorage, por navegador: es una preferencia de
  * vista de quien mira, no parte del layout compartido (que se guarda en la VPS
- * y lo ven todos). Sin nada guardado, o si lo guardado ya no existe, van los 3
+ * y lo ven todos). Sin nada guardado, o si lo guardado ya no existe, van los 4
  * que más neto hicieron en el rango (`data.funnels` ya viene ordenado por neto).
  */
 
@@ -24,7 +25,7 @@ import type { MonedaReporte } from '@/lib/moneda-reporte';
 import type { WidgetSize } from '@/lib/widgets/tipos';
 
 const CLAVE = 'resumen.funnels.elegidos';
-const MAXIMO = 3;
+const MAXIMO = 4;
 
 function leerGuardados(): string[] | null {
   try {
@@ -131,7 +132,7 @@ export function FunnelsElegidos({ data, size }: { data: OverviewData; size: Widg
         </>
       )}
 
-      {/* En 2×1 una columna por funnel elegido (2 o 3), todas del mismo ancho;
+      {/* En 2×1 una columna por funnel elegido (de 2 a 4), todas del mismo ancho;
           en mobile, una debajo de la otra. En 1×2, filas del mismo alto. */}
       <div
         className={`grid min-h-0 flex-1 gap-2 ${horizontal ? 'panel:[grid-template-columns:repeat(var(--cols),minmax(0,1fr))]' : 'auto-rows-fr'}`}

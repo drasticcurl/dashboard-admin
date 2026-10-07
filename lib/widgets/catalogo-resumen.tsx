@@ -832,7 +832,7 @@ export const catalogoResumen: WidgetCatalogo<OverviewData> = {
   funnels: {
     id: 'funnels',
     label: 'Funnels',
-    hint: 'Hasta 3 a elección: neto, resultado y ROI.',
+    hint: 'Hasta 4 a elección: neto, resultado y ROI.',
     grupo: 'listas',
     // 2×1 (dos de ancho, uno de alto) desde el 2026-09-29, pedido del usuario:
     // antes era 2×2 con todos los funnels y scroll. Un layout guardado en 2×2
