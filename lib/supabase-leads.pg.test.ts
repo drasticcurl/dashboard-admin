@@ -11,32 +11,31 @@ import {
 } from './supabase-leads';
 
 /**
- * Camino Postgres de los leads (LEADS_DATABASE_URL_<SLUG>), contra una base
- * descartable creada sobre DATABASE_URL. Sin DATABASE_URL se salta, como el
- * resto de los tests que necesitan base.
+ * Camino Postgres de los leads (LEADS_DATABASE_URL_<SLUG>), contra un SCHEMA
+ * descartable dentro de DATABASE_URL (el rol de panel_test en la VPS no puede
+ * crear bases). Sin DATABASE_URL se salta, como el resto de los tests con base.
  */
 const ADMIN_URL = process.env.DATABASE_URL;
 
 describe.skipIf(!ADMIN_URL)('supabase-leads: camino Postgres', () => {
-  const name = `leads_pg_${process.pid}_${Math.random().toString(36).slice(2, 8)}`;
+  const schema = `leads_pg_${process.pid}_${Math.random().toString(36).slice(2, 8)}`;
   let url = '';
 
   beforeAll(async () => {
-    const admin = new Client({ connectionString: ADMIN_URL });
-    await admin.connect();
-    await admin.query(`CREATE DATABASE "${name}"`);
-    await admin.end();
     const u = new URL(ADMIN_URL!);
-    u.pathname = `/${name}`;
+    // El pool de los leads hace `FROM clientes` sin schema: el search_path lo
+    // apunta al schema descartable.
+    u.searchParams.set('options', `-c search_path=${schema}`);
     url = u.toString();
 
-    const c = new Client({ connectionString: url });
+    const c = new Client({ connectionString: ADMIN_URL });
     await c.connect();
-    await c.query(`CREATE TABLE clientes (
+    await c.query(`CREATE SCHEMA "${schema}"`);
+    await c.query(`CREATE TABLE "${schema}".clientes (
       email text NOT NULL, nombre text, created_at timestamptz, compro boolean,
       utm_source text, utm_medium text, utm_campaign text, utm_content text,
       tipo_hinchazon smallint, severidad smallint)`);
-    await c.query(`INSERT INTO clientes (email, nombre, created_at, utm_source, tipo_hinchazon) VALUES
+    await c.query(`INSERT INTO "${schema}".clientes (email, nombre, created_at, utm_source, tipo_hinchazon) VALUES
       ('Ana@X.com ', 'Ana', '2026-06-01T10:00:00Z', 'facebook', 2),
       ('bea@x.com', 'Bea', '2026-06-15T10:00:00Z', null, null),
       ('caro@x.com', null, '2026-06-30T19:46:08.707086Z', 'tiktok', 4)`);
@@ -44,10 +43,10 @@ describe.skipIf(!ADMIN_URL)('supabase-leads: camino Postgres', () => {
   });
 
   afterAll(async () => {
-    const admin = new Client({ connectionString: ADMIN_URL });
-    await admin.connect();
-    await admin.query(`DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`);
-    await admin.end();
+    const c = new Client({ connectionString: ADMIN_URL });
+    await c.connect();
+    await c.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
+    await c.end();
   });
 
   const env = (): LeadsEnv => ({ kind: 'pg', url });
