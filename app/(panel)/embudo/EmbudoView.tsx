@@ -1,4 +1,4 @@
-'use client';
+"use client";
 
 /**
  * EmbudoView — la pantalla de embudo con filtros locales (task T06).
@@ -35,14 +35,15 @@
  * T06 §3 define para los datos nuevos.
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import Link from 'next/link';
-import type { Funnel } from '@/lib/funnels';
-import type { BaseMode, FunnelData } from '@/lib/queries/funnel';
-import { EmbudoChart } from '@/components/EmbudoChart';
-import { CardPitch, debeMostrarCardPitch } from './CardPitch';
-import { CardTestEstetica, debeMostrarCardEstetica } from './CardTestEstetica';
+import { useEffect, useMemo, useRef, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
+import type { Funnel } from "@/lib/funnels";
+import type { BaseMode, FunnelData } from "@/lib/queries/funnel";
+import { EmbudoChart } from "@/components/EmbudoChart";
+import { CardPitch, debeMostrarCardPitch } from "./CardPitch";
+import { CardTestEstetica, debeMostrarCardEstetica } from "./CardTestEstetica";
+import { CardTestPrecio, debeMostrarCardPrecio } from "./CardTestPrecio";
 import {
   Badge,
   Banner,
@@ -56,8 +57,8 @@ import {
   fmtInt,
   fmtMoney,
   fmtPct,
-} from '@/components/ui';
-import { CaretDown, CaretUp } from '@phosphor-icons/react';
+} from "@/components/ui";
+import { CaretDown, CaretUp } from "@phosphor-icons/react";
 
 /*
   Los tres select de filtros. Antes definían sus propios colores crudos —alfas
@@ -67,10 +68,10 @@ import { CaretDown, CaretUp } from '@phosphor-icons/react';
   navegador los pinte de blanco.
 */
 const SELECT_CLS =
-  'press min-h-[44px] appearance-none rounded-lg border border-border-strong bg-surface-raised py-1.5 pl-3 pr-8 panel:min-h-0 text-sm font-medium text-neutral-200 shadow-inset-highlight transition-[background-color,border-color] duration-250 hover:border-overlay/18 hover:bg-surface-overlay focus:outline-none focus-visible:border-acento-700 focus-visible:ring-2 focus-visible:ring-acento-500/50';
+  "press min-h-[44px] appearance-none rounded-lg border border-border-strong bg-surface-raised py-1.5 pl-3 pr-8 panel:min-h-0 text-sm font-medium text-neutral-200 shadow-inset-highlight transition-[background-color,border-color] duration-250 hover:border-overlay/18 hover:bg-surface-overlay focus:outline-none focus-visible:border-acento-700 focus-visible:ring-2 focus-visible:ring-acento-500/50";
 
 type CampaignRow = { campaign: string; sessions: number; purchases: number };
-type CampaignSortKey = 'campaign' | 'sessions' | 'purchases' | 'conversion';
+type CampaignSortKey = "campaign" | "sessions" | "purchases" | "conversion";
 
 /**
  * ¿Se muestra el desglose por VARIANTE? Predicado PURO, extraído del componente
@@ -101,16 +102,17 @@ export function EmbudoView({
   initialData: FunnelData;
 }) {
   const searchParams = useSearchParams();
-  const pathname = usePathname() ?? '/embudo';
+  const pathname = usePathname() ?? "/embudo";
   const router = useRouter();
 
   // El toggle de D4: el 100% es la landing (paso 0) o el inicio del quiz
   // (paso 1). Vive en `?base=` (D-R14) y no en useState: así sobrevive al
   // refresh y se comparte por link, el mismo patrón que `range` y `f`.
-  const base: BaseMode = searchParams.get('base') === 'start' ? 'start' : 'landing';
-  const [variant, setVariant] = useState('');
-  const [campaign, setCampaign] = useState('');
-  const [country, setCountry] = useState('');
+  const base: BaseMode =
+    searchParams.get("base") === "start" ? "start" : "landing";
+  const [variant, setVariant] = useState("");
+  const [campaign, setCampaign] = useState("");
+  const [country, setCountry] = useState("");
   const [data, setData] = useState<FunnelData>(initialData);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -123,16 +125,16 @@ export function EmbudoView({
   function setBase(next: BaseMode) {
     if (next === base) return;
     const params = new URLSearchParams(searchParams.toString());
-    params.set('base', next);
+    params.set("base", next);
     router.replace(`${pathname}?${params.toString()}`, { scroll: false });
   }
 
   // Al cambiar de funnel los filtros locales no tienen sentido para el
   // funnel nuevo (una campaña de uno no existe en el otro): se limpian.
   useEffect(() => {
-    setVariant('');
-    setCampaign('');
-    setCountry('');
+    setVariant("");
+    setCampaign("");
+    setCountry("");
   }, [funnel.slug]);
 
   useEffect(() => {
@@ -145,22 +147,22 @@ export function EmbudoView({
     setError(null);
 
     const params = new URLSearchParams({ f: funnel.slug, base });
-    const range = searchParams.get('range');
-    const from = searchParams.get('from');
-    const to = searchParams.get('to');
+    const range = searchParams.get("range");
+    const from = searchParams.get("from");
+    const to = searchParams.get("to");
     if (from && to) {
-      params.set('from', from);
-      params.set('to', to);
+      params.set("from", from);
+      params.set("to", to);
     } else {
-      params.set('range', range ?? 'today');
+      params.set("range", range ?? "today");
     }
-    if (variant) params.set('variant', variant);
-    if (campaign) params.set('campaign', campaign);
-    if (country) params.set('country', country);
+    if (variant) params.set("variant", variant);
+    if (campaign) params.set("campaign", campaign);
+    if (country) params.set("country", country);
 
     fetch(`/api/data/funnel?${params.toString()}`, {
       signal: ctrl.signal,
-      cache: 'no-store',
+      cache: "no-store",
     })
       .then(async (res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -170,8 +172,8 @@ export function EmbudoView({
         setData(fresh);
       })
       .catch((err: unknown) => {
-        if (err instanceof DOMException && err.name === 'AbortError') return;
-        setError(err instanceof Error ? err.message : 'Error de red');
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        setError(err instanceof Error ? err.message : "Error de red");
       })
       .finally(() => setLoading(false));
 
@@ -192,8 +194,10 @@ export function EmbudoView({
     return idx;
   }, [data.steps]);
 
-  const startedRate = data.totalSessions > 0 ? (data.quizStarted / data.totalSessions) * 100 : 0;
-  const purchaseRate = data.totalSessions > 0 ? (data.purchases / data.totalSessions) * 100 : 0;
+  const startedRate =
+    data.totalSessions > 0 ? (data.quizStarted / data.totalSessions) * 100 : 0;
+  const purchaseRate =
+    data.totalSessions > 0 ? (data.purchases / data.totalSessions) * 100 : 0;
 
   return (
     <div className="space-y-4">
@@ -254,7 +258,9 @@ export function EmbudoView({
       <Card
         title="Embudo por etapas"
         hint={`% de personas que llegan a cada paso, medido desde ${
-          base === 'landing' ? 'la landing (entrada)' : 'el inicio del quiz (1ª pregunta)'
+          base === "landing"
+            ? "la landing (entrada)"
+            : "el inicio del quiz (1ª pregunta)"
         }. Landing → inicio del quiz: ${fmtPct(startedRate)} — es la caída más grande de todo el embudo.`}
         accion={
           /* Mismo control segmentado que el resto del panel: canal hundido,
@@ -266,24 +272,24 @@ export function EmbudoView({
           >
             <button
               type="button"
-              onClick={() => setBase('landing')}
-              aria-pressed={base === 'landing'}
+              onClick={() => setBase("landing")}
+              aria-pressed={base === "landing"}
               className={`tap press rounded-md px-2.5 py-1.5 text-xs transition-colors duration-250 focus:outline-none focus-visible:ring-2 focus-visible:ring-acento-500/50 panel:text-sm ${
-                base === 'landing'
-                  ? 'bg-acento-900 font-medium text-acento-100'
-                  : 'text-neutral-400 hover:text-neutral-100'
+                base === "landing"
+                  ? "bg-acento-900 font-medium text-acento-100"
+                  : "text-neutral-400 hover:text-neutral-100"
               }`}
             >
               Desde la landing
             </button>
             <button
               type="button"
-              onClick={() => setBase('start')}
-              aria-pressed={base === 'start'}
+              onClick={() => setBase("start")}
+              aria-pressed={base === "start"}
               className={`tap press rounded-md px-2.5 py-1.5 text-xs transition-colors duration-250 focus:outline-none focus-visible:ring-2 focus-visible:ring-acento-500/50 panel:text-sm ${
-                base === 'start'
-                  ? 'bg-acento-900 font-medium text-acento-100'
-                  : 'text-neutral-400 hover:text-neutral-100'
+                base === "start"
+                  ? "bg-acento-900 font-medium text-acento-100"
+                  : "text-neutral-400 hover:text-neutral-100"
               }`}
             >
               Desde la 1ª pregunta
@@ -292,12 +298,17 @@ export function EmbudoView({
         }
       >
         {data.porEtapas.huerfanas.length > 0 && (
-          <Banner tone="warn" title="Hay etapas que apuntan a un paso que ya no existe">
+          <Banner
+            tone="warn"
+            title="Hay etapas que apuntan a un paso que ya no existe"
+          >
             <span className="flex flex-col gap-1">
               {data.porEtapas.huerfanas.map((h) => (
                 <span key={h.stageOrder}>
-                  «{h.label}» apunta al slug <span className="font-mono">{h.slugFaltante}</span>, que no
-                  está en el quiz de este funnel. La etapa no se muestra; revisá las etapas en Config.
+                  «{h.label}» apunta al slug{" "}
+                  <span className="font-mono">{h.slugFaltante}</span>, que no
+                  está en el quiz de este funnel. La etapa no se muestra; revisá
+                  las etapas en Config.
                 </span>
               ))}
             </span>
@@ -311,8 +322,8 @@ export function EmbudoView({
               Este funnel no tiene etapas configuradas
             </p>
             <p className="max-w-[46ch] text-pretty text-xs leading-relaxed text-neutral-500">
-              El embudo por etapas se arma desde Config → Etapas. La lista paso a paso sigue
-              disponible más abajo.
+              El embudo por etapas se arma desde Config → Etapas. La lista paso
+              a paso sigue disponible más abajo.
             </p>
             <Link
               href="/config"
@@ -331,7 +342,10 @@ export function EmbudoView({
         )}
       </Card>
 
-      <Card title={`Paso a paso · ${funnel.name}`} hint="Sesiones que llegaron a cada paso o más allá">
+      <Card
+        title={`Paso a paso · ${funnel.name}`}
+        hint="Sesiones que llegaron a cada paso o más allá"
+      >
         {data.totalSessions === 0 ? (
           <EmptyState
             title="No hay datos en el rango elegido"
@@ -341,31 +355,38 @@ export function EmbudoView({
           <div className="space-y-1.5">
             {worstIndex >= 0 && (
               <p className="text-xs text-neutral-500">
-                Mayor caída:{' '}
-                <span className="font-semibold text-bad-400">{data.steps[worstIndex]!.label}</span>
+                Mayor caída:{" "}
+                <span className="font-semibold text-bad-400">
+                  {data.steps[worstIndex]!.label}
+                </span>
               </p>
             )}
             {data.steps.map((s, i) => (
               // El delta contra el paso anterior no entra en BarRow (el kit
               // es de T05 y no se toca): va en una columna propia al final.
-              <div key={`${s.kind}:${s.slug}`} className="flex items-center gap-3">
+              <div
+                key={`${s.kind}:${s.slug}`}
+                className="flex items-center gap-3"
+              >
                 {/* `min-w-0 flex-1`: sin esto la barra se niega a encogerse por
                     debajo de su contenido y empuja el delta de al lado FUERA de la
                     pantalla — medido a 390px, terminaba en x=457. */}
                 <div className="min-w-0 flex-1">
-                <BarRow
-                  label={s.label}
-                  pct={s.pctOfBase}
-                  count={s.sessions}
-                  tone={s.kind === 'content' ? 'info' : 'neutral'}
-                  highlight={i === worstIndex}
-                />
+                  <BarRow
+                    label={s.label}
+                    pct={s.pctOfBase}
+                    count={s.sessions}
+                    tone={s.kind === "content" ? "info" : "neutral"}
+                    highlight={i === worstIndex}
+                  />
                 </div>
                 <span
                   className="w-12 shrink-0 text-right text-xs tabular-nums text-neutral-500 panel:w-14"
                   title="Caída contra el paso anterior"
                 >
-                  {i === 0 || s.dropFromPrevious === 0 ? '—' : `-${fmtPct(s.dropFromPrevious, 0)}`}
+                  {i === 0 || s.dropFromPrevious === 0
+                    ? "—"
+                    : `-${fmtPct(s.dropFromPrevious, 0)}`}
                 </span>
               </div>
             ))}
@@ -387,7 +408,9 @@ export function EmbudoView({
         las tablas de abajo siguen siendo del funnel completo. La card muestra los
         dos brazos juntos, que es la única forma de compararlos.
       */}
-      {debeMostrarCardPitch(funnel.experiments) && <CardPitch funnel={funnel} />}
+      {debeMostrarCardPitch(funnel.experiments) && (
+        <CardPitch funnel={funnel} />
+      )}
 
       {/*
         El A/B de estética del quiz (almagemela). Lee `data.experiments`, que ya
@@ -400,14 +423,19 @@ export function EmbudoView({
         <CardTestEstetica funnel={funnel} filas={data.experiments} />
       )}
 
+      {/* El A/B de precio de los planes (astratarot). Mismo contrato que la de estética. */}
+      {debeMostrarCardPrecio(funnel.experiments) && (
+        <CardTestPrecio funnel={funnel} filas={data.experiments} />
+      )}
+
       {/* Los cuatro bloques de abajo van plegados en mobile (ver `Desglose` en
           components/ui.tsx): son desgloses que se consultan cuando hacen falta, y
           apilados abiertos dejaban esta pantalla en 5,6 pantallas de scroll a
           390px. En desktop se ven abiertos como siempre. */}
       <Desglose titulo="Filtros">
-      <Card title="Filtros" hint="Cada filtro recorta el embudo completo">
-        <div className="flex flex-wrap items-center gap-2">
-          {/*
+        <Card title="Filtros" hint="Cada filtro recorta el embudo completo">
+          <div className="flex flex-wrap items-center gap-2">
+            {/*
             "Variante" acá es el MERCADO (ar / latam), no la variante de un test
             A/B. El desglose por experimento se retiró de esta vista al cerrarse
             el test de portada; si algún día vuelve un test, su control va arriba
@@ -415,140 +443,163 @@ export function EmbudoView({
             controles para el mismo estado es la forma más rápida de que la vista
             muestre una cosa y el control diga otra.
           */}
-          {debeMostrarCardVariantes(funnel.variants) && (
+            {debeMostrarCardVariantes(funnel.variants) && (
+              <select
+                value={variant}
+                onChange={(e) => setVariant(e.target.value)}
+                aria-label="Variante"
+                className={SELECT_CLS}
+              >
+                <option value="" className="bg-surface-raised text-neutral-200">
+                  Todas las variantes
+                </option>
+                {funnel.variants.map((v) => (
+                  <option
+                    key={v}
+                    value={v}
+                    className="bg-surface-raised text-neutral-200"
+                  >
+                    {v}
+                  </option>
+                ))}
+              </select>
+            )}
             <select
-              value={variant}
-              onChange={(e) => setVariant(e.target.value)}
-              aria-label="Variante"
+              value={campaign}
+              onChange={(e) => setCampaign(e.target.value)}
+              aria-label="Campaña"
               className={SELECT_CLS}
             >
               <option value="" className="bg-surface-raised text-neutral-200">
-                Todas las variantes
+                Todas las campañas
               </option>
-              {funnel.variants.map((v) => (
-                <option key={v} value={v} className="bg-surface-raised text-neutral-200">
-                  {v}
+              {data.campaigns
+                .filter((c) => c.campaign !== "(otras)")
+                .map((c) => (
+                  <option
+                    key={c.campaign}
+                    value={c.campaign}
+                    className="bg-surface-raised text-neutral-200"
+                  >
+                    {c.campaign}
+                  </option>
+                ))}
+            </select>
+            <select
+              value={country}
+              onChange={(e) => setCountry(e.target.value)}
+              aria-label="País"
+              className={SELECT_CLS}
+            >
+              <option value="" className="bg-surface-raised text-neutral-200">
+                Todos los países
+              </option>
+              {data.countries.map((c) => (
+                <option
+                  key={c.country}
+                  value={c.country}
+                  className="bg-surface-raised text-neutral-200"
+                >
+                  {c.country}
                 </option>
               ))}
             </select>
-          )}
-          <select
-            value={campaign}
-            onChange={(e) => setCampaign(e.target.value)}
-            aria-label="Campaña"
-            className={SELECT_CLS}
-          >
-            <option value="" className="bg-surface-raised text-neutral-200">
-              Todas las campañas
-            </option>
-            {data.campaigns
-              .filter((c) => c.campaign !== '(otras)')
-              .map((c) => (
-                <option key={c.campaign} value={c.campaign} className="bg-surface-raised text-neutral-200">
-                  {c.campaign}
-                </option>
-              ))}
-          </select>
-          <select
-            value={country}
-            onChange={(e) => setCountry(e.target.value)}
-            aria-label="País"
-            className={SELECT_CLS}
-          >
-            <option value="" className="bg-surface-raised text-neutral-200">
-              Todos los países
-            </option>
-            {data.countries.map((c) => (
-              <option key={c.country} value={c.country} className="bg-surface-raised text-neutral-200">
-                {c.country}
-              </option>
-            ))}
-          </select>
-        </div>
-      </Card>
+          </div>
+        </Card>
       </Desglose>
 
       <Desglose titulo="Campañas">
-      <Card title="Campañas" hint="Las 20 principales del rango; el resto se suma en «(otras)»">
-        <CampaignTable rows={data.campaigns} />
-      </Card>
+        <Card
+          title="Campañas"
+          hint="Las 20 principales del rango; el resto se suma en «(otras)»"
+        >
+          <CampaignTable rows={data.campaigns} />
+        </Card>
       </Desglose>
 
       <Desglose titulo="Variantes, países y dispositivos">
-      <div className="grid gap-4 panel:grid-cols-3">
-        {debeMostrarCardVariantes(funnel.variants) && (
-          <Card title="Variantes">
+        <div className="grid gap-4 panel:grid-cols-3">
+          {debeMostrarCardVariantes(funnel.variants) && (
+            <Card title="Variantes">
+              <Table
+                rows={data.variants}
+                empty="Sin datos"
+                columns={[
+                  {
+                    key: "variant",
+                    header: "Variante",
+                    render: (r) => (
+                      <span className="text-neutral-200">{r.variant}</span>
+                    ),
+                  },
+                  {
+                    key: "sessions",
+                    header: "Sesiones",
+                    align: "right",
+                    render: (r) => fmtInt(r.sessions),
+                  },
+                  {
+                    key: "purchases",
+                    header: "Compras",
+                    align: "right",
+                    render: (r) => fmtInt(r.purchases),
+                  },
+                  {
+                    key: "conversion",
+                    header: "Conv.",
+                    align: "right",
+                    render: (r) =>
+                      r.sessions > 0
+                        ? fmtPct((r.purchases / r.sessions) * 100, 0)
+                        : "—",
+                  },
+                ]}
+              />
+            </Card>
+          )}
+          <Card title="Países">
             <Table
-              rows={data.variants}
+              rows={data.countries}
               empty="Sin datos"
               columns={[
                 {
-                  key: 'variant',
-                  header: 'Variante',
-                  render: (r) => <span className="text-neutral-200">{r.variant}</span>,
+                  key: "country",
+                  header: "País",
+                  render: (r) => (
+                    <span className="text-neutral-200">{r.country}</span>
+                  ),
                 },
                 {
-                  key: 'sessions',
-                  header: 'Sesiones',
-                  align: 'right',
+                  key: "sessions",
+                  header: "Sesiones",
+                  align: "right",
                   render: (r) => fmtInt(r.sessions),
-                },
-                {
-                  key: 'purchases',
-                  header: 'Compras',
-                  align: 'right',
-                  render: (r) => fmtInt(r.purchases),
-                },
-                {
-                  key: 'conversion',
-                  header: 'Conv.',
-                  align: 'right',
-                  render: (r) =>
-                    r.sessions > 0 ? fmtPct((r.purchases / r.sessions) * 100, 0) : '—',
                 },
               ]}
             />
           </Card>
-        )}
-        <Card title="Países">
-          <Table
-            rows={data.countries}
-            empty="Sin datos"
-            columns={[
-              {
-                key: 'country',
-                header: 'País',
-                render: (r) => <span className="text-neutral-200">{r.country}</span>,
-              },
-              {
-                key: 'sessions',
-                header: 'Sesiones',
-                align: 'right',
-                render: (r) => fmtInt(r.sessions),
-              },
-            ]}
-          />
-        </Card>
-        <Card title="Dispositivos">
-          <Table
-            rows={data.devices}
-            empty="Sin datos"
-            columns={[
-              {
-                key: 'device',
-                header: 'Dispositivo',
-                render: (r) => <span className="text-neutral-200">{r.device}</span>,
-              },
-              {
-                key: 'sessions',
-                header: 'Sesiones',
-                align: 'right',
-                render: (r) => fmtInt(r.sessions),
-              },
-            ]}
-          />
-        </Card>
-      </div>
+          <Card title="Dispositivos">
+            <Table
+              rows={data.devices}
+              empty="Sin datos"
+              columns={[
+                {
+                  key: "device",
+                  header: "Dispositivo",
+                  render: (r) => (
+                    <span className="text-neutral-200">{r.device}</span>
+                  ),
+                },
+                {
+                  key: "sessions",
+                  header: "Sesiones",
+                  align: "right",
+                  render: (r) => fmtInt(r.sessions),
+                },
+              ]}
+            />
+          </Card>
+        </div>
       </Desglose>
 
       {data.ingestWarnings.length > 0 && (
@@ -570,7 +621,7 @@ export function EmbudoView({
 }
 
 function CampaignTable({ rows }: { rows: CampaignRow[] }) {
-  const [sortKey, setSortKey] = useState<CampaignSortKey>('sessions');
+  const [sortKey, setSortKey] = useState<CampaignSortKey>("sessions");
   const [sortDesc, setSortDesc] = useState(true);
 
   const sorted = useMemo(() => {
@@ -582,14 +633,18 @@ function CampaignTable({ rows }: { rows: CampaignRow[] }) {
       const av = a[sortKey];
       const bv = b[sortKey];
       const cmp =
-        typeof av === 'string' && typeof bv === 'string'
-          ? av.localeCompare(bv, 'es')
+        typeof av === "string" && typeof bv === "string"
+          ? av.localeCompare(bv, "es")
           : (av as number) - (bv as number);
       return sortDesc ? -cmp : cmp;
     });
   }, [rows, sortKey, sortDesc]);
 
-  function header(key: CampaignSortKey, label: string, align: 'left' | 'right') {
+  function header(
+    key: CampaignSortKey,
+    label: string,
+    align: "left" | "right",
+  ) {
     const active = sortKey === key;
     return (
       <button
@@ -603,9 +658,9 @@ function CampaignTable({ rows }: { rows: CampaignRow[] }) {
           }
         }}
         className={`tap text-xs font-semibold uppercase tracking-wide transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-acento-500/50 ${
-          align === 'right' ? 'w-full text-right' : ''
-        } ${active ? 'text-neutral-200' : 'text-neutral-500 hover:text-neutral-300'}`}
-        aria-label={`Ordenar por ${label}${active ? (sortDesc ? ' descendente' : ' ascendente') : ''}`}
+          align === "right" ? "w-full text-right" : ""
+        } ${active ? "text-neutral-200" : "text-neutral-500 hover:text-neutral-300"}`}
+        aria-label={`Ordenar por ${label}${active ? (sortDesc ? " descendente" : " ascendente") : ""}`}
       >
         {label}
         {active && (
@@ -627,34 +682,48 @@ function CampaignTable({ rows }: { rows: CampaignRow[] }) {
         <thead>
           <tr className="border-b border-border-subtle">
             <th scope="col" className="px-3 py-2">
-              {header('campaign', 'Campaña', 'left')}
+              {header("campaign", "Campaña", "left")}
             </th>
             <th scope="col" className="px-3 py-2">
-              {header('sessions', 'Sesiones', 'right')}
+              {header("sessions", "Sesiones", "right")}
             </th>
             <th scope="col" className="px-3 py-2">
-              {header('purchases', 'Compras', 'right')}
+              {header("purchases", "Compras", "right")}
             </th>
             <th scope="col" className="px-3 py-2">
-              {header('conversion', 'Conversión', 'right')}
+              {header("conversion", "Conversión", "right")}
             </th>
           </tr>
         </thead>
         <tbody>
           {sorted.length === 0 ? (
             <tr>
-              <td colSpan={4} className="px-3 py-8 text-center text-sm text-neutral-500">
+              <td
+                colSpan={4}
+                className="px-3 py-8 text-center text-sm text-neutral-500"
+              >
                 Sin datos
               </td>
             </tr>
           ) : (
             sorted.map((r) => (
-              <tr key={r.campaign} className="border-b border-overlay/4 last:border-0">
+              <tr
+                key={r.campaign}
+                className="border-b border-overlay/4 last:border-0"
+              >
                 <td className="px-3 py-2.5 text-neutral-200">
-                  {r.campaign === '(otras)' ? <span className="text-neutral-500">{r.campaign}</span> : r.campaign}
+                  {r.campaign === "(otras)" ? (
+                    <span className="text-neutral-500">{r.campaign}</span>
+                  ) : (
+                    r.campaign
+                  )}
                 </td>
-                <td className="px-3 py-2.5 text-right tabular-nums text-neutral-200">{fmtInt(r.sessions)}</td>
-                <td className="px-3 py-2.5 text-right tabular-nums text-neutral-200">{fmtInt(r.purchases)}</td>
+                <td className="px-3 py-2.5 text-right tabular-nums text-neutral-200">
+                  {fmtInt(r.sessions)}
+                </td>
+                <td className="px-3 py-2.5 text-right tabular-nums text-neutral-200">
+                  {fmtInt(r.purchases)}
+                </td>
                 <td className="px-3 py-2.5 text-right tabular-nums text-neutral-200">
                   {fmtPct(r.conversion, 0)}
                 </td>
