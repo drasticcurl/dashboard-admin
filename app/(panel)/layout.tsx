@@ -30,6 +30,7 @@ import { sesionActual } from '@/lib/permisos';
 import { faltanSaldosDeHoy } from '@/lib/queries/saldo';
 import { AvisoSaldo } from '@/components/AvisoSaldo';
 import { Shell } from '@/components/Shell';
+import { ActivarAvisos } from '@/components/ActivarAvisos';
 
 export const dynamic = 'force-dynamic';
 
@@ -99,18 +100,23 @@ export default async function PanelLayout({ children }: { children: ReactNode })
         seccionesPermitidas={sesion.secciones}
         nombre={sesion.nombre}
         salir={
-          <form action={logoutAction}>
-            {/* Link de texto en el acento y no un botón con fondo: en el pie del
-                sidebar, un botón con el mismo tratamiento que los ítems de
-                navegación se lee como una décima sección en vez de como la
-                salida. Así se ve que es una acción. */}
-            <button
-              type="submit"
-              className="tap press rounded-lg px-1.5 py-1 text-sm font-medium text-acento-400 transition-colors duration-250 hover:bg-acento-900 hover:text-acento-200"
-            >
-              Salir
-            </button>
-          </form>
+          <span className="flex items-center gap-1">
+            {/* La campanita de los avisos push del profit (se esconde sola si la
+                instancia no tiene claves VAPID o el usuario no ve el Resumen). */}
+            <ActivarAvisos />
+            <form action={logoutAction}>
+              {/* Link de texto en el acento y no un botón con fondo: en el pie del
+                  sidebar, un botón con el mismo tratamiento que los ítems de
+                  navegación se lee como una décima sección en vez de como la
+                  salida. Así se ve que es una acción. */}
+              <button
+                type="submit"
+                className="tap press rounded-lg px-1.5 py-1 text-sm font-medium text-acento-400 transition-colors duration-250 hover:bg-acento-900 hover:text-acento-200"
+              >
+                Salir
+              </button>
+            </form>
+          </span>
         }
       >
         {children}

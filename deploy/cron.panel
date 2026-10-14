@@ -172,3 +172,17 @@
 # infinix vive fuera del repo (/srv/panel-infinix/deploy.sh) y no la ve: hay que
 # agregar el cron a mano en esa instancia (ver COMO-DEPLOYAR.md).
 50 5 * * * cd /srv/panel/current && /usr/bin/node --env-file=.env.production ./node_modules/.bin/tsx scripts/archivar-tareas.ts >> /var/log/panel/tareas.log 2>&1
+
+# ─── Avisos push del profit (PWA) ──────────────────────────────────────────
+# CORRE CADA HORA A PROPÓSITO, pero manda sólo 6 avisos por día: el script mira
+# la hora de DASHBOARD_TZ (Lisboa) y sale sin hacer nada si no es una de
+# PUSH_HORAS (default 0,6,10,14,18,22). Así el crontab no tiene que traducir
+# Lisboa → Berlín (el server va 1 h adelante) y cada instancia avisa en su zona.
+#
+# Antes de leer, el script refresca el gasto de Meta y el rollup del día con
+# `ensureFreshAdSpend` (lo mismo que hace el Resumen al abrirse), así que no
+# depende del sync de ads de :07. Minuto 2 para no pisarse con ese sync.
+#
+# Sin VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY el script sale con 0 y una línea de
+# log. OJO CON INFINIX: igual que archivar-tareas, hay que agregarla a mano allá.
+2 * * * * cd /srv/panel/current && /usr/bin/node --env-file=.env.production ./node_modules/.bin/tsx scripts/notificar-profit.ts >> /var/log/panel/push.log 2>&1

@@ -34,7 +34,8 @@
     "days:recompute": "tsx scripts/recompute-days.ts",
     "ia:insights": "tsx scripts/generar-insights.ts",
     "usuarios:seed": "tsx scripts/seed-usuarios.ts",
-    "tareas:archivar": "tsx scripts/archivar-tareas.ts"
+    "tareas:archivar": "tsx scripts/archivar-tareas.ts",
+    "push:profit": "tsx scripts/notificar-profit.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
@@ -46,6 +47,7 @@
     "react": "^18",
     "react-dom": "^18",
     "recharts": "^2.15.4",
+    "web-push": "^3.6.7",
     "zod": "^3.23.8"
   },
   "devDependencies": {
@@ -53,6 +55,7 @@
     "@types/pg": "^8.11.10",
     "@types/react": "^18",
     "@types/react-dom": "^18",
+    "@types/web-push": "^3.6.4",
     "autoprefixer": "^10.0.1",
     "eslint": "^8",
     "eslint-config-next": "14.2.5",

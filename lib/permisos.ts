@@ -308,6 +308,8 @@ export const MAPA_API: Record<string, readonly Seccion[] | 'admin' | 'publica'> 
   '/api/tareas/mover': ['tareas'],
   '/api/tareas/links': ['tareas'],
   '/api/tareas/comentarios': ['tareas'],
+  // Avisos push del profit (PWA): el profit es un número del Resumen.
+  '/api/push': ['resumen'],
 
   // ── Creativos: tracker de eficiencia de videos (034) ──────────────────────
   '/api/creativos': ['creativos'],
@@ -336,6 +338,8 @@ export const MAPA_API: Record<string, readonly Seccion[] | 'admin' | 'publica'> 
   // esta línea, el middleware exigiría sesión de usuario y el cron de
   // salidas de checkout-kashhhpay recibiría 401 antes de llegar al handler.
   '/api/webhooks/checkout-propio': 'publica',
+  // Widget del celular: sin cookie, auth propia con WIDGET_TOKEN (Bearer).
+  '/api/widget': 'publica',
 };
 
 // ─── guardSeccion (el reemplazo de guard(req) para las routes) ──────────────
