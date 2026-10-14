@@ -10,6 +10,143 @@ Lo más nuevo va arriba. Las reglas de cómo se escribe una entrada están en
 
 ---
 
+## 2026-10-14 (2) — Avisos push en el celular: cada venta y el profit del día
+
+**Pedido.** "¿Es muy difícil hacer una apk para android que me mande
+notificaciones?" y, con una captura de iPhone: "quiero así" (un aviso por venta,
+"¡Venta aprobada!" / "Upsell aceptado #…").
+
+**Qué se hizo.** No es un APK: el panel es una PWA (manifest + `public/sw.js`)
+y los avisos son Web Push con claves VAPID (`web-push`, sin Firebase). Anda en
+Android instalándola desde Chrome y en iPhone con "Agregar a inicio" (iOS 16.4+).
+- **Por venta:** los webhooks de Shopify y de checkout propio llaman a
+  `lib/push/avisarVenta.ts` después de guardar una orden NUEVA, sin `await`
+  (Shopify corta a los 5 s). 💰 + ícono verde para el front (con "+ bump" si la
+  orden trae un ítem `bump`), ➕ + ícono ámbar para upsell/upsell2/downsell. Un
+  tag por orden para que se apilen. Lo reciben admins y quien ve Ventas.
+- **Profit:** `scripts/notificar-profit.ts`, cron cada hora que manda a las
+  0/6/10/14/18/22 de Lisboa.
+
+**Ojo.** Son ~300 ventas por día: un aviso cada ~5 min. `PUSH_VENTAS=0` apaga
+las ventas y deja el profit. El ícono por tipo sólo se ve en Android (iOS pone
+siempre el de la app); el emoji del título se ve en los dos. El checkout propio
+no manda ítems, así que ahí un bump no se distingue. Hoy ningún producto está
+mapeado como `bump`. Las claves VAPID **no se rotan**: cambiarlas obliga a
+reactivar los avisos en cada celular.
+
+---
+
+## 2026-10-14 — Campañas «14/10 arroz» de HIlvanapp → Chau Hinchazón (dato de producción)
+
+**Pedido.** "Atribuime los conjuntos que se llaman arroz a Chau Hinchazón."
+
+**Qué se hizo.** El mapeo es por campaña, así que se buscaron las campañas con
+algún conjunto «arroz» sin fila en `ad_campaign_funnel`. Había 3, todas en
+`act_2501344510302910` y con todos sus conjuntos «arroz»: `14/10 arroz
+A.M2.L9.V1/V2/V3` (`120249947305630617`, `120249947352100617`,
+`120249947352090617`). Se mapearon a `chauhinchazon` y se reimputaron sus 9 filas
+de `ad_spend` del 14/10 (€13,80, que estaban en Alma Gemela). Se corrió
+`rollup.ts --days=2`. Las otras 18 campañas con conjuntos «arroz» ya estaban
+mapeadas (entradas del 2026-10-07 y del 2026-10-09).
+
+---
+
+## 2026-10-09 — Más campañas «arroz» de HIlvanapp → Chau Hinchazón (dato de producción)
+
+**Pedido.** "Atribuime los creativos que se llaman arroz a Chau Hinchazón, están
+en la cuenta de Alma Gemela."
+
+**Qué se hizo.** Se mapearon a `chauhinchazon` las 9 campañas de
+`act_2501344510302910` con «arroz» en el nombre que no tenían fila en
+`ad_campaign_funnel`: las 6 nuevas `10/10 arroz - A.M2.L7.V1/V2/V3` y
+`11/10 arroz - A.M2.L8.V1/V2/V3`, y las 3 `11/09 arroz` (agenda, basta
+ensalada, suplementos), cuyo gasto viejo ya estaba en el funnel 1 pero que sin
+mapeo iban a imputar a Alma Gemela si volvían a gastar. `ad_spend` movió 0 filas
+(no había gasto mal imputado), así que no hizo falta rollup. Las otras 9
+campañas con algo «arroz» ya estaban mapeadas (entrada del 2026-10-07).
+
+**Si se repite:** cada tanda nueva de «arroz» que se cree en HIlvanapp cae en
+Alma Gemela hasta que se la mapee.
+
+---
+
+## 2026-10-08 — Reglas de Gelxiin apagadas y «08/10 gelatina cbo» → Gelatina (dato de producción)
+
+**Pedido.** "Desactivame todas las reglas en la cuenta Gelxiin y atribuí la
+campaña que se llama gelatina al funnel gelatina."
+
+**Reglas.** `UPDATE ad_rules SET enabled = false` en las 23 filas de
+`act_2412127832646347` (R01–R23). Las filas de HIlvanapp (23) y Tarot astro (22)
+siguen prendidas. **Ojo:** cada regla es un grupo de 3 cuentas (migración 037) y
+el POST de `/api/ads/reglas` escribe `enabled` para TODO el grupo
+(`d.enabled ?? existentes.some(e => e.enabled)`): editar cualquiera de esas
+reglas desde la pantalla vuelve a prender la fila de Gelxiin. Si el apagado tiene
+que durar, lo correcto es sacar Gelxiin de «Aplicar a cuentas publicitarias»,
+que no se hizo para no borrar el historial de corridas de esas filas.
+
+**Gelatina.** `08/10 gelatina cbo` (`120250793635050459`, en Gelxiin) →
+`ad_campaign_funnel` funnel 4 (`gelatina`). Se reimputaron sus 7 filas de
+`ad_spend` del 08/10 (€1,20) y se corrió `rollup.ts --days=2`.
+
+---
+
+## 2026-10-07 — Anuncios «08/10 arroz» de la cuenta de Alma Gemela → Chau Hinchazón (dato de producción)
+
+**Pedido.** "En la cuenta de Alma Gemela tengo unos anuncios de mañana que
+contienen 08/10 arroz en el nombre, asignalos a Chau Hinchazón."
+
+**Qué se hizo.** El mapeo es por campaña (migración 033), así que se mapearon a
+`chauhinchazon` en `ad_campaign_funnel` las 7 campañas de HIlvanapp que tienen
+algo «08/10 arroz»:
+- las 4 `08/10 arroz last dance - A.M2.L5.V1/V2/V3` y `- A.M2.L6.V1` (nuevas, sin
+  mapear: iban a caer en Alma Gemela);
+- `03/09 tuppers`, `09/09 deja de scrollear` y `PXN 20/08 No es leche`: campañas
+  viejas de Chau Hinchazón a las que se les sumaron conjuntos «08/10 arroz». Su
+  gasto histórico ya estaba en el funnel 1 (de cuando la cuenta era de Chau
+  Hinchazón), pero sin mapeo el gasto nuevo se iba a imputar a Alma Gemela.
+
+`24/09 a02` y `28/09 a01` también tienen conjuntos «08/10 arroz» y ya estaban
+mapeadas desde el 30/09. `UPDATE ad_spend` movió 0 filas, así que no hizo falta
+rollup.
+
+---
+
+## 2026-10-10 — Escala más rápida: la vara de gasto de R07–R10 a la mitad (dato de producción)
+
+**Pedido.** "Necesito que las campañas buenas se escalen más rápido."
+
+**Diagnóstico (7 días, lectura en producción).** Mediana entre escalones:
+R06→R07 3 h 36, R07→R08 4 h 03, R08→R09 4 h 35. El freno era la condición de
+gasto (40% del piso de la franja), no la cadencia ni el cooldown: revisar cada 15
+min ahorraría ~7 min por escalón, y el cooldown casi no omitió. A las 23:58, 12
+conjuntos estaban en €80 con ROI 2,24 y €23,9 gastados (pedía 32), y 5 en €320
+con ROI 2,23 y €74 gastados (pedía 136).
+
+**Qué se hizo.** En las 8 reglas `budget_increase` (HIlvanapp y Tarot astro, ids
+139/140, 142/143, 145/146, 148/149), la condición `spend >=` pasó de 16/32/64/136
+a **10/20/40/100**, y el nombre de la regla también. ROI 1,85, cadencia 30 y
+cooldown 60 quedan iguales. No se tocó código. Es una prueba que arranca hoy.
+
+Primero se probó 8/16/32/68 (la mitad) y se descartó al rato: cada vara quedó igual
+a la vara vieja del escalón anterior, y los conjuntos llegaban a cada escalón con
+ese gasto ya hecho. La escalera duplicaba cada 60 min (lo que pide el cooldown)
+mirando un ROI que todavía era del presupuesto anterior. Con 10/20/40/100, cada
+escalón espera algo de gasto con el presupuesto nuevo. R07 estimado: ~1 h 10 a 1 h 30
+(antes ~4 h 20; entra con ~7,8 € gastados y gasta ~1,9 €/h en €40).
+
+**Backup y vuelta atrás.** `docs/backups/ad_rules-2026-10-10.csv` y
+`ad_rule_conditions-2026-10-10.csv` (foto completa, tomada con la vara en 8/16/32/68);
+`docs/backups/restaurar-escalera-original-2026-10-10.sql` vuelve a 16/32/64/136.
+
+**Ojo.** Con menos gasto, el ROI de cada decisión es más ruidoso. Durante el día,
+lo único que baja presupuesto es R05 (ROI < 1,3) y R23; un conjunto con ROI 1,3–1,85
+mantiene el presupuesto hasta los resets de 23:58. **Es a propósito:** el usuario
+decidió no frenar ese tramo durante el día (para él ROI ≥ 1,3 es ganancia; abajo ya
+actúa R05). Se descartó una regla de "bajar a la mitad con ROI < 1,6". **No bajar el cooldown** (ver
+la entrada del 2026-10-04 (2)).
+
+---
+
 ## 2026-10-04 (2) — Reglas de escala R06–R10 cada 30 minutos (dato de producción)
 
 **Pedido.** "Que chequee cada 30 minutos en vez de cada 1 hora."

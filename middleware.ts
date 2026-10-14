@@ -197,5 +197,15 @@ export const config = {
   // `/icon.svg?<hash>`. Sin la exclusión el middleware lo redirige a `/` con un
   // 307 mientras no haya cookie, así que el ícono no carga en la pantalla de
   // login — justo donde es lo único que se ve. No filtra nada: es el logo.
-  matcher: ['/((?!api/ingest|api/webhooks|_next/static|_next/image|favicon.ico|icon.svg).*)'],
+  //
+  // `sw.js`, `manifest.webmanifest` y `pwa/` (los íconos) también: son la PWA.
+  // El navegador pide el manifest y el service worker SIN la cookie en algunos
+  // casos (iOS al instalar), y un 307 al login rompe la instalación y los avisos.
+  // Ninguno tiene datos: el worker sólo muestra lo que le manda el server.
+  //
+  // `api/widget` es el widget de Android: no tiene cookie y se autentica con
+  // WIDGET_TOKEN en el route (sin token configurado devuelve 404).
+  matcher: [
+    '/((?!api/ingest|api/webhooks|api/widget|_next/static|_next/image|favicon.ico|icon.svg|sw.js|manifest.webmanifest|pwa/).*)',
+  ],
 };

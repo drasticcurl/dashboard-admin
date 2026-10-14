@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import { GeistSans } from 'geist/font/sans';
 import { GeistMono } from 'geist/font/mono';
 import { Bricolage_Grotesque } from 'next/font/google';
-import { PANEL_TITLE } from '@/lib/brand';
+import { PANEL_BRAND, PANEL_TITLE } from '@/lib/brand';
 
 export const metadata = {
   /*
@@ -18,6 +18,11 @@ export const metadata = {
   title: { default: PANEL_TITLE, template: '%s · Panel' },
   description: 'Panel interno de métricas, ventas y anuncios.',
   robots: { index: false, follow: false },
+  // iOS no lee los íconos del manifest: usa el apple-touch-icon. Y
+  // `appleWebApp.capable` es lo que hace que "Agregar a inicio" abra el panel
+  // como app (sin barra de Safari), que es requisito para los avisos push.
+  icons: { apple: '/pwa/apple-touch-icon.png' },
+  appleWebApp: { capable: true, title: PANEL_BRAND, statusBarStyle: 'black' as const },
 };
 
 /*

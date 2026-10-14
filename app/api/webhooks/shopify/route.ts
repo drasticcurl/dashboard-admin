@@ -3,6 +3,7 @@ import { q } from '@/lib/db';
 import { refundOrder } from '@/lib/orders/refund';
 import type { ShopifyOrder, ShopifyRefund } from '@/lib/orders/types';
 import { upsertOrder } from '@/lib/orders/upsert';
+import { avisarVenta } from '@/lib/push/avisarVenta';
 import { getWebhookSecrets, verifySignature } from '@/lib/orders/verify';
 
 /**
@@ -172,6 +173,8 @@ async function handleApproved(
     // sin atribuir" la muestra (D10). Las warnings (funnel desconocido,
     // conflicto de funnels) van en la columna error para que se vean.
     const status = isNew ? (funnelId === null ? 'unmatched_funnel' : 'ok') : 'duplicate';
+    // Sin await: el aviso no puede demorar la respuesta (ver avisarVenta.ts).
+    if (isNew && orderId) void avisarVenta(orderId);
     await logWebhookEvent({
       shopDomain,
       topic,

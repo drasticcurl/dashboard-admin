@@ -4,6 +4,7 @@ import { ZodError, z } from 'zod';
 import { q, q1 } from '@/lib/db';
 import { getFunnelByIngestKey } from '@/lib/funnels';
 import { upsertOrderCheckoutPropio } from '@/lib/orders/checkout-propio';
+import { avisarVenta } from '@/lib/push/avisarVenta';
 import type {
   PayloadVentaCheckoutPropio,
   RespuestaVentaCheckoutPropio,
@@ -176,6 +177,9 @@ export async function POST(req: NextRequest): Promise<NextResponse<RespuestaVent
       await logWebhookEvent({ externalId, status: 'duplicate' });
       return json(200, { ok: true, orderId: null, isNew: false });
     }
+
+    // Sin await: el aviso no puede demorar la respuesta (ver avisarVenta.ts).
+    if (orderId) void avisarVenta(orderId);
 
     // funnelId NULL no es un error (D10 del plan de orders, D2 de este
     // módulo): la venta se guardó igual, solo que sin atribución de funnel.
