@@ -232,8 +232,17 @@ export type ResultadoMetricas = {
   filas: MetricasObjeto[];
   /** true si se alcanzó el `limit` y hay más filas detrás del cursor. */
   hayMas: boolean;
-  /** Ventas del período que NO matchean ningún objeto. Se muestra, no se esconde (D-A8). */
-  sinAtribuir: { sales: number; revenueEur: number };
+  /**
+   * Ventas del funnel de la cuenta que NO matchean ningún objeto de ESTA cuenta.
+   * Se muestra, no se esconde (D-A8). `sales`/`revenueEur` son las que no
+   * matchean nada en ninguna cuenta; `enOtrasCuentas`, las que sí matchean un
+   * anuncio de otra cuenta (campañas del funnel que viven en otra cuenta).
+   */
+  sinAtribuir: {
+    sales: number;
+    revenueEur: number;
+    enOtrasCuentas: { cuenta: string; sales: number; revenueEur: number }[];
+  };
   /**
    * El día (o rango) resuelto en la zona de la cuenta, para que la UI lo muestre.
    * `timezone` es UNA zona: la llamada tira si las cuentas alcanzadas mezclan

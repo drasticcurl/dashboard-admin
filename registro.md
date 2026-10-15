@@ -10,6 +10,46 @@ Lo más nuevo va arriba. Las reglas de cómo se escribe una entrada están en
 
 ---
 
+## 2026-10-15 (2) — Anuncios: «sin atribuir» ya no cuenta ventas de campañas de otra cuenta
+
+**Pedido.** "Están cayendo las compras con los UTM y las campañas no lo están
+recibiendo, ¿puede ser? […] eso me dice en Chau Hinchazón."
+
+**Diagnóstico.** Las ventas sí estaban atribuidas. El 15/10 Chau Hinchazón llevaba
+6 ventas (€33,62), todas con UTMs que matcheaban campañas de **HIlvanapp**
+(`28/09 a01` y las `15/10 arroz`). Anuncios, mirando Chau Hinchazón, abre **Gelxiin**, y
+el aviso contaba como "sin atribuir" toda venta del funnel que no matcheara un
+anuncio *de esa cuenta*. El cruce venta → anuncio es por id de Meta y no depende
+de `ad_campaign_funnel`, así que las reglas de escala nunca se vieron afectadas.
+
+**Qué se hizo.** `sinAtribuir` (`lib/queries/ads.ts`) busca en todas las cuentas
+lo que no matcheó en esta, con la misma cascada (anuncio → conjunto → campaña).
+Las ventas que matchean otra cuenta van a `enOtrasCuentas` y salen en un aviso
+aparte («Ventas de campañas en otra cuenta: 6 ventas (€33,62) en HIlvanapp»).
+El aviso de "sin atribuir" queda sólo para ventas que no matchean ningún anuncio
+en ninguna cuenta.
+
+---
+
+## 2026-10-15 — Campañas «15/10 arroz» de HIlvanapp → Chau Hinchazón (dato de producción)
+
+**Pedido.** "Atribuime los conjuntos de arroz al funnel Chau Hinchazón."
+
+**Qué se hizo.** Las 3 campañas nuevas `15/10 arroz A.M2.L10.V1/V2/V3`
+(`120249966459620617`, `120249966593180617`, `120249966593170617`, en
+`act_2501344510302910`, todos sus conjuntos «arroz») → `chauhinchazon` en
+`ad_campaign_funnel`. Se reimputaron 9 filas de `ad_spend` del 15/10 (€37,03,
+estaban en Alma Gemela) y se corrió `rollup.ts --days=2`. El resto de las campañas
+con conjuntos «arroz» ya estaban mapeadas.
+
+**Y desde ahora es automático.** `scripts/asignar-campanas-por-nombre.ts`, cron a
+las 0:01 de Lisboa (`1 1 * * *` en el server): mapea a `chauhinchazon` las
+campañas de HIlvanapp con algún conjunto «arroz» que no tengan mapeo, y reimputa
+su gasto. No pisa campañas ya mapeadas a otro funnel. Log en `ads.log`. Para otro
+patrón, agregar una línea a `REGLAS`.
+
+---
+
 ## 2026-10-14 (2) — Avisos push en el celular: cada venta y el profit del día
 
 **Pedido.** "¿Es muy difícil hacer una apk para android que me mande

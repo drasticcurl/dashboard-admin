@@ -117,7 +117,7 @@ function resultadoMetricas(filas: MetricasObjeto[]): ResultadoMetricas {
   return {
     filas,
     hayMas: false,
-    sinAtribuir: { sales: 0, revenueEur: 0 },
+    sinAtribuir: { sales: 0, revenueEur: 0, enOtrasCuentas: [] },
     rango: { from: '2026-08-12', to: '2026-08-12', timezone: 'Europe/Lisbon' },
     generatedAt: new Date().toISOString(),
     total: filas.length,
