@@ -186,3 +186,10 @@
 # Sin VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY el script sale con 0 y una línea de
 # log. OJO CON INFINIX: igual que archivar-tareas, hay que agregarla a mano allá.
 2 * * * * cd /srv/panel/current && /usr/bin/node --env-file=.env.production ./node_modules/.bin/tsx scripts/notificar-profit.ts >> /var/log/panel/push.log 2>&1
+
+# ─── Campañas «arroz» de HIlvanapp → Chau Hinchazón ───────────────────────────
+# 0:01 de LISBOA = 1:01 del server (Berlín va 1 h adelante todo el año: los dos
+# cambian de horario el mismo día). Las tandas se crean la noche anterior y
+# gastan al día siguiente: a esta hora ya están sincronizadas y sin gasto. Las
+# reglas viven en REGLAS del script. Sólo hilvanapp: infinix no tiene esa cuenta.
+1 1 * * * cd /srv/panel/current && /usr/bin/node --env-file=.env.production ./node_modules/.bin/tsx scripts/asignar-campanas-por-nombre.ts >> /var/log/panel/ads.log 2>&1

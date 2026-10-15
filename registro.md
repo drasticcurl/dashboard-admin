@@ -10,6 +10,25 @@ Lo más nuevo va arriba. Las reglas de cómo se escribe una entrada están en
 
 ---
 
+## 2026-10-15 — Campañas «15/10 arroz» de HIlvanapp → Chau Hinchazón (dato de producción)
+
+**Pedido.** "Atribuime los conjuntos de arroz al funnel Chau Hinchazón."
+
+**Qué se hizo.** Las 3 campañas nuevas `15/10 arroz A.M2.L10.V1/V2/V3`
+(`120249966459620617`, `120249966593180617`, `120249966593170617`, en
+`act_2501344510302910`, todos sus conjuntos «arroz») → `chauhinchazon` en
+`ad_campaign_funnel`. Se reimputaron 9 filas de `ad_spend` del 15/10 (€37,03,
+estaban en Alma Gemela) y se corrió `rollup.ts --days=2`. El resto de las campañas
+con conjuntos «arroz» ya estaban mapeadas.
+
+**Y desde ahora es automático.** `scripts/asignar-campanas-por-nombre.ts`, cron a
+las 0:01 de Lisboa (`1 1 * * *` en el server): mapea a `chauhinchazon` las
+campañas de HIlvanapp con algún conjunto «arroz» que no tengan mapeo, y reimputa
+su gasto. No pisa campañas ya mapeadas a otro funnel. Log en `ads.log`. Para otro
+patrón, agregar una línea a `REGLAS`.
+
+---
+
 ## 2026-10-14 (2) — Avisos push en el celular: cada venta y el profit del día
 
 **Pedido.** "¿Es muy difícil hacer una apk para android que me mande
