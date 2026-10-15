@@ -470,7 +470,10 @@ function comun(
            COALESCE(ad.campaign_id, s.campaign_id, c.campaign_id) AS campaign_id,
            COALESCE(ad.adset_id, s.adset_id, '') AS adset_id,
            COALESCE(ad.ad_id, '') AS ad_id,
-           COALESCE(ad.account_id, s.account_id, c.account_id) AS account_id
+           COALESCE(ad.account_id, s.account_id, c.account_id) AS account_id,
+           -- Los ids crudos de los UTMs, para que sinAtribuir pueda buscar en
+           -- OTRAS cuentas lo que no matcheó en esta.
+           o.aid AS utm_aid, o.sid AS utm_sid, o.cid AS utm_cid
       FROM ordenes o
       LEFT JOIN jerarquia_ads ad ON o.aid IS NOT NULL AND ad.ad_id = o.aid
       LEFT JOIN jerarquia_sets s ON o.aid IS NULL AND o.sid IS NOT NULL AND s.adset_id = o.sid
@@ -866,20 +869,41 @@ SELECT COALESCE(sum(m."spendEur"), 0)   AS "spendEur",
   // Astra eran 2 (16,10 €). No se suman los funnels con campañas mapeadas en la
   // cuenta (ad_campaign_funnel): Chau Hinchazón tiene campañas en HIlvanapp pero
   // vende casi todo por Gelxiin, y esas ventas no son de esta tabla.
-  const sinSql = `WITH${com}
-SELECT count(*) FILTER (WHERE status = 'approved')::int AS "sales",
-       COALESCE(sum(amount_eur) FILTER (WHERE status = 'approved'), 0) AS "revenueEur"
-  FROM atribuidas
- WHERE COALESCE(${frag.ventasObjectId}, '') = ''
-   AND funnel_id IN (SELECT "funnelId" FROM cuenta WHERE "funnelId" IS NOT NULL)`;
+  //
+  // Y de esas, las que matchean un anuncio de OTRA cuenta se cuentan aparte
+  // (`enOtrasCuentas`): no son plata sin explicar, son de campañas que viven en
+  // otra cuenta. Caso real (2026-10-15): las campañas «arroz» de Chau Hinchazón
+  // están en HIlvanapp, y mirando Gelxiin todas sus ventas decían "sin atribuir".
+  // La búsqueda en otras cuentas sigue la misma cascada que `atribuidas`: el id
+  // de anuncio manda; el de conjunto sólo si no hay de anuncio; el de campaña
+  // sólo si no hay ninguno de los otros dos.
+  const sinSql = `WITH${com},
+  sin AS (
+    SELECT amount_eur, utm_aid, utm_sid, utm_cid
+      FROM atribuidas
+     WHERE COALESCE(${frag.ventasObjectId}, '') = ''
+       AND status = 'approved'
+       AND funnel_id IN (SELECT "funnelId" FROM cuenta WHERE "funnelId" IS NOT NULL)
+  )
+SELECT acc.name AS "cuenta",
+       count(*)::int AS "sales",
+       COALESCE(sum(x.amount_eur), 0) AS "revenueEur"
+  FROM sin x
+  LEFT JOIN ads ga ON x.utm_aid IS NOT NULL AND ga.ad_id = x.utm_aid
+  LEFT JOIN ad_sets gs ON x.utm_aid IS NULL AND x.utm_sid IS NOT NULL AND gs.adset_id = x.utm_sid
+  LEFT JOIN ad_campaigns gc ON x.utm_aid IS NULL AND x.utm_sid IS NULL AND x.utm_cid IS NOT NULL
+                           AND gc.campaign_id = x.utm_cid
+  LEFT JOIN ad_accounts acc ON acc.account_id = COALESCE(ga.account_id, gs.account_id, gc.account_id)
+ GROUP BY acc.name
+ ORDER BY count(*) DESC`;
 
   const sinParams: unknown[] = [accountIds, desde, hasta, tz];
 
   // Las tres en el mismo Promise.all: el agregado no agrega una vuelta de red.
-  const [filasRaw, totalesRow, sinRow] = await Promise.all([
+  const [filasRaw, totalesRow, sinRows] = await Promise.all([
     q<RowMetricas & { totalFilas: string }>(filasSql, params),
     q1<RowTotales>(totalesSql, paramsCadenaComun),
-    q1<{ sales: number; revenueEur: string }>(sinSql, sinParams),
+    q<{ cuenta: string | null; sales: number; revenueEur: string }>(sinSql, sinParams),
   ]);
 
   const total = filasRaw.length > 0 ? Number(filasRaw[0]!.totalFilas) : 0;
@@ -890,8 +914,11 @@ SELECT count(*) FILTER (WHERE status = 'approved')::int AS "sales",
     filas,
     hayMas: conPagina ? pagina < totalPaginas : total > lim,
     sinAtribuir: {
-      sales: sinRow?.sales ?? 0,
-      revenueEur: sinRow ? Number(sinRow.revenueEur) : 0,
+      sales: sinRows.find((r) => r.cuenta === null)?.sales ?? 0,
+      revenueEur: Number(sinRows.find((r) => r.cuenta === null)?.revenueEur ?? 0),
+      enOtrasCuentas: sinRows
+        .filter((r): r is typeof r & { cuenta: string } => r.cuenta !== null)
+        .map((r) => ({ cuenta: r.cuenta, sales: r.sales, revenueEur: Number(r.revenueEur) })),
     },
     rango: { from: desde, to: hasta, timezone: tz },
     generatedAt,

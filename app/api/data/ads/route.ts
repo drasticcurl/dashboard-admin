@@ -141,7 +141,7 @@ export async function GET(req: NextRequest): Promise<Response> {
     const vacio: ResultadoMetricas = {
       filas: [],
       hayMas: false,
-      sinAtribuir: { sales: 0, revenueEur: 0 },
+      sinAtribuir: { sales: 0, revenueEur: 0, enOtrasCuentas: [] },
       rango: { from: rangoVacio.desde, to: rangoVacio.hasta, timezone: TZ_DEFAULT },
       generatedAt: new Date().toISOString(),
       total: 0,

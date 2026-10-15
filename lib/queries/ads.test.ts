@@ -365,6 +365,47 @@ describe.skipIf(!dbAvailable)('getMetricasAds (integración)', () => {
     expect(despues.sinAtribuir.sales - antes.sinAtribuir.sales).toBe(1);
     expect(despues.sinAtribuir.revenueEur - antes.sinAtribuir.revenueEur).toBeCloseTo(7, 6);
   });
+
+  it('una venta del funnel que matchea una campaña de OTRA cuenta va a enOtrasCuentas, no a sin atribuir', async () => {
+    // 2026-10-15: las campañas «arroz» de Chau Hinchazón viven en HIlvanapp;
+    // mirando Gelxiin (la cuenta de Chau Hinchazón) todas sus ventas decían
+    // "sin atribuir" aunque estaban bien atribuidas en la otra cuenta.
+    const CUENTA_OTRA = 'act_t15_test_otra';
+    const CAMPANA_OTRA = '900000000000000098';
+    const filtros = { level: 'campaign' as const, period: 'today' as const, accountIds: [CUENTA_TEST] };
+    try {
+      await q(
+        `INSERT INTO ad_accounts (account_id, platform, name, currency, timezone, funnel_id, active)
+         VALUES ($1, 'meta', 'cuenta de prueba T15 otra', 'EUR', 'Europe/Lisbon', 2, true)
+         ON CONFLICT (account_id) DO UPDATE SET active = true`,
+        [CUENTA_OTRA],
+      );
+      await q(
+        `INSERT INTO ad_campaigns (campaign_id, account_id, name, status, effective_status, budget_level, synced_at)
+         VALUES ($1, $2, '__T15_OTRA__', 'ACTIVE', 'ACTIVE', 'adset', now())
+         ON CONFLICT (campaign_id) DO NOTHING`,
+        [CAMPANA_OTRA, CUENTA_OTRA],
+      );
+      const antes = await getMetricasAds(filtros);
+      const ahora = new Date().toISOString();
+      await sembrarOrden({
+        externalId: 't15-otra-1',
+        campaign: `__T15_OTRA__|${CAMPANA_OTRA}`,
+        amountEur: 9,
+        purchasedAt: ahora,
+        day: ahora.slice(0, 10),
+      });
+
+      const despues = await getMetricasAds(filtros);
+      expect(despues.sinAtribuir.sales).toBe(antes.sinAtribuir.sales);
+      const otra = despues.sinAtribuir.enOtrasCuentas.find((o) => o.cuenta === 'cuenta de prueba T15 otra');
+      expect(otra?.sales).toBe(1);
+      expect(otra?.revenueEur).toBeCloseTo(9, 6);
+    } finally {
+      await q(`DELETE FROM ad_campaigns WHERE account_id = $1`, [CUENTA_OTRA]);
+      await q(`DELETE FROM ad_accounts WHERE account_id = $1`, [CUENTA_OTRA]);
+    }
+  });
 });
 
 // ─── Límites de la query (task 15.5): total, páginas, recorte y hayMas ──────

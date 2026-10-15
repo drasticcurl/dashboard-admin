@@ -10,6 +10,27 @@ Lo más nuevo va arriba. Las reglas de cómo se escribe una entrada están en
 
 ---
 
+## 2026-10-15 (2) — Anuncios: «sin atribuir» ya no cuenta ventas de campañas de otra cuenta
+
+**Pedido.** "Están cayendo las compras con los UTM y las campañas no lo están
+recibiendo, ¿puede ser? […] eso me dice en Chau Hinchazón."
+
+**Diagnóstico.** Las ventas sí estaban atribuidas. El 15/10 Chau Hinchazón llevaba
+6 ventas (€33,62), todas con UTMs que matcheaban campañas de **HIlvanapp**
+(`28/09 a01` y las `15/10 arroz`). Anuncios, mirando Chau Hinchazón, abre **Gelxiin**, y
+el aviso contaba como "sin atribuir" toda venta del funnel que no matcheara un
+anuncio *de esa cuenta*. El cruce venta → anuncio es por id de Meta y no depende
+de `ad_campaign_funnel`, así que las reglas de escala nunca se vieron afectadas.
+
+**Qué se hizo.** `sinAtribuir` (`lib/queries/ads.ts`) busca en todas las cuentas
+lo que no matcheó en esta, con la misma cascada (anuncio → conjunto → campaña).
+Las ventas que matchean otra cuenta van a `enOtrasCuentas` y salen en un aviso
+aparte («Ventas de campañas en otra cuenta: 6 ventas (€33,62) en HIlvanapp»).
+El aviso de "sin atribuir" queda sólo para ventas que no matchean ningún anuncio
+en ninguna cuenta.
+
+---
+
 ## 2026-10-15 — Campañas «15/10 arroz» de HIlvanapp → Chau Hinchazón (dato de producción)
 
 **Pedido.** "Atribuime los conjuntos de arroz al funnel Chau Hinchazón."

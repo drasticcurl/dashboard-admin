@@ -2039,8 +2039,19 @@ export function GestorAnuncios({
       {data.sinAtribuir.sales > 0 && (
         <Banner tone={sinAtribuirPct > 0.2 ? 'warn' : 'info'} title="Ventas sin atribuir a un anuncio">
           {fmtInt(data.sinAtribuir.sales)} ventas de este funnel ({money(data.sinAtribuir.revenueEur)}) entraron en el período
-          sin UTMs que matcheen ningún {NIVEL_LABEL[nivel].toLowerCase()} de esta cuenta. Es plata real que esta tabla no
+          sin UTMs que matcheen ningún anuncio de ninguna cuenta. Es plata real que esta tabla no
           explica.
+        </Banner>
+      )}
+
+      {/* No es plata sin explicar: son ventas de campañas de este funnel que
+          viven en otra cuenta (las «arroz» de Chau Hinchazón en HIlvanapp). */}
+      {(data.sinAtribuir.enOtrasCuentas?.length ?? 0) > 0 && (
+        <Banner tone="info" title="Ventas de campañas en otra cuenta">
+          {data.sinAtribuir.enOtrasCuentas
+            .map((o) => `${fmtInt(o.sales)} ${o.sales === 1 ? 'venta' : 'ventas'} (${money(o.revenueEur)}) en ${o.cuenta}`)
+            .join(' · ')}
+          . Están atribuidas a sus anuncios: elegí esa cuenta para verlas.
         </Banner>
       )}
 
