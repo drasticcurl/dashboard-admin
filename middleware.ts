@@ -204,8 +204,9 @@ export const config = {
   // Ninguno tiene datos: el worker sólo muestra lo que le manda el server.
   //
   // `api/widget` es el widget de Android: no tiene cookie y se autentica con
-  // WIDGET_TOKEN en el route (sin token configurado devuelve 404).
+  // WIDGET_TOKEN en el route (sin token configurado devuelve 404). `api/mcp`
+  // igual, con MCP_TOKEN: lo llama una IA, que no tiene cookie.
   matcher: [
-    '/((?!api/ingest|api/webhooks|api/widget|_next/static|_next/image|favicon.ico|icon.svg|sw.js|manifest.webmanifest|pwa/).*)',
+    '/((?!api/ingest|api/webhooks|api/widget|api/mcp|_next/static|_next/image|favicon.ico|icon.svg|sw.js|manifest.webmanifest|pwa/).*)',
   ],
 };

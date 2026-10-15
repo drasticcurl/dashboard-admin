@@ -340,6 +340,8 @@ export const MAPA_API: Record<string, readonly Seccion[] | 'admin' | 'publica'> 
   '/api/webhooks/checkout-propio': 'publica',
   // Widget del celular: sin cookie, auth propia con WIDGET_TOKEN (Bearer).
   '/api/widget': 'publica',
+  // Servidor MCP de anuncios (sólo lectura): auth propia con MCP_TOKEN (Bearer).
+  '/api/mcp': 'publica',
 };
 
 // ─── guardSeccion (el reemplazo de guard(req) para las routes) ──────────────
