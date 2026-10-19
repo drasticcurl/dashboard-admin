@@ -36,7 +36,6 @@ import type { WidgetLayout } from '@/lib/widgets/tipos';
 import { textoEdad, usePollingGasto } from '@/lib/ads/polling';
 import { Badge, Banner, EmptyState, Skeleton, Spinner, fmtDateTime } from '@/components/ui';
 import { MONEDA_REPORTE, leerMonedaVista } from '@/lib/moneda-reporte';
-import { nombreZona } from '@/lib/zona-nombre';
 
 // El reloj '14:20' de los avisos. La query lo arma con DASHBOARD_TZ en el
 // server; acá se usa la TZ del browser, que es lo que el usuario espera ver.
@@ -223,7 +222,6 @@ export function ResumenView({
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-          <RelojAlcance alcance={data.alcance} />
           {(loading || cambiandoMoneda) && (
             <span className="flex items-center gap-2 text-xs text-neutral-500">
               <Spinner /> {cambiandoMoneda ? `Pasando a ${moneda}…` : 'Actualizando…'}
@@ -332,26 +330,6 @@ export function ResumenView({
         )}
       </p>
     </div>
-  );
-}
-
-/**
- * Con qué reloj se cortó el día que se está viendo. En el General además nombra
- * a los funnels que cuentan su día en otra zona y a qué hora arranca: sin eso,
- * que Astra no sume nada en "hoy" a la 01:00 de Lisboa parece un bug.
- */
-function RelojAlcance({ alcance }: { alcance: OverviewData['alcance'] }): JSX.Element {
-  return (
-    <span className="text-xs text-neutral-500">
-      Día en hora de {nombreZona(alcance.timezone)}
-      {alcance.otrasZonas.map((z) => (
-        <span key={z.slug}>
-          {' '}
-          · {z.nombre}: hora de {nombreZona(z.timezone)}
-          {z.arrancaA && <> (su día arranca a las {z.arrancaA})</>}
-        </span>
-      ))}
-    </span>
   );
 }
 
