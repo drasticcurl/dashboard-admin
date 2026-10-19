@@ -44,6 +44,7 @@ import { EmbudoChart } from "@/components/EmbudoChart";
 import { CardPitch, debeMostrarCardPitch } from "./CardPitch";
 import { CardTestEstetica, debeMostrarCardEstetica } from "./CardTestEstetica";
 import { CardTestPrecio, debeMostrarCardPrecio } from "./CardTestPrecio";
+import { CardTestChat, debeMostrarCardChat } from "./CardTestChat";
 import {
   Badge,
   Banner,
@@ -426,6 +427,11 @@ export function EmbudoView({
       {/* El A/B de precio de los planes (astratarot). Mismo contrato que la de estética. */}
       {debeMostrarCardPrecio(funnel.experiments) && (
         <CardTestPrecio funnel={funnel} filas={data.experiments} />
+      )}
+
+      {/* El A/B de estética del chat (almagemela). Mismo contrato que la de precio. */}
+      {debeMostrarCardChat(funnel.experiments) && (
+        <CardTestChat funnel={funnel} filas={data.experiments} />
       )}
 
       {/* Los cuatro bloques de abajo van plegados en mobile (ver `Desglose` en
