@@ -144,6 +144,36 @@ export async function applyBatch(funnel: Funnel, payload: IngestPayload): Promis
 
   const state = deriveSessionState(payload.events);
 
+  // El catálogo se lee ANTES de abrir la transacción, nunca adentro: `listSteps`
+  // usa el pool y no el cliente `c`, así que adentro cada lote ocupaba dos
+  // conexiones a la vez. Con 10 lotes simultáneos (el `max` del pool) las 10
+  // quedaban en transacciones esperando una undécima que nadie soltaba, y todo
+  // el panel, no solo el ingest, daba "timeout exceeded when trying to connect"
+  // hasta reiniciarlo (registro.md, 2026-10-21 (2)).
+  const steps = await listSteps(funnel.id);
+  const stepByIndex = new Map(steps.map((s) => [s.stepIndex, s.slug] as const));
+  for (const ev of payload.events) {
+    if (ev.name !== 'step_view' || typeof ev.stepIndex !== 'number') continue;
+    const catalogSlug = stepByIndex.get(ev.stepIndex);
+    if (catalogSlug === undefined) {
+      // Alguien agregó pasos y no actualizó el catálogo: grita, no falla
+      // (task T02 §5d). El evento se guarda igual.
+      warnings.push(`unknown_step:${ev.stepIndex}`);
+      errors.push({
+        reason: 'unknown_step',
+        detail: `step_index ${ev.stepIndex} no existe en el catálogo de '${funnel.slug}'`,
+      });
+    } else if (ev.stepSlug !== catalogSlug) {
+      // Cambiaron el orden de las preguntas y el catálogo quedó viejo: el
+      // embudo se mide por stepIndex, que es lo que se guarda.
+      warnings.push(`step_slug_mismatch:${ev.stepIndex}:${ev.stepSlug ?? ''}`);
+      errors.push({
+        reason: 'step_slug_mismatch',
+        detail: `step ${ev.stepIndex}: el slug enviado '${ev.stepSlug ?? ''}' no coincide con el catálogo ('${catalogSlug}')`,
+      });
+    }
+  }
+
   const accepted = await tx(async (c) => {
     // El día es la única resolución de zona horaria del pipeline y se hace en
     // SQL a propósito: aritmética de TZ en JS corre un día en horario de
@@ -153,30 +183,6 @@ export async function applyBatch(funnel: Funnel, payload: IngestPayload): Promis
       [state.minAt!.toISOString(), funnel.timezone],
     );
     const day = dayRow.rows[0].day;
-
-    const steps = await listSteps(funnel.id);
-    const stepByIndex = new Map(steps.map((s) => [s.stepIndex, s.slug] as const));
-    for (const ev of payload.events) {
-      if (ev.name !== 'step_view' || typeof ev.stepIndex !== 'number') continue;
-      const catalogSlug = stepByIndex.get(ev.stepIndex);
-      if (catalogSlug === undefined) {
-        // Alguien agregó pasos y no actualizó el catálogo: grita, no falla
-        // (task T02 §5d). El evento se guarda igual.
-        warnings.push(`unknown_step:${ev.stepIndex}`);
-        errors.push({
-          reason: 'unknown_step',
-          detail: `step_index ${ev.stepIndex} no existe en el catálogo de '${funnel.slug}'`,
-        });
-      } else if (ev.stepSlug !== catalogSlug) {
-        // Cambiaron el orden de las preguntas y el catálogo quedó viejo: el
-        // embudo se mide por stepIndex, que es lo que se guarda.
-        warnings.push(`step_slug_mismatch:${ev.stepIndex}:${ev.stepSlug ?? ''}`);
-        errors.push({
-          reason: 'step_slug_mismatch',
-          detail: `step ${ev.stepIndex}: el slug enviado '${ev.stepSlug ?? ''}' no coincide con el catálogo ('${catalogSlug}')`,
-        });
-      }
-    }
 
     const utms = payload.context?.utms;
     const upsertRes = await c.query(SESSION_UPSERT_SQL, [

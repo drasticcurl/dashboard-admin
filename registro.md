@@ -10,6 +10,79 @@ Lo más nuevo va arriba. Las reglas de cómo se escribe una entrada están en
 
 ---
 
+## 2026-10-21 (2) — Panel caído 17 minutos: el ingest trababa el pool de Postgres
+
+**Qué pasaba.** El dueño, a las 0:49 (Lisboa): "se cayó el panel", con "Application
+error: a server-side exception has occurred … Digest: 4030774564". En
+`panel-3005.err`, desde las 00:34:15, unas 330 líneas por minuto de `Error: timeout
+exceeded when trying to connect` (pg-pool), del Resumen y de `[ingest] error
+inesperado`. En `pg_stat_activity`, las 10 conexiones del pool (`max: 10`) estaban
+`idle in transaction`, con la última query `SELECT ($1::timestamptz AT TIME ZONE
+$2)::date::text AS day`: la primera de la transacción de `applyBatch`.
+
+**Por qué.** Dentro de esa transacción, `listSteps` consulta con `q()`, o sea con
+OTRA conexión del pool: cada lote ocupaba dos. Con 10 lotes a la vez, los 10 tenían
+su transacción abierta y esperaban una undécima conexión que nadie soltaba; a los
+5 s (`connectionTimeoutMillis`) fallaban, y los lotes que ya esperaban en la cola
+volvían a ocupar las 10. Con ~5 lotes por segundo entrando, la traba se sostenía
+sola. El bug estaba desde el primer commit; hacía falta una ráfaga, y llegó con el
+tráfico de las campañas del 21/10.
+
+**Qué se hizo.**
+1. `pm2 restart panel-3005` a las 00:51: ni un timeout más, el pool volvió a `idle`
+   y el ingest volvió a guardar eventos.
+2. El catálogo de pasos se lee antes de abrir la transacción (`lib/ingest/apply.ts`).
+   Test nuevo, sin base (`lib/ingest/apply-pool.test.ts`): un pool simulado anota
+   toda consulta que le llegue con una transacción abierta. Falla con el código
+   anterior (`expected [ Array(1) ] to deeply equal []`) y pasa con el arreglo.
+   - Descartado subir `max`: corre el umbral de 10 lotes simultáneos a N, no saca
+     la traba.
+   - Descartado `idle_in_transaction_session_timeout` en Postgres: cambia la traba
+     por cortes, y mataría transacciones legítimas de scripts que procesan en JS
+     entre consultas.
+   - Las demás transacciones (`tx(`) no le piden al pool desde adentro; los
+     webhooks de ventas solo usan el cliente de la transacción.
+3. Ventas recuperadas. 8 cobros pagados entre las 00:34 y las 00:51 no estaban en
+   `orders`. El checkout se los manda a la app de Alma Gemela
+   (`/api/hilvapay-webhook`), que los registró en Meta y X pero no en el panel ("el
+   panel no registró …: error:The operation was aborted due to timeout"), y no
+   reintenta: al checkout le contesta 200 igual. Se cargaron con
+   `upsertOrderCheckoutPropio` (el camino del webhook, sin el push) desde los
+   payloads del log de esa app: ids 22452–22459, siete de 11.790 ARS y un upsell de
+   13.790 ARS con la atribución completada del retrato, €56,13 en el funnel 5. Mismo
+   `amount_eur`, comisión y campaña que una venta normal de ese rato (22447).
+   - Descartado reenviar desde el checkout: la app volvería a mandar el email del
+     retrato y los eventos de CAPI.
+
+**Qué se perdió.** Los eventos del embudo de esos 17 minutos: almagemela guardó 471
+contra ~4.275 en los 16 minutos anteriores, y lo mismo astratarot y
+almagemela-latam. El ingest le contesta 200 `{ok:false}` al funnel y el funnel no
+reintenta: las sesiones de ese rato quedan subcontadas en el Embudo.
+
+**Pendiente.**
+- Deploy del arreglo. Hasta entonces la traba puede volver con otra ráfaga; se
+  destraba con `pm2 restart panel-3005`.
+- La app de Alma Gemela no reintenta cuando el panel no le contesta: una caída del
+  panel le hace perder ventas en silencio (es otro repo).
+
+---
+
+## 2026-10-21 — Campaña «21/10 CBO AG LATAM» de HIlvanapp → Alma Gemela · Quiz LA (dato de producción)
+
+**Pedido.** "Atribuime la campaña 21/10 CBO AG LATAM a almagemela quiz la."
+
+**Qué se hizo.** La campaña `120250047514120617` (`act_2501344510302910`, un conjunto
+`21/10 CBO AG CONJUNTO 1`, creada el 20/10 a las 23:25 de Lisboa) → `almagemela-latam`
+(funnel 10) en `ad_campaign_funnel`, con nota. Es la primera campaña mapeada a ese
+funnel: hasta ahora ninguna cuenta ni campaña le imputaba gasto. Todavía no había
+gastado: 0 filas de `ad_spend` para reimputar y no hizo falta rollup. El gasto que
+entre desde ahora cae en el funnel 10 por la cascada del sync (`lib/ads/sync.ts`).
+
+**Por qué no lo hace el cron.** `asignar-campanas-por-nombre.ts` sólo tiene la regla
+«arroz» y no toca campañas ya mapeadas, así que esta asignación no se pisa.
+
+---
+
 ## 2026-10-15 (2) — Anuncios: «sin atribuir» ya no cuenta ventas de campañas de otra cuenta
 
 **Pedido.** "Están cayendo las compras con los UTM y las campañas no lo están
