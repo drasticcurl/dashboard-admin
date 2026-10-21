@@ -409,10 +409,71 @@ export async function listAccounts(): Promise<MetaAccount[]> {
   }));
 }
 
+const CAMPOS_GASTO = [
+  'spend',
+  'impressions',
+  'clicks',
+  'campaign_id',
+  'campaign_name',
+  'adset_id',
+  'adset_name',
+  'ad_id',
+  'ad_name',
+];
+
+// Metricas_Creativo de video (R7 c10). La task 12.1 confirma contra
+// META_API_VERSION cuáles responden.
+const CAMPOS_VIDEO = [
+  'video_play_actions',
+  'video_thruplay_watched_actions',
+  'video_p25_watched_actions',
+  'video_p50_watched_actions',
+  'video_p75_watched_actions',
+  'video_p100_watched_actions',
+];
+
 /**
- * Gasto por anuncio y por día para un rango. Sigue la paginación de Meta hasta
- * el final: sin eso, una cuenta con muchos anuncios devuelve solo la primera
- * página y el gasto queda corto sin ningún error visible.
+ * Todas las filas de `/insights` a nivel anuncio y por día para un rango. Sigue
+ * la paginación hasta el final: sin eso, una cuenta con muchos anuncios devuelve
+ * solo la primera página y el gasto queda corto sin ningún error visible.
+ */
+async function filasDeInsights(
+  accountId: string,
+  since: string,
+  until: string,
+  campos: string[],
+): Promise<Record<string, unknown>[]> {
+  const timeRange = encodeURIComponent(JSON.stringify({ since, until }));
+  let url: string | null =
+    `${BASE}/${accountId}/insights` +
+    `?level=ad&time_increment=1&fields=${campos.join(',')}` +
+    `&time_range=${timeRange}&limit=500`;
+
+  const out: Record<string, unknown>[] = [];
+  let vueltas = 0;
+  while (url) {
+    if (++vueltas > 100) {
+      throw new MetaAdsError('la paginación de Meta no terminó después de 100 páginas');
+    }
+    const d: Pagina<Record<string, unknown>> = await pedir<
+      Pagina<Record<string, unknown>>
+    >(url, accountId);
+    out.push(...(d.data ?? []));
+    url = d.paging?.next ? limpiarCursor(d.paging.next) : null;
+  }
+  return out;
+}
+
+/**
+ * Gasto por anuncio y por día para un rango, con las métricas de video.
+ *
+ * El gasto y el video van en DOS llamadas, y no en una como antes (R7 c10). Desde
+ * el 2026-10-21, entre las 07:07 y las 08:07 del server, Meta devuelve el gasto en
+ * 0 para parte de los anuncios cuando una misma llamada pide el gasto y el video
+ * para un rango de más de un día: HIlvanapp, 20/10–21/10, daba €830 con video y
+ * €2.067 sin video, en las mismas 89 filas. Por separado las dos dan bien, con
+ * cualquier rango. El gasto decide las reglas automáticas: no puede depender de lo
+ * que Meta haga con un campo de video (registro.md, 2026-10-21 (3)).
  */
 export async function fetchInsights(
   accountId: string,
@@ -425,79 +486,49 @@ export async function fetchInsights(
    */
   soloBasico = false,
 ): Promise<MetaInsightRow[]> {
-  const camposVideo = soloBasico
-    ? []
-    : [
-        // Metricas_Creativo de video: entran en la MISMA llamada que el gasto
-        // (R7 c10). La cantidad de llamadas por cuenta y por rango sigue siendo
-        // una por página, con el tope de 100 páginas, independiente de la
-        // cantidad de anuncios. La task 12.1 confirma contra META_API_VERSION
-        // cuáles responden.
-        'video_play_actions',
-        'video_thruplay_watched_actions',
-        'video_p25_watched_actions',
-        'video_p50_watched_actions',
-        'video_p75_watched_actions',
-        'video_p100_watched_actions',
-      ];
-  const fields = [
-    'spend',
-    'impressions',
-    'clicks',
-    'campaign_id',
-    'campaign_name',
-    'adset_id',
-    'adset_name',
-    'ad_id',
-    'ad_name',
-    ...camposVideo,
-  ].join(',');
-  const timeRange = encodeURIComponent(JSON.stringify({ since, until }));
+  const gasto: MetaInsightRow[] = (await filasDeInsights(accountId, since, until, CAMPOS_GASTO)).map((r) => {
+    // `spend` viene como string y puede faltar si el anuncio no gastó ese día.
+    const spend = Number(r.spend ?? 0);
+    return {
+      date: typeof r.date_start === 'string' ? r.date_start : since,
+      accountId,
+      campaignId: typeof r.campaign_id === 'string' ? r.campaign_id : '',
+      campaignName: typeof r.campaign_name === 'string' ? r.campaign_name : null,
+      adsetId: typeof r.adset_id === 'string' ? r.adset_id : '',
+      adsetName: typeof r.adset_name === 'string' ? r.adset_name : null,
+      adId: typeof r.ad_id === 'string' ? r.ad_id : '',
+      adName: typeof r.ad_name === 'string' ? r.ad_name : null,
+      spend: Number.isFinite(spend) ? spend : 0,
+      impressions: Number(r.impressions ?? 0) || 0,
+      clicks: Number(r.clicks ?? 0) || 0,
+      videoReproducciones: null,
+      videoThruplay: null,
+      videoP25: null,
+      videoP50: null,
+      videoP75: null,
+      videoP100: null,
+    };
+  });
+  if (soloBasico) return gasto;
 
-  const urlInicial =
-    `${BASE}/${accountId}/insights` +
-    `?level=ad&time_increment=1&fields=${fields}` +
-    `&time_range=${timeRange}&limit=500`;
-
-  const out: MetaInsightRow[] = [];
-  let url: string | null = urlInicial;
-  let vueltas = 0;
-
-  while (url) {
-    if (++vueltas > 100) {
-      throw new MetaAdsError('la paginación de Meta no terminó después de 100 páginas');
-    }
-    const d: Pagina<Record<string, unknown>> = await pedir<
-      Pagina<Record<string, unknown>>
-    >(url, accountId);
-
-    for (const r of d.data ?? []) {
-      // `spend` viene como string y puede faltar si el anuncio no gastó ese día.
-      const spend = Number(r.spend ?? 0);
-      out.push({
-        date: typeof r.date_start === 'string' ? r.date_start : since,
-        accountId,
-        campaignId: typeof r.campaign_id === 'string' ? r.campaign_id : '',
-        campaignName: typeof r.campaign_name === 'string' ? r.campaign_name : null,
-        adsetId: typeof r.adset_id === 'string' ? r.adset_id : '',
-        adsetName: typeof r.adset_name === 'string' ? r.adset_name : null,
-        adId: typeof r.ad_id === 'string' ? r.ad_id : '',
-        adName: typeof r.ad_name === 'string' ? r.ad_name : null,
-        spend: Number.isFinite(spend) ? spend : 0,
-        impressions: Number(r.impressions ?? 0) || 0,
-        clicks: Number(r.clicks ?? 0) || 0,
-        videoReproducciones: sumarAcciones(r.video_play_actions),
-        videoThruplay: sumarAcciones(r.video_thruplay_watched_actions),
-        videoP25: sumarAcciones(r.video_p25_watched_actions),
-        videoP50: sumarAcciones(r.video_p50_watched_actions),
-        videoP75: sumarAcciones(r.video_p75_watched_actions),
-        videoP100: sumarAcciones(r.video_p100_watched_actions),
-      });
-    }
-    url = d.paging?.next ? limpiarCursor(d.paging.next) : null;
+  // Un anuncio sin fila de video queda con el video en NULL: es "la API no
+  // devolvió el campo", igual que cuando venía en la misma llamada.
+  const video = new Map<string, Record<string, unknown>>();
+  for (const r of await filasDeInsights(accountId, since, until, ['ad_id', ...CAMPOS_VIDEO])) {
+    video.set(`${String(r.ad_id)}|${String(r.date_start)}`, r);
   }
-
-  return out;
+  return gasto.map((g) => {
+    const v = video.get(`${g.adId}|${g.date}`);
+    return {
+      ...g,
+      videoReproducciones: sumarAcciones(v?.video_play_actions),
+      videoThruplay: sumarAcciones(v?.video_thruplay_watched_actions),
+      videoP25: sumarAcciones(v?.video_p25_watched_actions),
+      videoP50: sumarAcciones(v?.video_p50_watched_actions),
+      videoP75: sumarAcciones(v?.video_p75_watched_actions),
+      videoP100: sumarAcciones(v?.video_p100_watched_actions),
+    };
+  });
 }
 
 /**

@@ -10,7 +10,52 @@ Lo más nuevo va arriba. Las reglas de cómo se escribe una entrada están en
 
 ---
 
-## 2026-10-21 (2) — Panel caído 17 minutos: el ingest trababa el pool de Postgres
+## 2026-10-21 (3) — Gasto de Meta: el gasto y el video en llamadas separadas
+
+**Qué pasaba.** El dueño, a la mañana: "no se ve el gasto publicitario de ayer ni de
+hoy". En `ad_spend`, HIlvanapp tenía €532 el 20/10 y €297 el 21/10, contra €1.408 y
+€659 que Meta reporta para la cuenta; Tarot, €0,70 contra €68,15 el 20/10. El 19/10
+coincidía al centavo. No faltaban filas: el sync traía las 89 que tiene Meta, pero
+con el gasto en 0 en parte de ellas (un anuncio de «14/10 alma gemela zurak - Copia»:
+€128,43 en Meta, 0 en el panel).
+
+**Por qué.** Cambió la respuesta de Meta. `fetchInsights` pedía el gasto y las
+métricas de video en la misma llamada, con `time_increment=1` para el rango del sync
+(ayer y hoy). Con esa combinación Meta devuelve el gasto en 0 para parte de los
+anuncios: HIlvanapp 20/10–21/10, €830,36 con los campos de video y €2.066,93 sin
+ellos; 19/10–20/10, €1.466 contra €3.187. Con un solo día da bien, sin los campos de
+video da bien con cualquier rango, y una llamada con solo `ad_id` y video también da
+bien con dos días (207.610 reproducciones el 20/10 en las tres variantes). En
+`ads.log` el total de HIlvanapp crecía normal hasta la corrida de las 07:07 del server
+(€2.035) y cayó a €825 en la de las 08:07. No vino del deploy de las 02:51 (c6ed029,
+solo el ingest): las cinco corridas siguientes trajeron bien el gasto, y la falla se
+reproduce contra Meta sin pasar por el panel.
+
+**Qué se hizo.** `fetchInsights` hace dos llamadas: gasto, impresiones y clics sin
+campos de video, y `ad_id` con el video aparte, unidas por anuncio y día. Un anuncio
+sin fila de video queda con el video en NULL ("no vino"), como antes. `soloBasico`
+sigue haciendo una sola llamada.
+- Descartado pedir de a un día con todo junto: hoy anda, pero el gasto seguiría
+  dependiendo de lo que Meta haga con un campo de video, y el gasto mueve las reglas
+  automáticas.
+- Descartado sacar el video: el hook rate y los thruplays de Anuncios salen de ahí.
+
+**Las reglas.** Las 23 reglas de HIlvanapp leen el gasto de `ad_spend`. Desde las
+08:00 corrieron 27 veces sin que ningún objeto cumpliera (0 acciones): no escalaron
+nada con el gasto en 0, pero tampoco podían apagar conjuntos que perdían plata.
+
+**Qué se verificó.** Tests nuevos en `meta.test.ts`: el gasto nunca viaja en la
+llamada con video, el video se une por anuncio y día, y `soloBasico` hace una sola
+llamada. La función nueva contra Meta, en lectura: HIlvanapp €1.408,05 el 20/10 y
+€659,58 el 21/10, Tarot €68,15 el 20/10, y las mismas reproducciones que la llamada de
+un día. Los tests de `sync.*.test.ts` reemplazan `fetchInsights` por un mock (y
+necesitan Postgres): este cambio no los toca.
+
+**Pendiente.** Deploy, y después el sync de 20/10–21/10 para pisar las filas en 0.
+
+---
+
+## 2026-10-21 (2) — Panel caído 17 minutos: el ingest trababa el pool de Postgres (c6ed029)
 
 **Qué pasaba.** El dueño, a las 0:49 (Lisboa): "se cayó el panel", con "Application
 error: a server-side exception has occurred … Digest: 4030774564". En
@@ -59,9 +104,12 @@ contra ~4.275 en los 16 minutos anteriores, y lo mismo astratarot y
 almagemela-latam. El ingest le contesta 200 `{ok:false}` al funnel y el funnel no
 reintenta: las sesiones de ese rato quedan subcontadas en el Embudo.
 
+**Deploy.** Release `20261021024247` (02:51 del server, `main @ c6ed029`), con los
+tests (1.427 pasan, 441 saltados por falta de base) y el build corridos antes sobre
+ese commit en un worktree aparte. Después del deploy: 0 errores en `ingest_errors`
+y los eventos entrando.
+
 **Pendiente.**
-- Deploy del arreglo. Hasta entonces la traba puede volver con otra ráfaga; se
-  destraba con `pm2 restart panel-3005`.
 - La app de Alma Gemela no reintenta cuando el panel no le contesta: una caída del
   panel le hace perder ventas en silencio (es otro repo).
 

@@ -6,6 +6,7 @@ import {
   fetchAlcance,
   fetchCampaigns,
   fetchDsaConjuntos,
+  fetchInsights,
   fetchObjeto,
   postForm,
   reiniciarContador,
@@ -308,5 +309,68 @@ describe('meta: las llamadas nuevas (alcance, DSA, postForm) respetan D-A3 y la 
     expect(cuerpo?.error?.code).toBe(100);
     expect(cuerpo?.error?.error_subcode).toBe(3858079);
     expect(contadorLlamadas().total).toBe(1);
+  });
+});
+
+describe('meta: fetchInsights pide el gasto y el video por separado (registro.md, 2026-10-21 (3))', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  // Desde el 2026-10-21 Meta devuelve el gasto en 0 para parte de los anuncios si
+  // una misma llamada pide gasto y video para más de un día. El gasto no puede
+  // viajar nunca en la llamada que lleva campos de video.
+  const GASTO = {
+    data: [
+      { ad_id: 'A1', date_start: '2026-10-20', spend: '128.43', impressions: '26962', clicks: '50', campaign_id: 'C1', adset_id: 'S1' },
+      { ad_id: 'A2', date_start: '2026-10-21', spend: '4.65', impressions: '1962', clicks: '3', campaign_id: 'C1', adset_id: 'S1' },
+    ],
+  };
+  const VIDEO = {
+    data: [
+      {
+        ad_id: 'A1',
+        date_start: '2026-10-20',
+        video_play_actions: [{ action_type: 'video_view', value: '100' }],
+        video_thruplay_watched_actions: [{ action_type: 'video_view', value: '10' }],
+      },
+    ],
+  };
+  const parametros = (url: string) => new URL(url).searchParams;
+
+  it('el gasto sale de una llamada sin video y el video de otra, unidos por anuncio y día', async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string) =>
+      jsonResponse(parametros(url).get('fields')!.includes('video_') ? VIDEO : GASTO),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const filas = await fetchInsights('act_1', '2026-10-20', '2026-10-21');
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const [urlGasto, urlVideo] = fetchMock.mock.calls.map((c) => String(c[0]));
+    expect(parametros(urlGasto!).get('fields')).not.toMatch(/video_/);
+    expect(parametros(urlVideo!).get('fields')).not.toMatch(/spend|impressions|clicks/);
+    for (const u of [urlGasto!, urlVideo!]) {
+      expect(JSON.parse(parametros(u).get('time_range')!)).toEqual({ since: '2026-10-20', until: '2026-10-21' });
+    }
+
+    expect(filas).toHaveLength(2);
+    const a1 = filas.find((f) => f.adId === 'A1')!;
+    expect(a1).toMatchObject({ date: '2026-10-20', spend: 128.43, impressions: 26962, clicks: 50, videoReproducciones: 100, videoThruplay: 10 });
+    // Campo que la fila de video no trajo: NULL ("no vino"), no 0.
+    expect(a1.videoP25).toBeNull();
+    const a2 = filas.find((f) => f.adId === 'A2')!;
+    expect(a2.spend).toBe(4.65);
+    expect(a2.videoReproducciones).toBeNull();
+  });
+
+  it('soloBasico hace una sola llamada, sin video, y deja el video en NULL', async () => {
+    const fetchMock = vi.fn().mockImplementation(() => jsonResponse(GASTO));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const filas = await fetchInsights('act_1', '2026-10-20', '2026-10-21', true);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(parametros(String(fetchMock.mock.calls[0]![0])).get('fields')).not.toMatch(/video_/);
+    expect(filas.map((f) => f.spend)).toEqual([128.43, 4.65]);
+    expect(filas.every((f) => f.videoReproducciones === null && f.videoThruplay === null)).toBe(true);
   });
 });
