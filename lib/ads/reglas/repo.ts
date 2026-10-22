@@ -13,7 +13,7 @@
 
 import { q, q1 } from '../../db';
 import { TZ_DEFAULT } from '../zona';
-import type { Condicion, NivelAds, Regla } from '../tipos';
+import type { Condicion, MetricasObjeto, NivelAds, Regla } from '../tipos';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Reglas y condiciones
@@ -125,6 +125,50 @@ export async function reglaPorId(
       op: c.op as Condicion['op'],
       value: Number(c.value),
     })),
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Nombres de los padres (filtro por nombre)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type NombresDePadres = { campanias: Map<string, string>; conjuntos: Map<string, string> };
+
+/**
+ * Los nombres de las campañas y los conjuntos padres de estas filas, para el
+ * filtro por nombre de la regla, que también mira a los padres
+ * (`pasaFiltroDeNombre`). Las filas de métricas traen los ids de los padres
+ * pero no sus nombres. Dos consultas en lote, no una por objeto; sin ids no se
+ * consulta nada. Un id que no está en la jerarquía queda sin nombre.
+ */
+export async function nombresDePadres(
+  filas: readonly Pick<MetricasObjeto, 'level' | 'campaignId' | 'adsetId'>[],
+): Promise<NombresDePadres> {
+  const idsCampanias = Array.from(
+    new Set(filas.filter((f) => f.level !== 'campaign' && f.campaignId !== '').map((f) => f.campaignId)),
+  );
+  const idsConjuntos = Array.from(
+    new Set(filas.filter((f) => f.level === 'ad' && f.adsetId !== '').map((f) => f.adsetId)),
+  );
+  type FilaNombre = { id: string; name: string };
+  const sinFilas: Promise<FilaNombre[]> = Promise.resolve([]);
+  const [campanias, conjuntos] = await Promise.all([
+    idsCampanias.length === 0
+      ? sinFilas
+      : q<FilaNombre>(
+          `SELECT campaign_id AS id, name FROM ad_campaigns WHERE campaign_id = ANY($1) AND name IS NOT NULL`,
+          [idsCampanias],
+        ),
+    idsConjuntos.length === 0
+      ? sinFilas
+      : q<FilaNombre>(
+          `SELECT adset_id AS id, name FROM ad_sets WHERE adset_id = ANY($1) AND name IS NOT NULL`,
+          [idsConjuntos],
+        ),
+  ]);
+  return {
+    campanias: new Map(campanias.map((c) => [c.id, c.name])),
+    conjuntos: new Map(conjuntos.map((c) => [c.id, c.name])),
   };
 }
 

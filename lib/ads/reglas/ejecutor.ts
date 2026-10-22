@@ -15,7 +15,7 @@
 import { enviar, fetchMinimoPresupuesto, fetchObjeto, MetaAdsError } from '../meta';
 import { getMetricasAds } from '../../queries/ads';
 import { horaLocalEn } from '../zona';
-import { debeCorrer, evaluar } from './motor';
+import { debeCorrer, evaluar, pasaFiltroDeNombre } from './motor';
 import { explicar, formatearEur } from './explicacion';
 import { acumuladorDe, aplicarDelta, crearAcumuladores, type AcumuladorDelta } from './acumuladores';
 import * as repo from './repo';
@@ -143,14 +143,15 @@ export async function correrRegla(
     return resultado;
   }
 
-  // 5. filtro por nombre según nameFilterMode (por si getMetricasAds no lo hizo).
+  // 5. filtro por nombre según nameFilterMode. Mira el nombre del objeto Y los
+  //    de sus padres (pasaFiltroDeNombre): «no contiene CBO» en una regla de
+  //    conjuntos deja afuera también a los conjuntos de una campaña «… CBO …».
+  //    Por eso no se le pasa a getMetricasAds, cuyo `nombre` mira sólo el del
+  //    objeto. Los nombres de los padres se buscan sólo si la regla filtra.
   let filas = metricas.filas;
   if (regla.nameFilter) {
-    const q = regla.nameFilter.toLowerCase();
-    filas = filas.filter((f) => {
-      const nombre = (f.objectName ?? '').toLowerCase();
-      return regla.nameFilterMode === 'not_contains' ? !nombre.includes(q) : nombre.includes(q);
-    });
+    const padres = await repo.nombresDePadres(filas);
+    filas = filas.filter((f) => pasaFiltroDeNombre(regla, nombresDeLaFila(f, padres)));
   }
 
   // Mínimo de presupuesto por cuenta (sólo para reglas de presupuesto). null =
@@ -456,6 +457,14 @@ export async function reconciliar(): Promise<{
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
+
+/** Los nombres que mira el filtro por nombre: el del objeto y los de sus padres. */
+function nombresDeLaFila(fila: MetricasObjeto, padres: repo.NombresDePadres): (string | null)[] {
+  if (fila.level === 'campaign') return [fila.objectName];
+  const campania = padres.campanias.get(fila.campaignId) ?? null;
+  if (fila.level === 'adset') return [fila.objectName, campania];
+  return [fila.objectName, padres.conjuntos.get(fila.adsetId) ?? null, campania];
+}
 
 function metricsBase(fila: MetricasObjeto): Record<string, number | null> {
   return {

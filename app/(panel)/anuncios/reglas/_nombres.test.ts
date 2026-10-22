@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import fc from 'fast-check';
-import { nombreDeCopia } from './_nombres';
+import { fraseFiltroNombre, nombreDeCopia } from './_nombres';
 import { agruparReglas, aplicadoA, problema } from './ReglasView';
 import type { ReglaFila } from './_tipos';
 import { formBase } from './_formBase';
@@ -102,6 +102,37 @@ describe('problema y aplicadoA (task 9.6)', () => {
     expect(dos).toContain('HIlvanapp');
     expect(dos).toContain('Protocolo reset');
     expect(dos).not.toMatch(/\d+ cuentas/);
+  });
+
+  it('aplicadoA muestra el filtro por nombre, así «sin CBO» se ve en la lista', () => {
+    const cuentas = [{ accountId: 'act_a', name: 'HIlvanapp', timezone: 'Europe/Lisbon' }];
+    const base = { accountIds: ['act_a'], level: 'adset' as const, statusFilter: 'active' as const };
+    expect(aplicadoA({ ...base, nameFilter: 'CBO', nameFilterMode: 'not_contains' }, cuentas)).toBe(
+      'Conjuntos activos sin «CBO» · HIlvanapp · Europe/Lisbon',
+    );
+    expect(aplicadoA({ ...base, nameFilter: 'PXN', nameFilterMode: 'contains' }, cuentas)).toBe(
+      'Conjuntos activos con «PXN» · HIlvanapp · Europe/Lisbon',
+    );
+    expect(aplicadoA({ ...base, nameFilter: null, nameFilterMode: 'not_contains' }, cuentas)).toBe(
+      'Conjuntos activos · HIlvanapp · Europe/Lisbon',
+    );
+  });
+});
+
+describe('fraseFiltroNombre', () => {
+  it('nombra a los padres que el motor también mira', () => {
+    expect(fraseFiltroNombre('adset', 'not_contains', 'CBO')).toBe('sin «CBO» en su nombre ni en el de su campaña');
+    expect(fraseFiltroNombre('adset', 'contains', 'PXN')).toBe('con «PXN» en su nombre o en el de su campaña');
+    expect(fraseFiltroNombre('ad', 'not_contains', 'CBO')).toBe(
+      'sin «CBO» en su nombre, ni en el de su conjunto ni en el de su campaña',
+    );
+    expect(fraseFiltroNombre('campaign', 'not_contains', 'CBO')).toBe('sin «CBO» en el nombre');
+  });
+
+  it('sin texto no hay frase, y el texto va sin los espacios de los bordes', () => {
+    expect(fraseFiltroNombre('adset', 'not_contains', '   ')).toBe('');
+    expect(fraseFiltroNombre('adset', 'contains', null)).toBe('');
+    expect(fraseFiltroNombre('campaign', 'contains', ' PXN ')).toBe('con «PXN» en el nombre');
   });
 });
 

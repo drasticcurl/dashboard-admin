@@ -748,6 +748,7 @@ export type ReglaParaExportar = Pick<
   | 'level'
   | 'statusFilter'
   | 'nameFilter'
+  | 'nameFilterMode'
   | 'action'
   | 'actionValue'
   | 'actionUnit'
@@ -806,7 +807,10 @@ export function exportarCsvUtmify(reglas: readonly ReglaParaExportar[]): string 
     const campos: Record<(typeof COLUMNAS_UTMIFY)[number], string> = {
       adPlatform: 'Meta',
       name: r.name,
-      nameContains: r.nameFilter ?? '',
+      // UTMify sólo tiene «contiene»: un «no contiene CBO» escrito acá volvería
+      // como «contiene CBO», o sea la regla al revés. Se exporta sin filtro y
+      // `avisosDeExport` lo dice.
+      nameContains: r.nameFilterMode === 'not_contains' ? '' : r.nameFilter ?? '',
       applyTo: APLICAR_A_INVERSO[`${r.level}|${r.statusFilter}`] ?? '',
       actionType: ACCION_INVERSA[r.action],
       actionFixedCentsInfo: fijo,
@@ -841,6 +845,11 @@ export function avisosDeExport(reglas: readonly ReglaParaExportar[]): string[] {
   avisos.push(
     'El formato de UTMify no tiene columnas para el estado (prendida/apagada), el modo simulación, el cooldown ni el tope de acciones por objeto: eso no viaja en el archivo.',
   );
+  if (reglas.some((r) => r.nameFilter && r.nameFilterMode === 'not_contains')) {
+    avisos.push(
+      'Alguna regla filtra por «no contiene» y UTMify sólo tiene «contiene»: se exportó sin filtro de nombre, así que al reimportarla también va a alcanzar lo que hoy deja afuera.',
+    );
+  }
   if (reglas.some((r) => r.period === '7d')) {
     avisos.push(
       'Alguna regla usa «7 días» y UTMify sólo tiene «LastSevenDays»: al reimportar va a quedar como «7 días sin hoy».',

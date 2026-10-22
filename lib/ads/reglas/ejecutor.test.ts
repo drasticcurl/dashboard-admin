@@ -333,6 +333,80 @@ describe.skipIf(!dbAvailable)('ejecutor (integración)', () => {
     expect(filaRegla?.last_run_error).toContain(CUENTA_INACTIVA);
   });
 
+  /** Una campaña «… CBO …» con un conjunto que no lo dice, y una campaña normal. */
+  const CAMP_CBO = `${PREFIJO}camp-cbo`;
+  const CAMP_NORMAL = `${PREFIJO}camp-normal`;
+  const SET_CBO = `${PREFIJO}set-cbo`;
+  async function sembrarJerarquiaCbo() {
+    await q(
+      `INSERT INTO ad_campaigns (campaign_id, account_id, name)
+       VALUES ($1, $3, 'LA MALDITA CBO MADRE'), ($2, $3, 'LATAM 14/09')
+       ON CONFLICT (campaign_id) DO NOTHING`,
+      [CAMP_CBO, CAMP_NORMAL, CUENTA_ACTIVA],
+    );
+    await q(
+      `INSERT INTO ad_sets (adset_id, campaign_id, account_id, name)
+       VALUES ($1, $2, $3, '21/10 CBO conjunto')
+       ON CONFLICT (adset_id) DO NOTHING`,
+      [SET_CBO, CAMP_NORMAL, CUENTA_ACTIVA],
+    );
+  }
+
+  it('«no contiene CBO» saltea al conjunto que lo dice y a los de una campaña que lo dice', async (ctx) => {
+    if (!(await requiereEsquema021(ctx))) return;
+    await q(`UPDATE settings SET value = 'true'::jsonb WHERE key = 'ads_rules_enabled'`);
+    await sembrarJerarquiaCbo();
+    const base = await crearRegla(true, 'pause', [{ metric: 'spend', op: '>', value: 10 }]);
+    const filas = [
+      // Su nombre no dice CBO, pero su campaña sí: es el caso que se escapaba.
+      filaTest({ objectId: `${PREFIJO}en-cbo`, objectName: '14/10 conjunto 1', campaignId: CAMP_CBO }),
+      filaTest({ objectId: `${PREFIJO}dice-cbo`, objectName: '21/10 CBO AG CONJUNTO 1 - Copia', campaignId: CAMP_NORMAL }),
+      filaTest({ objectId: `${PREFIJO}normal`, objectName: '15/10 conjunto 2', campaignId: CAMP_NORMAL }),
+      // Campaña que no está en la jerarquía: se juzga por su propio nombre.
+      filaTest({ objectId: `${PREFIJO}huerfano`, objectName: 'conjunto huérfano', campaignId: `${PREFIJO}camp-no-existe` }),
+    ];
+    mockMetricas.mockResolvedValue(resultadoMetricas(filas));
+
+    const sinCbo = { ...base, regla: { ...base.regla, nameFilter: 'CBO', nameFilterMode: 'not_contains' as const } };
+    const res = await correrRegla(sinCbo, { ahora: new Date('2026-08-12T12:00:00Z') });
+    expect(res.objetosEvaluados).toBe(2);
+    const tocados = await q<{ object_id: string }>(
+      `SELECT object_id FROM ad_actions WHERE run_id = $1 ORDER BY object_id`,
+      [res.runId],
+    );
+    expect(tocados.map((t) => t.object_id)).toEqual([`${PREFIJO}huerfano`, `${PREFIJO}normal`]);
+
+    // Y al revés: «contiene CBO» alcanza justo a los otros dos. Otra regla: la
+    // primera acaba de correr y la cadencia no la dejaría correr de nuevo.
+    const base2 = await crearRegla(true, 'pause', [{ metric: 'spend', op: '>', value: 10 }]);
+    const conCbo = { ...base2, regla: { ...base2.regla, nameFilter: 'cbo', nameFilterMode: 'contains' as const } };
+    const res2 = await correrRegla(conCbo, { ahora: new Date('2026-08-12T12:00:00Z') });
+    expect(res2.objetosEvaluados).toBe(2);
+    const tocados2 = await q<{ object_id: string }>(
+      `SELECT object_id FROM ad_actions WHERE run_id = $1 ORDER BY object_id`,
+      [res2.runId],
+    );
+    expect(tocados2.map((t) => t.object_id)).toEqual([`${PREFIJO}dice-cbo`, `${PREFIJO}en-cbo`]);
+  });
+
+  it('a nivel anuncio el filtro también mira el nombre del conjunto', async (ctx) => {
+    if (!(await requiereEsquema021(ctx))) return;
+    await q(`UPDATE settings SET value = 'true'::jsonb WHERE key = 'ads_rules_enabled'`);
+    await sembrarJerarquiaCbo();
+    const base = await crearRegla(true, 'pause', [{ metric: 'spend', op: '>', value: 10 }]);
+    const anuncio = (id: string, adsetId: string) =>
+      filaTest({ level: 'ad', objectId: id, adId: id, objectName: 'video 3', campaignId: CAMP_NORMAL, adsetId });
+    mockMetricas.mockResolvedValue(
+      resultadoMetricas([anuncio(`${PREFIJO}ad-en-set-cbo`, SET_CBO), anuncio(`${PREFIJO}ad-suelto`, `${PREFIJO}set-no-existe`)]),
+    );
+
+    const sinCbo = { ...base, regla: { ...base.regla, level: 'ad' as const, nameFilter: 'CBO', nameFilterMode: 'not_contains' as const } };
+    const res = await correrRegla(sinCbo, { ahora: new Date('2026-08-12T12:00:00Z') });
+    expect(res.objetosEvaluados).toBe(1);
+    const tocados = await q<{ object_id: string }>(`SELECT object_id FROM ad_actions WHERE run_id = $1`, [res.runId]);
+    expect(tocados.map((t) => t.object_id)).toEqual([`${PREFIJO}ad-suelto`]);
+  });
+
   it('una Corrida sobre 500 filas de métricas resuelve la zona UNA sola vez', async (ctx) => {
     if (!(await requiereEsquema021(ctx))) return;
     await q(`UPDATE settings SET value = 'true'::jsonb WHERE key = 'ads_rules_enabled'`);
@@ -360,18 +434,35 @@ describe.skipIf(!dbAvailable)('ejecutor (integración)', () => {
 
     // Feature: reglas-anuncios-por-cuenta, Property 3: Toda Corrida pide métricas
     // de exactamente una cuenta y no puede cerrar por zonas mezcladas
+    // Los nombres de los padres (para el filtro por nombre) los inventa la
+    // propiedad: sin nombre, otro nombre, o uno que dice el texto del filtro.
+    const modoPadre = fc.constantFrom('sin_nombre', 'otro', 'dice_el_filtro');
+    const spyPadres = vi.spyOn(repo, 'nombresDePadres');
+    ctx.onTestFinished(() => spyPadres.mockRestore());
     await fc.assert(
       fc.asyncProperty(
         fc.tuple(
           genRegla(),
-          fc.array(genMetricasObjeto(), { minLength: 0, maxLength: 30 }),
+          fc.array(fc.tuple(genMetricasObjeto(), modoPadre, modoPadre), { minLength: 0, maxLength: 30 }),
         ),
-        async ([base, filasBase]) => {
+        async ([base, conPadres]) => {
           // La cuenta que la Regla alcanza es la cuenta activa sembrada: el FK de
           // ad_rules exige que exista en ad_accounts, y la siembra por iteración
           // de una cuenta al azar pesaría el doble.
           const accountId = CUENTA_ACTIVA;
-          const filas = filasBase.map((f) => ({ ...f, accountId }));
+          const filas = conPadres.map(([f]) => ({ ...f, accountId }));
+          const nombre = (modo: string, id: string): string | null =>
+            modo === 'sin_nombre' ? null : modo === 'otro' ? `padre ${id}` : `padre ${base.nameFilter ?? ''} ${id}`;
+          const campanias = new Map<string, string>();
+          const conjuntos = new Map<string, string>();
+          for (const [f, modoCampania, modoConjunto] of conPadres) {
+            const c = nombre(modoCampania, f.campaignId);
+            const s = nombre(modoConjunto, f.adsetId);
+            if (c !== null) campanias.set(f.campaignId, c);
+            if (s !== null) conjuntos.set(f.adsetId, s);
+          }
+          spyPadres.mockClear();
+          spyPadres.mockResolvedValue({ campanias, conjuntos });
 
           // Frenos sin efecto y siempre prendida y en sombra: lo que varía de
           // forma interesante es el alcance y las filas.
@@ -436,13 +527,22 @@ describe.skipIf(!dbAvailable)('ejecutor (integración)', () => {
             expect(res.error).toBeNull();
 
             // 3. objetos_evaluados = filas que sobreviven los filtros de la Regla.
+            //    El filtro por nombre mira el del objeto y los de sus padres: la
+            //    campaña (salvo para una campaña) y el conjunto (para un anuncio).
             const sobreviven = filas.filter((f) => {
               if (!regla.nameFilter) return true;
               const q = regla.nameFilter.toLowerCase();
-              const nombre = (f.objectName ?? '').toLowerCase();
-              return regla.nameFilterMode === 'not_contains' ? !nombre.includes(q) : nombre.includes(q);
+              const nombres = [
+                f.objectName,
+                f.level !== 'campaign' ? campanias.get(f.campaignId) : undefined,
+                f.level === 'ad' ? conjuntos.get(f.adsetId) : undefined,
+              ];
+              const alguno = nombres.some((n) => n != null && n.toLowerCase().includes(q));
+              return regla.nameFilterMode === 'not_contains' ? !alguno : alguno;
             });
             expect(res.objetosEvaluados).toBe(sobreviven.length);
+            // Sin filtro no se buscan los nombres de los padres.
+            if (!regla.nameFilter) expect(spyPadres).not.toHaveBeenCalled();
 
             // 4. Toda fila de ad_actions con el account_id de la fila de métricas
             //    que la originó (no el de la Regla: hoy coinciden, mañana pueden no).

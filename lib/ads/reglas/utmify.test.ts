@@ -12,6 +12,7 @@ import { describe, expect, it } from 'vitest';
 import {
   COLUMNAS_UTMIFY,
   FRENOS_POR_DEFECTO,
+  avisosDeExport,
   exportarCsvUtmify,
   importarCsvUtmify,
   parsearCsv,
@@ -514,6 +515,17 @@ describe('exportarCsvUtmify', () => {
       expect(vuelta[i].level).toBe(importadas[i].level);
       expect(vuelta[i].statusFilter).toBe(importadas[i].statusFilter);
     }
+  });
+
+  it('«no contiene» no viaja como «contiene»: va sin filtro y con aviso', () => {
+    const sinCbo: ReglaParaExportar = { ...paraExportar[0], nameFilter: 'CBO', nameFilterMode: 'not_contains' };
+    const campos = parsearCsv(exportarCsvUtmify([sinCbo]))[1];
+    expect(campos[COLUMNAS_UTMIFY.indexOf('nameContains')]).toBe('');
+    expect(avisosDeExport([sinCbo]).some((a) => a.includes('no contiene'))).toBe(true);
+    // «contiene» sí viaja, y no avisa.
+    const conPxn: ReglaParaExportar = { ...paraExportar[0], nameFilter: 'PXN', nameFilterMode: 'contains' };
+    expect(parsearCsv(exportarCsvUtmify([conPxn]))[1][COLUMNAS_UTMIFY.indexOf('nameContains')]).toBe('PXN');
+    expect(avisosDeExport([conPxn]).some((a) => a.includes('no contiene'))).toBe(false);
   });
 
   it('un nombre con comas y comillas sobrevive el round-trip', () => {

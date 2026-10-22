@@ -10,6 +10,62 @@ Lo más nuevo va arriba. Las reglas de cómo se escribe una entrada están en
 
 ---
 
+## 2026-10-22 — Reglas: ninguna toca lo que dice «CBO», ni el conjunto ni su campaña
+
+**Qué pasaba.** El dueño: "que todas las reglas de surfeo no apliquen a las campañas
+ni conjuntos que digan CBO dentro del nombre". Ese día R04 («Apagar sin ventas
+gasto>4») pausó tres veces «21/10 CBO AG CONJUNTO 1 - Copia» (campaña «21/10 CBO AG
+LATAM», HIlvanapp): 16:29, 18:37 y 21:13 (Lisboa); el dueño lo reactivó a mano a las
+18:29 y a las 21:01. El 16 y el 17/10, R04 y R23 habían pausado los conjuntos de «LA
+MALDITA CBO MADRE» (Tarot astro), que se llaman «14/10 conjunto 1» y «15/10 conjunto
+2»: el nombre del conjunto no dice CBO, el de la campaña sí.
+
+**Qué se hizo.**
+- Datos, en producción a las 21:17 (Lisboa): las 68 filas de `ad_rules` (R01–R23 en
+  Gelxiin, HIlvanapp y Tarot astro) quedaron con `name_filter = 'CBO'` y
+  `name_filter_mode = 'not_contains'`. Ninguna regla filtraba por nombre. La foto de
+  antes está en `docs/backups/ad_rules-2026-10-22.csv` y la vuelta atrás en
+  `docs/backups/quitar-filtro-cbo-2026-10-22.sql`.
+- Código: el filtro por nombre mira también el nombre de los padres
+  (`pasaFiltroDeNombre` en `motor.ts`, `nombresDePadres` en `repo.ts`): la campaña de
+  un conjunto, y el conjunto y la campaña de un anuncio. 'contains' = alguno lo dice;
+  'not_contains' = ninguno. Sin filtro no se consulta nada de más.
+- A las 23 reglas y no sólo a las cinco que se llaman «Surf» (R06–R10): la que pausaba
+  los CBO era R04, y R01/R02 los reactivan. Las de presupuesto no podían tocar los
+  conjuntos de una CBO de verdad (el presupuesto vive en la campaña:
+  `sin_presupuesto_en_este_nivel`), pero sí los de campañas que se llaman CBO y son
+  ABO: «LATAM 14/09 TEST CBO» tiene conjuntos con presupuesto propio.
+- Descartado un filtro global en `settings`: alcanzaría a toda regla futura sin que se
+  vea en ella, e impediría una regla de campaña pensada justamente para las CBO.
+- Descartada una columna nueva de exclusión: era una migración para algo que el filtro
+  existente ya expresa, y ninguna regla lo usaba.
+- Descartado pasarle el filtro a `getMetricasAds` (`nombre`): mira sólo el nombre del
+  objeto.
+- El export a UTMify escribía `nameContains` sin mirar el modo, así que «no contiene
+  CBO» salía como «contiene CBO»: la regla al revés. Ahora sale sin filtro y con aviso.
+- Pantalla: debajo del campo dice que el filtro mira la campaña (y el conjunto, para
+  anuncios), el resumen y el aviso de «sin condiciones» lo nombran, y «Aplicado a»
+  muestra «sin «CBO»».
+
+**Qué se verificó.** `motor.test.ts`: los casos de este día y que «contiene» y «no
+contiene» son complementarios (propiedad). `ejecutor.test.ts` contra Postgres local:
+una campaña sembrada «LA MALDITA CBO MADRE» deja afuera a su conjunto «14/10 conjunto
+1»; a nivel anuncio cuenta el nombre del conjunto; la Property 3 ahora inventa nombres
+de padres. Con el ejecutor vuelto a mirar sólo el nombre propio, esos tres tests fallan.
+En un worktree limpio sobre c4ce557 (sin el trabajo del lanzador): 1833 tests pasan, 50
+salteados, ninguno falla, y `next build` compila. En producción, con el código viejo y
+los datos nuevos: la primera corrida de R04 después del cambio (21:29:31) evaluó 142
+objetos contra 144 de la anterior. Faltan «21/10 CBO AG CONJUNTO 1», el único conjunto
+CBO activo de HIlvanapp (afuera por el filtro), y «21/10 CBO AG CONJUNTO 1 - Copia»,
+que ya estaba pausado. Desde el cambio, cero acciones de reglas sobre algo que diga CBO.
+
+**Pendiente.** El deploy. Hasta entonces producción deja afuera sólo los conjuntos que
+dicen CBO en su propio nombre (hoy son todos los de HIlvanapp, la única cuenta con
+reglas prendidas), no los de una campaña CBO cuyo conjunto no lo dice. «21/10 CBO AG
+CONJUNTO 1 - Copia» quedó pausado por la R04 de las 21:13 y no se reactivó.
+
+---
+
 ## 2026-10-21 (3) — Gasto de Meta: el gasto y el video en llamadas separadas
 
 **Qué pasaba.** El dueño, a la mañana: "no se ve el gasto publicitario de ayer ni de

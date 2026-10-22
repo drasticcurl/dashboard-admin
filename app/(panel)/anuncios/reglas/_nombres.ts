@@ -5,6 +5,33 @@
  * para que los tests las importen sin arrastrar `pg`, recharts ni React.
  */
 
+import type { NivelAds, Regla } from '@/lib/ads/tipos';
+
+/**
+ * El filtro por nombre en castellano, para el resumen del formulario y el aviso
+ * de «sin condiciones». Nombra a los padres porque el motor también los mira
+ * (`pasaFiltroDeNombre` en lib/ads/reglas/motor.ts): una frase que hablara sólo
+ * del nombre del conjunto escondería que «no contiene CBO» deja afuera a todos
+ * los conjuntos de una campaña CBO. '' = sin filtro.
+ */
+export function fraseFiltroNombre(
+  level: NivelAds,
+  mode: Regla['nameFilterMode'],
+  filtro: string | null,
+): string {
+  const texto = (filtro ?? '').trim();
+  if (texto === '') return '';
+  const t = `«${texto}»`;
+  if (mode === 'contains') {
+    if (level === 'campaign') return `con ${t} en el nombre`;
+    if (level === 'adset') return `con ${t} en su nombre o en el de su campaña`;
+    return `con ${t} en su nombre, en el de su conjunto o en el de su campaña`;
+  }
+  if (level === 'campaign') return `sin ${t} en el nombre`;
+  if (level === 'adset') return `sin ${t} en su nombre ni en el de su campaña`;
+  return `sin ${t} en su nombre, ni en el de su conjunto ni en el de su campaña`;
+}
+
 /**
  * El nombre que propone «Duplicar». El único de `ad_rules` es `(account_id,
  * name)` (migración 021), así que la colisión sólo puede darse DENTRO de la

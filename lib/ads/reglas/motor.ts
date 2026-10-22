@@ -7,8 +7,9 @@
  * y `ejecutor.ts`. Sin esta separación, probar "qué pasa si el ROI es 1,29"
  * requeriría una cuenta de Meta.
  *
- * Dos funciones, las dos puras:
+ * Tres funciones, las tres puras:
  *  - `debeCorrer`: ¿le toca correr a esta regla ahora? Una vez por regla.
+ *  - `pasaFiltroDeNombre`: ¿este objeto entra en el alcance por su nombre?
  *  - `evaluar`: ¿qué se hace con este objeto? Una vez por objeto.
  */
 
@@ -80,6 +81,34 @@ export function dentroDeVentana(hora: string, start: string, end: string): boole
   const e = end.slice(0, 5);
   if (s <= e) return h >= s && h <= e;
   return h >= s || h <= e;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// pasaFiltroDeNombre
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * El filtro por nombre de la regla, sin distinguir mayúsculas. `nombres` es el
+ * nombre del objeto MÁS los de sus padres, que arma el ejecutor: la campaña de
+ * un conjunto; el conjunto y la campaña de un anuncio.
+ *
+ * Los padres cuentan por un pedido del usuario (2026-10-22): que las reglas no
+ * toquen las campañas ni los conjuntos que dicen «CBO». Los conjuntos de una
+ * campaña CBO no siempre lo dicen («LA MALDITA CBO MADRE» tiene «14/10 conjunto
+ * 1»), y mirando sólo el nombre del conjunto R04 los pausaba igual.
+ *
+ * 'contains' pasa si ALGUNO de los nombres contiene el texto y 'not_contains'
+ * si NINGUNO: son complementarios, un objeto pasa exactamente uno de los dos.
+ * Un nombre que no se conoce (null) no contiene nada.
+ */
+export function pasaFiltroDeNombre(
+  regla: Pick<Regla, 'nameFilter' | 'nameFilterMode'>,
+  nombres: readonly (string | null)[],
+): boolean {
+  if (!regla.nameFilter) return true;
+  const buscado = regla.nameFilter.toLowerCase();
+  const alguno = nombres.some((n) => n !== null && n.toLowerCase().includes(buscado));
+  return regla.nameFilterMode === 'not_contains' ? !alguno : alguno;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

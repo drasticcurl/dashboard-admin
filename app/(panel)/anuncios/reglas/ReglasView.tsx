@@ -27,7 +27,7 @@ import { Clock, Crosshair, DotsThreeVertical, Lightning, ListChecks, X } from '@
 import type { Condicion, NivelAds, PeriodoAds } from '@/lib/ads/tipos';
 import type { ResultadoCorrida } from '@/lib/ads/reglas/ejecutor';
 import type { CuentaAds, EstadoInterruptores, ReglaFila } from './_tipos';
-import { nombreDeCopia } from './_nombres';
+import { fraseFiltroNombre, nombreDeCopia } from './_nombres';
 import {
   motivoAlcanceInutil,
   motivoCondicionesImposibles,
@@ -872,14 +872,25 @@ export function problemaProgramacion(f: FormEstado): string | null {
  * desactivó después de que la regla se creara), queda el id como nombre.
  */
 export function aplicadoA(
-  r: { accountIds: readonly string[]; level: NivelAds; statusFilter: StatusFilter },
+  r: {
+    accountIds: readonly string[];
+    level: NivelAds;
+    statusFilter: StatusFilter;
+    nameFilter?: string | null;
+    nameFilterMode?: 'contains' | 'not_contains';
+  },
   cuentas: readonly CuentaAds[],
 ): string {
   const nombres = r.accountIds.map((id) => {
     const cuenta = cuentas.find((c) => c.accountId === id);
     return cuenta ? `${cuenta.name ?? cuenta.accountId} · ${cuenta.timezone}` : id;
   });
-  return `${NIVEL_LABEL[r.level]} ${STATUS_LABEL[r.statusFilter]} · ${nombres.join(', ')}`;
+  // El filtro por nombre va a la vista, corto: una regla que deja afuera lo que
+  // dice «CBO» se tiene que distinguir en la lista sin abrirla. La frase larga
+  // (que nombra a la campaña) está en el formulario.
+  const texto = (r.nameFilter ?? '').trim();
+  const filtro = texto === '' ? '' : ` ${r.nameFilterMode === 'not_contains' ? 'sin' : 'con'} «${texto}»`;
+  return `${NIVEL_LABEL[r.level]} ${STATUS_LABEL[r.statusFilter]}${filtro} · ${nombres.join(', ')}`;
 }
 
 /**
@@ -2030,9 +2041,8 @@ const TABS_FORM: readonly { id: TabForm; rotulo: string; Icono: typeof Crosshair
  * que se lee igual que lo que se eligió.
  */
 function resumenForm(f: FormEstado): string {
-  const filtro = f.nameFilter.trim()
-    ? ` que ${f.nameFilterMode === 'contains' ? 'contienen' : 'no contienen'} «${f.nameFilter.trim()}»`
-    : '';
+  const frase = fraseFiltroNombre(f.level, f.nameFilterMode, f.nameFilter);
+  const filtro = frase ? ` ${frase}` : '';
   const cond =
     f.conditions.length === 0
       ? 'sin condiciones (aplica a todos)'
@@ -2318,7 +2328,14 @@ function FormularioRegla({
           <label className="flex flex-col gap-1 text-xs text-neutral-500">
             Filtrar por nombre
             <input className={inputCls} value={f.nameFilter} onChange={(e) => set({ nameFilter: e.target.value })} placeholder="PXN" />
-            <span className="text-[11px] max-panel:text-xs text-neutral-600">Vacío = sin filtrar por nombre.</span>
+            <span className="text-[11px] max-panel:text-xs text-neutral-600">
+              {f.level === 'adset'
+                ? 'Mira el nombre del conjunto y el de su campaña. '
+                : f.level === 'ad'
+                  ? 'Mira el nombre del anuncio, el de su conjunto y el de su campaña. '
+                  : ''}
+              Vacío = sin filtrar por nombre.
+            </span>
           </label>
           <label className="flex flex-col gap-1 text-xs text-neutral-500">
             Modo del filtro
@@ -2518,9 +2535,7 @@ function FormularioRegla({
                   <strong className="text-neutral-100">
                     todos los {NIVEL_LABEL[f.level].toLowerCase()} {STATUS_LABEL[f.statusFilter]}
                   </strong>{' '}
-                  {f.nameFilter.trim()
-                    ? `que ${f.nameFilterMode === 'contains' ? 'contengan' : 'no contengan'} «${f.nameFilter.trim()}»`
-                    : 'de la cuenta, sin mirar ninguna métrica'}
+                  {fraseFiltroNombre(f.level, f.nameFilterMode, f.nameFilter) || 'de la cuenta, sin mirar ninguna métrica'}
                   . Si era eso, seguí; si no, agregá una condición.
                 </Banner>
               ) : (

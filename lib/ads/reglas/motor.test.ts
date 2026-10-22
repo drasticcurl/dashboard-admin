@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import fc from 'fast-check';
-import { debeCorrer, dentroDeVentana, evaluar } from './motor';
+import { debeCorrer, dentroDeVentana, evaluar, pasaFiltroDeNombre } from './motor';
 import { horaLocalEn } from '../zona';
 import type { Condicion, MetricasObjeto, Regla } from '../tipos';
 import { genMetricasObjeto, genRegla, ZONAS_P16 } from '../../test/generadores-ads';
@@ -429,6 +429,53 @@ describe('dentroDeVentana', () => {
     expect(dentroDeVentana('23:30', '22:00', '06:00')).toBe(true);
     expect(dentroDeVentana('02:00', '22:00', '06:00')).toBe(true);
     expect(dentroDeVentana('12:00', '22:00', '06:00')).toBe(false);
+  });
+});
+
+describe('pasaFiltroDeNombre — el objeto y sus padres', () => {
+  const sinCbo = { nameFilter: 'CBO', nameFilterMode: 'not_contains' as const };
+  const conCbo = { nameFilter: 'CBO', nameFilterMode: 'contains' as const };
+
+  it('«no contiene CBO» deja afuera al conjunto que lo dice, sin mirar mayúsculas', () => {
+    expect(pasaFiltroDeNombre(sinCbo, ['21/10 CBO AG CONJUNTO 1 - Copia', 'Otra campaña'])).toBe(false);
+    expect(pasaFiltroDeNombre(sinCbo, ['08/10 conjunto cbo test', 'Otra campaña'])).toBe(false);
+  });
+
+  it('«no contiene CBO» deja afuera al conjunto que no lo dice si su campaña sí (el caso de LA MALDITA CBO MADRE)', () => {
+    expect(pasaFiltroDeNombre(sinCbo, ['14/10 conjunto 1', 'LA MALDITA CBO MADRE'])).toBe(false);
+  });
+
+  it('un anuncio queda afuera si lo dice su conjunto', () => {
+    expect(pasaFiltroDeNombre(sinCbo, ['video 3', 'CBO conjunto 2', 'Campaña normal'])).toBe(false);
+  });
+
+  it('sin CBO en ningún nombre, pasa', () => {
+    expect(pasaFiltroDeNombre(sinCbo, ['14/10 conjunto 1', 'LATAM 14/09 TEST'])).toBe(true);
+  });
+
+  it('un padre sin nombre conocido (null) no contiene nada', () => {
+    expect(pasaFiltroDeNombre(sinCbo, ['conjunto 1', null])).toBe(true);
+    expect(pasaFiltroDeNombre(conCbo, ['conjunto 1', null])).toBe(false);
+    expect(pasaFiltroDeNombre(conCbo, [null, 'CBO MADRE'])).toBe(true);
+  });
+
+  it('sin filtro pasa todo, con cualquier modo', () => {
+    expect(pasaFiltroDeNombre({ nameFilter: null, nameFilterMode: 'not_contains' }, ['CBO'])).toBe(true);
+    expect(pasaFiltroDeNombre({ nameFilter: '', nameFilterMode: 'contains' }, [null])).toBe(true);
+  });
+
+  it('«contiene» y «no contiene» son complementarios para todo filtro y todos los nombres', () => {
+    fc.assert(
+      fc.property(
+        fc.string({ minLength: 1, maxLength: 4 }),
+        fc.array(fc.option(fc.string({ maxLength: 12 }), { nil: null }), { maxLength: 3 }),
+        (filtro, nombres) => {
+          const contiene = pasaFiltroDeNombre({ nameFilter: filtro, nameFilterMode: 'contains' }, nombres);
+          const noContiene = pasaFiltroDeNombre({ nameFilter: filtro, nameFilterMode: 'not_contains' }, nombres);
+          expect(contiene).toBe(!noContiene);
+        },
+      ),
+    );
   });
 });
 
