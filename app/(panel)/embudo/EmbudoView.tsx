@@ -45,6 +45,7 @@ import { CardPitch, debeMostrarCardPitch } from "./CardPitch";
 import { CardTestEstetica, debeMostrarCardEstetica } from "./CardTestEstetica";
 import { CardTestPrecio, debeMostrarCardPrecio } from "./CardTestPrecio";
 import { CardTestChat, debeMostrarCardChat } from "./CardTestChat";
+import { CardTestVsl, debeMostrarCardVsl } from "./CardTestVsl";
 import {
   Badge,
   Banner,
@@ -432,6 +433,13 @@ export function EmbudoView({
       {/* El A/B de estética del chat (almagemela). Mismo contrato que la de precio. */}
       {debeMostrarCardChat(funnel.experiments) && (
         <CardTestChat funnel={funnel} filas={data.experiments} />
+      )}
+
+      {/* El A/B de la venta con y sin VSL (calistenia-rusa-28). Mismo contrato
+          que la del chat, pero aparece también si llegan filas `vsl`/`sin-vsl`
+          sin que el funnel las haya declarado. */}
+      {debeMostrarCardVsl(funnel.experiments, data.experiments) && (
+        <CardTestVsl funnel={funnel} filas={data.experiments} />
       )}
 
       {/* Los cuatro bloques de abajo van plegados en mobile (ver `Desglose` en
