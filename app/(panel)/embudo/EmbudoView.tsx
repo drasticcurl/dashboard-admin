@@ -46,6 +46,7 @@ import { CardTestEstetica, debeMostrarCardEstetica } from "./CardTestEstetica";
 import { CardTestPrecio, debeMostrarCardPrecio } from "./CardTestPrecio";
 import { CardTestChat, debeMostrarCardChat } from "./CardTestChat";
 import { CardTestVsl, debeMostrarCardVsl } from "./CardTestVsl";
+import { CardVsl } from "./CardVsl";
 import {
   Badge,
   Banner,
@@ -441,6 +442,10 @@ export function EmbudoView({
       {debeMostrarCardVsl(funnel.experiments, data.experiments) && (
         <CardTestVsl funnel={funnel} filas={data.experiments} />
       )}
+
+      {/* Retención del VSL (cualquier funnel que mande eventos `vsl_*`): se
+          oculta sola si en el rango nadie activó el sonido. */}
+      <CardVsl funnel={funnel} />
 
       {/* Los cuatro bloques de abajo van plegados en mobile (ver `Desglose` en
           components/ui.tsx): son desgloses que se consultan cuando hacen falta, y

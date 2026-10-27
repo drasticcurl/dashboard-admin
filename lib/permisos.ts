@@ -269,6 +269,7 @@ export const MAPA_API: Record<string, readonly Seccion[] | 'admin' | 'publica'> 
   '/api/data/overview': ['resumen'],
   '/api/data/funnel': ['embudo'],
   '/api/data/pitch': ['embudo'],
+  '/api/data/vsl': ['embudo'],
   '/api/data/sales': ['ventas'],
   '/api/data/leads': ['leads'],
   '/api/data/ads': ['anuncios'],
