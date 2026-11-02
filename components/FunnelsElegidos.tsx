@@ -1,146 +1,58 @@
 'use client';
 
 /**
- * FunnelsElegidos — el widget "Funnels" del Resumen en su versión compacta:
- * hasta CUATRO funnels elegidos por el usuario, uno debajo del otro en 1×2 o
- * uno al lado del otro en 2×1.
+ * FunnelsElegidos — el widget "Funnels" del Resumen: TODOS los funnels que
+ * tuvieron actividad en el rango (ventas, devoluciones, gasto o neto), en una
+ * grilla que ocupa todo el ancho, en PC y en el celu.
  *
- * Por qué un tope: el widget antes mostraba TODOS los funnels en 2×2 con
- * scroll, y los que no venden (los que están en 0) empujaban a los que sí fuera
- * de la vista. Era 3 para que entrara en 1×2 sin scroll; el usuario pidió 4
- * (2026-10-08), y las tarjetas de tres líneas todavía entran.
+ * Por qué todos: desde el 2026-11-02 el usuario quiere ver todos los que
+ * vendieron o gastaron en el rango, sin tener que elegir. Se sacó el picker de
+ * hasta cuatro, con su guardado en localStorage. Los funnels sin nada en el
+ * rango no entran: una tarjeta de ceros no le dice nada a quien mira.
  *
- * La elección se guarda en localStorage, por navegador: es una preferencia de
- * vista de quien mira, no parte del layout compartido (que se guarda en la VPS
- * y lo ven todos). Sin nada guardado, o si lo guardado ya no existe, van los 4
- * que más neto hicieron en el rango (`data.funnels` ya viene ordenado por neto).
+ * El orden es el de `data.funnels`, que ya viene por neto: el que más vende,
+ * arriba. Si el widget es más bajo que la lista, la lista scrollea adentro en
+ * vez de cortarse.
  */
 
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
-import { Check, SlidersHorizontal } from '@phosphor-icons/react';
 import { fmtInt, fmtMoney, fmtPct } from '@/components/ui';
 import type { FunnelSummary, OverviewData } from '@/lib/queries/overview';
 import type { MonedaReporte } from '@/lib/moneda-reporte';
 import type { WidgetSize } from '@/lib/widgets/tipos';
 
-const CLAVE = 'resumen.funnels.elegidos';
-const MAXIMO = 4;
-
-function leerGuardados(): string[] | null {
-  try {
-    const raw = window.localStorage.getItem(CLAVE);
-    if (!raw) return null;
-    const v: unknown = JSON.parse(raw);
-    return Array.isArray(v) && v.every((x) => typeof x === 'string') ? v : null;
-  } catch {
-    return null;
-  }
+/** Un funnel tiene datos si en el rango hubo algo que contar: órdenes (aunque
+ *  estén devueltas), gasto de ads, o un neto distinto de cero. */
+export function tieneDatos(f: FunnelSummary): boolean {
+  return f.orders > 0 || f.ordersRefunded > 0 || f.adSpendEur > 0 || f.netEur !== 0;
 }
 
-function guardar(slugs: string[]): void {
-  try {
-    window.localStorage.setItem(CLAVE, JSON.stringify(slugs));
-  } catch {
-    // Navegador sin storage (modo privado estricto): la elección dura lo que la pestaña.
-  }
-}
-
-export function FunnelsElegidos({ data, size }: { data: OverviewData; size: WidgetSize }): JSX.Element {
-  const [guardados, setGuardados] = useState<string[] | null>(null);
-  const [abierto, setAbierto] = useState(false);
-
-  // Se lee después de montar y no en el useState inicial: el server no tiene
-  // localStorage, y leerlo en el primer render daría un HTML distinto al del
-  // server (error de hidratación).
-  useEffect(() => setGuardados(leerGuardados()), []);
-
-  const existentes = new Set(data.funnels.map((f) => f.slug));
-  const validos = (guardados ?? []).filter((s) => existentes.has(s)).slice(0, MAXIMO);
-  const elegidos = validos.length > 0 ? validos : data.funnels.slice(0, MAXIMO).map((f) => f.slug);
-  // En el orden de `data.funnels` (por neto) y no en el de los clicks: el que
-  // más vende arriba, igual que en el resto del Resumen.
-  const visibles = data.funnels.filter((f) => elegidos.includes(f.slug));
-
-  function alternar(slug: string): void {
-    const esta = elegidos.includes(slug);
-    if (esta && elegidos.length === 1) return; // al menos uno: un widget vacío no dice nada
-    if (!esta && elegidos.length >= MAXIMO) return;
-    const nuevos = esta ? elegidos.filter((s) => s !== slug) : [...elegidos, slug];
-    setGuardados(nuevos);
-    guardar(nuevos);
-  }
-
-  const horizontal = size.h === 1;
+export function FunnelsElegidos({ data }: { data: OverviewData; size: WidgetSize }): JSX.Element {
+  // Se conserva el orden de `data.funnels` (por neto), igual que en el resto del Resumen.
+  const visibles = data.funnels.filter(tieneDatos);
 
   return (
-    <div className="relative flex h-full min-w-0 flex-col gap-2.5">
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-[11px] uppercase tracking-[0.08em] text-neutral-500">
-          {visibles.length} de {data.funnels.length}
-        </span>
-        <button
-          type="button"
-          onClick={() => setAbierto((v) => !v)}
-          aria-expanded={abierto}
-          aria-haspopup="true"
-          className="tap inline-flex items-center gap-1.5 rounded-md border border-border-subtle px-2 py-1 text-xs font-medium text-neutral-300 transition-colors hover:bg-overlay/4 hover:text-neutral-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-acento-500/60"
-        >
-          <SlidersHorizontal size={12} weight="bold" aria-hidden />
-          Elegir
-        </button>
-      </div>
+    <div className="flex h-full min-w-0 flex-col gap-2.5">
+      <span className="text-[11px] uppercase tracking-[0.08em] text-neutral-500">
+        {visibles.length} con datos de {data.funnels.length}
+      </span>
 
-      {abierto && (
-        <>
-          <div className="fixed inset-0 z-20" aria-hidden="true" onClick={() => setAbierto(false)} />
+      {/* Columnas de 190px como mínimo y el resto del ancho se reparte: en PC
+          llena la fila, en el celu queda una o dos por fila. `items-start` deja
+          que cada tarjeta mida lo suyo, sin estirarse a la altura de la fila. */}
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {visibles.length === 0 ? (
+          <p className="text-xs text-neutral-500">Ningún funnel tuvo ventas ni gasto en este rango.</p>
+        ) : (
           <div
-            role="group"
-            aria-label={`Elegí hasta ${MAXIMO} funnels`}
-            className="absolute right-0 top-8 z-30 w-60 overflow-hidden rounded-xl border border-border-strong bg-surface-raised py-1 shadow-float"
+            className="grid items-start gap-2"
+            style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))' }}
           >
-            <p className="px-3 pb-1 pt-1.5 text-[11px] text-neutral-500">Hasta {MAXIMO} a la vez</p>
-            {data.funnels.map((f) => {
-              const marcado = elegidos.includes(f.slug);
-              const bloqueado = !marcado && elegidos.length >= MAXIMO;
-              return (
-                <button
-                  key={f.slug}
-                  type="button"
-                  role="checkbox"
-                  aria-checked={marcado}
-                  disabled={bloqueado}
-                  onClick={() => alternar(f.slug)}
-                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-neutral-200 transition-colors hover:bg-overlay/4 focus-visible:bg-overlay/4 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  <span
-                    className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border ${
-                      marcado ? 'border-acento-500 bg-acento-500 text-canvas' : 'border-border-strong'
-                    }`}
-                  >
-                    {marcado && <Check size={10} weight="bold" />}
-                  </span>
-                  <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: f.color }} />
-                  <span className="min-w-0 flex-1 truncate">{f.name}</span>
-                  <span className="font-mono text-[11px] tabular-nums text-neutral-500">
-                    {fmtMoney(f.netEur, data.moneda)}
-                  </span>
-                </button>
-              );
-            })}
+            {visibles.map((f) => (
+              <TarjetaCompacta key={f.slug} f={f} moneda={data.moneda} />
+            ))}
           </div>
-        </>
-      )}
-
-      {/* En 2×1 una columna por funnel elegido (de 2 a 4), todas del mismo ancho;
-          en mobile, una debajo de la otra. En 1×2, filas del mismo alto. */}
-      <div
-        className={`grid min-h-0 flex-1 gap-2 ${horizontal ? 'panel:[grid-template-columns:repeat(var(--cols),minmax(0,1fr))]' : 'auto-rows-fr'}`}
-        style={{ '--cols': Math.max(visibles.length, 1) } as React.CSSProperties}
-      >
-        {visibles.map((f) => (
-          <TarjetaCompacta key={f.slug} f={f} moneda={data.moneda} />
-        ))}
+        )}
       </div>
     </div>
   );

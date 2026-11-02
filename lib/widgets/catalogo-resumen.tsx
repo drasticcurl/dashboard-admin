@@ -832,20 +832,16 @@ export const catalogoResumen: WidgetCatalogo<OverviewData> = {
   funnels: {
     id: 'funnels',
     label: 'Funnels',
-    hint: 'Hasta 4 a elección: neto, resultado y ROI.',
+    hint: 'Todos los funnels con ventas o gasto en el rango: neto, resultado y ROI.',
     grupo: 'listas',
-    // 2×1 (dos de ancho, uno de alto) desde el 2026-09-29, pedido del usuario:
-    // antes era 2×2 con todos los funnels y scroll. Un layout guardado en 2×2
-    // cae solo a 2×1: `resolveLayout` manda los tamaños que ya no están
-    // permitidos al `tamañoPorDefecto`. 1×2 queda como alternativa.
-    tamañoPorDefecto: { w: 2, h: 1 },
-    // 3×1 y todo el ancho desde el 2026-10-01: para llenar el hueco que queda
-    // al lado en una fila de 4 o 5 columnas.
+    // Sólo todo el ancho desde el 2026-11-02, pedido del usuario: el widget
+    // muestra todos los funnels con actividad y necesita el ancho para la
+    // grilla. Los layouts guardados en 2×1, 3×1 o 1×2 caen solos al
+    // `tamañoPorDefecto` por `resolveLayout` (lib/widgets/layout.ts, sin cambios).
+    tamañoPorDefecto: { w: 'full', h: 2 },
     tamañosPermitidos: [
-      { w: 2, h: 1 },
-      { w: 3, h: 1 },
+      { w: 'full', h: 2 },
       { w: 'full', h: 1 },
-      { w: 1, h: 2 },
     ],
     render: (d, size) => <FunnelsElegidos data={d} size={size} />,
   },
