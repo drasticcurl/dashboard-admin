@@ -64,7 +64,7 @@ import {
 import { CaretDown, CaretUp } from "@phosphor-icons/react";
 
 /*
-  Los tres select de filtros. Antes definían sus propios colores crudos —alfas
+  Los select de filtros. Antes definían sus propios colores crudos —alfas
   de blanco escritas a mano para el borde y el fondo, y el verde de Tailwind
   para el foco— y por eso eran los únicos controles del panel que no seguían la
   paleta. Ahora usan los tokens y el fondo sólido, que es lo que evita que el
@@ -114,6 +114,7 @@ export function EmbudoView({
   const base: BaseMode =
     searchParams.get("base") === "start" ? "start" : "landing";
   const [variant, setVariant] = useState("");
+  const [source, setSource] = useState("");
   const [campaign, setCampaign] = useState("");
   const [country, setCountry] = useState("");
   const [data, setData] = useState<FunnelData>(initialData);
@@ -136,6 +137,7 @@ export function EmbudoView({
   // funnel nuevo (una campaña de uno no existe en el otro): se limpian.
   useEffect(() => {
     setVariant("");
+    setSource("");
     setCampaign("");
     setCountry("");
   }, [funnel.slug]);
@@ -160,6 +162,7 @@ export function EmbudoView({
       params.set("range", range ?? "today");
     }
     if (variant) params.set("variant", variant);
+    if (source) params.set("source", source);
     if (campaign) params.set("campaign", campaign);
     if (country) params.set("country", country);
 
@@ -181,7 +184,7 @@ export function EmbudoView({
       .finally(() => setLoading(false));
 
     return () => ctrl.abort();
-  }, [base, variant, campaign, country, funnel.slug, searchParams, retryTick]);
+  }, [base, variant, source, campaign, country, funnel.slug, searchParams, retryTick]);
 
   // El peor paso: la fila de mayor caída contra la anterior. La primera fila
   // (el paso base) no participa: no tiene caída contra nada (T06 §3).
@@ -483,6 +486,33 @@ export function EmbudoView({
                 ))}
               </select>
             )}
+            {/* La fuente va antes que la campaña porque la recorta: con
+                "tiktok" elegido, el select de campañas lista solo las de
+                TikTok. Por eso cambiar de fuente limpia la campaña: la
+                elegida puede no existir en la fuente nueva y el embudo
+                quedaría en cero sin que nada lo explique. */}
+            <select
+              value={source}
+              onChange={(e) => {
+                setSource(e.target.value);
+                setCampaign("");
+              }}
+              aria-label="Fuente"
+              className={SELECT_CLS}
+            >
+              <option value="" className="bg-surface-raised text-neutral-200">
+                Todas las fuentes
+              </option>
+              {(data.sources ?? []).map((s) => (
+                <option
+                  key={s.source}
+                  value={s.source}
+                  className="bg-surface-raised text-neutral-200"
+                >
+                  {s.source}
+                </option>
+              ))}
+            </select>
             <select
               value={campaign}
               onChange={(e) => setCampaign(e.target.value)}

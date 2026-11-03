@@ -68,6 +68,10 @@ export type FunnelData = {
   campaigns: { campaign: string; sessions: number; purchases: number }[];
   variants: { variant: string; sessions: number; purchases: number }[];
   countries: { country: string; sessions: number }[];
+  // utm_source de las sesiones, para el select de fuente. Se cuenta SIN el
+  // filtro de fuente: si no, al elegir una la lista se reduce a esa sola y no
+  // hay forma de volver a ver las demás sin pasar por "Todas".
+  sources: { source: string; sessions: number }[];
   devices: { device: string; sessions: number }[];
   // D20: los datos raros se registran y se muestran. El banner del embudo
   // es la cara visible de ingest_errors.
@@ -463,6 +467,7 @@ export async function getFunnelData(f: FunnelFilters): Promise<FunnelData> {
     warningRows,
     stageRows,
     experimentRows,
+    sourceRows,
   ] = await Promise.all([
       listSteps(f.funnelId),
       q<HistRow>(
@@ -595,6 +600,15 @@ export async function getFunnelData(f: FunnelFilters): Promise<FunnelData> {
          GROUP BY 1`,
         params,
       ),
+      // $6 (utm_source) va en NULL: ver el comentario de `sources` en FunnelData.
+      q<CountRow & { source: string }>(
+        `SELECT utm_source AS source, count(*)::int AS sessions
+         FROM sessions
+         WHERE ${WHERE_SESSIONS}
+         GROUP BY 1
+         ORDER BY sessions DESC`,
+        params.map((p, i) => (i === 5 ? null : p)),
+      ),
     ]);
 
   const totals = totalsRow ?? {
@@ -673,6 +687,7 @@ export async function getFunnelData(f: FunnelFilters): Promise<FunnelData> {
     campaigns,
     variants: variantRows,
     countries: countryRows.map((r) => ({ country: r.country ?? NO_DATA, sessions: r.sessions })),
+    sources: sourceRows,
     devices: deviceRows.map((r) => ({ device: r.device ?? NO_DATA, sessions: r.sessions })),
     ingestWarnings: warningRows,
     porEtapas,
