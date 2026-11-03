@@ -46,6 +46,7 @@ import { CardTestEstetica, debeMostrarCardEstetica } from "./CardTestEstetica";
 import { CardTestPrecio, debeMostrarCardPrecio } from "./CardTestPrecio";
 import { CardTestChat, debeMostrarCardChat } from "./CardTestChat";
 import { CardTestVsl, debeMostrarCardVsl } from "./CardTestVsl";
+import { CardTestPortada, debeMostrarCardPortada } from "./CardTestPortada";
 import { CardVsl } from "./CardVsl";
 import {
   Badge,
@@ -444,6 +445,12 @@ export function EmbudoView({
           sin que el funnel las haya declarado. */}
       {debeMostrarCardVsl(funnel.experiments, data.experiments) && (
         <CardTestVsl funnel={funnel} filas={data.experiments} />
+      )}
+
+      {/* El A/B/C/D de titulares de la portada (calistenia-rusa-28). Mismo
+          contrato que la del VSL. */}
+      {debeMostrarCardPortada(funnel.experiments, data.experiments) && (
+        <CardTestPortada funnel={funnel} filas={data.experiments} />
       )}
 
       {/* Retención del VSL (cualquier funnel que mande eventos `vsl_*`): se

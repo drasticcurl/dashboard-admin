@@ -103,6 +103,13 @@ export type FunnelData = {
 export type ExperimentoContadores = {
   experiment: string;
   sessions: number;
+  /**
+   * Sesiones que pasaron el primer paso del quiz (`max_step_index >= 1`). Es
+   * la métrica de un test de portada: ¿cuántos tocaron algo en la primera
+   * pantalla? Opcional solo para no tocar los fixtures de los tests viejos:
+   * la query siempre lo trae.
+   */
+  quizStarted?: number;
   salesViews: number;
   checkoutClicks: number;
   purchases: number;
@@ -583,6 +590,7 @@ export async function getFunnelData(f: FunnelFilters): Promise<FunnelData> {
       q<ExperimentoContadores>(
         `SELECT COALESCE(experiment, '${SIN_EXPERIMENTO}') AS experiment,
                 count(*)::int                                                  AS sessions,
+                count(*) FILTER (WHERE max_step_index    >= 1)::int             AS "quizStarted",
                 count(*) FILTER (WHERE sales_view_at     IS NOT NULL)::int      AS "salesViews",
                 count(*) FILTER (WHERE checkout_click_at IS NOT NULL)::int      AS "checkoutClicks",
                 count(*) FILTER (WHERE purchased_at      IS NOT NULL)::int      AS purchases,
