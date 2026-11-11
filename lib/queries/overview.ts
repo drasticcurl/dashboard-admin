@@ -820,7 +820,8 @@ export async function getOverviewData(
     return {
       funnelId: fn.id,
       slug: fn.slug,
-      name: fn.name,
+      // El alias si lo hay (Config → Funnels): «AG - EN» en vez de «Alma Gemela · Quiz EN».
+      name: nombreVisible(fn),
       color: fn.color,
       sellCurrency: fn.sellCurrency,
       timezone: fn.timezone,
