@@ -9,13 +9,14 @@ del equipo y un tracker de creativos.
 | | |
 |---|---|
 | **Repo** | `github.com/drasticcurl/dashboard-admin` (privado) |
-| **Producción** | `https://panel.hilvanapp.com` (EUR), más **otra instancia que deploya del mismo `origin/main`** |
+| **Producción** | `https://panel.hilvanapp.com` (EUR) |
 | **Deploy** | manual, con `deploy/deploy.sh` en la VPS. **No hay CI** |
 | **Idioma** | castellano en todo: código, comentarios, UI, commits y docs |
-| **Leer primero** | este README → `.kiro/steering/instancias.md` → las entradas más nuevas de `registro.md` |
+| **Leer primero** | este README → las entradas más nuevas de `registro.md` |
+| **Conectar un funnel** | [§9.1 Conectar un funnel al panel](#91-conectar-un-funnel-al-panel) |
 
 > **¿Sos un agente de IA?** Leé [§13 Para agentes de IA](#13-para-agentes-de-ia)
-> antes de tocar nada. En tres líneas: este repo lo deployan dos paneles en
+> antes de tocar nada. En tres líneas: `origin/main` es lo que corre en
 > producción; el módulo de Anuncios mueve plata real en Meta; y cada cambio se
 > anota en `registro.md` con su porqué.
 
@@ -29,7 +30,7 @@ del equipo y un tracker de creativos.
 6. [Variables de entorno](#6-variables-de-entorno)
 7. [Comandos del día a día](#7-comandos-del-día-a-día)
 8. [Convenciones](#8-convenciones)
-9. [Cómo hacer tareas comunes](#9-cómo-hacer-tareas-comunes)
+9. [Cómo hacer tareas comunes](#9-cómo-hacer-tareas-comunes) · [9.1 Conectar un funnel al panel](#91-conectar-un-funnel-al-panel)
 10. [Gotchas y decisiones no obvias](#10-gotchas-y-decisiones-no-obvias)
 11. [Deuda técnica conocida](#11-deuda-técnica-conocida)
 12. [Estado actual y roadmap](#12-estado-actual-y-roadmap)
@@ -65,14 +66,12 @@ los leads que siguen en el Supabase de cada funnel (`/leads`), un kanban del
 equipo (`/tareas`), un tracker de creativos (`/creativos`) y un análisis con IA
 opcional sobre Resumen y Finanzas.
 
-### Las dos instancias
+### Dónde corre
 
-Este repo lo deployan **dos paneles distintos** desde el mismo `origin/main`,
-cada uno con su dominio, su base, su `.env.production` y su moneda de reporte.
-El detalle está en `.kiro/steering/instancias.md` y `COMO-DEPLOYAR.md`. Este
-README documenta la instancia principal:
+Producción corre en una VPS de **Netcup** desde el 2026-10-20 (la de Contabo
+quedó de respaldo y no se toca). El detalle está en `COMO-DEPLOYAR.md`.
 
-| | hilvanapp |
+| | |
 |---|---|
 | Dominio | `panel.hilvanapp.com` |
 | En la VPS | `/srv/panel` · puerto 3005 · PM2 `panel-3005` |
@@ -81,12 +80,9 @@ README documenta la instancia principal:
 | Anuncios | activo, con worker `panel-reglas` |
 | Deploy | `/srv/panel/repo/deploy/deploy.sh` |
 
-La otra instancia reporta en otra moneda, tiene el módulo de Anuncios apagado y
-su script de deploy vive fuera del repo.
-
-Un cambio que se mergea acá llega a las dos en su próximo deploy. Por eso todo lo
-que varía entre instancias va por variable de entorno con default al valor de
-hilvanapp (ver [§8](#8-convenciones)).
+Un cambio que se mergea a `main` llega a producción en el próximo deploy. Lo que
+es configuración (moneda, marca, admin) va por variable de entorno con default al
+valor histórico (ver [§8](#8-convenciones)).
 
 ### Los funnels de hilvanapp
 
@@ -288,17 +284,18 @@ El DDL está en `db/migrations/` y cada archivo explica su porqué en la cabecer
 
 | Dominio | Tablas | Migraciones |
 |---|---|---|
-| Catálogo | `funnels`, `funnel_steps`, `funnel_stages` | 001, 017; alias 019; experimentos 020, 023, 027, 035 |
+| Catálogo | `funnels`, `funnel_steps`, `funnel_stages` | 001, 017; alias 019; experimentos 020, 023, 027, 035, 038, 042 |
 | Tracking | `sessions`, `events` (particionada por mes, retención de 180 días) | 002, 003 |
 | Ventas | `orders`, `order_items`, `product_map`, `shop_map`, `commissions` | 004, 011–013, 032 |
 | Cotizaciones | `fx_rates` (editable a mano) | 005 |
 | Métricas | `daily_metrics` (rollup del Resumen) | 006 |
 | Red de seguridad y ajustes | `ingest_errors`, `webhook_events`, `settings` | 007, 010 |
-| Publicidad | `ad_accounts`, `ad_spend`, `ad_campaigns`, `ad_sets`, `ads`, `ad_rules`, `ad_rule_conditions`, `ad_rule_runs`, `ad_actions`, `ad_alcance`, `ad_campaign_funnel` | 008, 014–016, 018, 021, 024, 025, 033 |
+| Publicidad | `ad_accounts`, `ad_spend`, `ad_spend_hora`, `ad_campaigns`, `ad_sets`, `ads`, `ad_rules`, `ad_rule_conditions`, `ad_rule_runs`, `ad_actions`, `ad_alcance`, `ad_campaign_funnel` | 008, 014–016, 018, 021, 024, 025, 033, 036; reglas 037, 040, 041 |
 | Finanzas | `finance_accounts`, `finance_account_balances`, `finance_movements`, `finance_scheduled_payments`, `finance_scheduled_payment_runs` | 022, 028 (que borró `finance_daily_profit`) |
 | IA | `ai_insights` | 029 |
 | Usuarios y tareas | `usuarios`, `usuario_secciones`, `tareas`, `tarea_links`, `tarea_comentarios` | 030, 031 |
 | Creativos | `creativos` | 034 |
+| Avisos push | `push_suscripciones` | 039 |
 
 `scripts/migrate.ts` registra lo aplicado en `schema_migrations` (por nombre de
 archivo).
@@ -353,12 +350,12 @@ archivo).
 │   ├── ia/                      briefs, cliente de OpenAI, caché de insights
 │   ├── widgets/                 catálogos de widgets de Resumen y Ventas y su layout
 │   ├── fx.ts  fx-fetch.ts       conversión congelada y fetcher de cotizaciones
-│   ├── moneda-reporte.ts  brand.ts   lo que varía por instancia
+│   ├── moneda-reporte.ts  brand.ts   configuración por env var (moneda, marca)
 │   ├── monto.ts                 EL parseo de montos tipeados
 │   ├── day.ts                   días y rangos resueltos en SQL con la TZ del funnel
 │   └── test/                    generadores de fast-check compartidos
 ├── middleware.ts                auth en Edge y headers de seguridad
-├── db/migrations/               001…035, SQL plano
+├── db/migrations/               001…042, SQL plano
 ├── scripts/                     crons, backfills, seeds y verificaciones contra Meta (tsx)
 ├── deploy/                      deploy.sh, ecosystem.config.js (PM2), cron.panel, Caddyfile.panel
 ├── docs/                        recetas de tareas comunes, runbooks, bitácora del rediseño v3, CSV de reglas
@@ -441,7 +438,8 @@ npm run dev                 # http://localhost:3005 (Next sí lee .env solo)
 ```
 
 Esta secuencia se verificó el 2026-09-29 contra una base vacía: la primera
-corrida aplica 001–020 y corta en la 021, la segunda aplica 021–035, y una
+corrida aplica 001–020 y corta en la 021, la segunda aplica 021–035 (hoy, hasta
+la última), y una
 tercera no aplica nada. Con la base así, la suite completa pasa (ver
 [§7](#7-comandos-del-día-a-día)).
 
@@ -486,14 +484,14 @@ con `set -a; . ./.env; set +a`, y en la VPS los crons usan
 | `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `DB_PORT` | solo local | `DB_PORT` 5432 | las lee únicamente `docker-compose.yml` | las inventás vos; la clave con `openssl rand -hex 32` |
 | `DASHBOARD_PASSWORD` | **sí** (deploy) | — | clave compartida: fallback de login con `usuarios` vacía y secreto de la cookie si no hay `PANEL_SESSION_SECRET` | `openssl rand -base64 24` |
 | `PANEL_SESSION_SECRET` | no | `DASHBOARD_PASSWORD` | secreto HMAC de la cookie. Rotarlo corta TODAS las sesiones: es la única forma de echar a alguien en el acto | `openssl rand -hex 32` |
-| `NEXT_PUBLIC_SITE_URL` | **sí** (deploy) | — | URL canónica: el middleware redirige al login con ella | prod: el dominio de la instancia; local: vacía o `http://localhost:3005` |
+| `NEXT_PUBLIC_SITE_URL` | **sí** (deploy) | — | URL canónica: el middleware redirige al login con ella | prod: `https://panel.hilvanapp.com`; local: vacía o `http://localhost:3005` |
 | `DASHBOARD_TZ` | no | `America/Argentina/Buenos_Aires` | zona del "hoy" del panel (crons, techo diario de IA, pagos programados) | — |
-| `PANEL_BRAND` | no | `Hilvan` | nombre en el header y la pestaña | por instancia |
-| `NEXT_PUBLIC_REPORT_CURRENCY` | no | `EUR` | moneda de reporte, `EUR` o `USD` (otra hace fallar el arranque). Se hornea en el build. **No se cambia en una base con historial** | por instancia |
-| `PANEL_ADMIN_USUARIO`, `PANEL_ADMIN_NOMBRE` | no | `lucho` / `Lucho` | el admin que crea `usuarios:seed` | por instancia |
+| `PANEL_BRAND` | no | `Hilvan` | nombre en el header y la pestaña | — |
+| `NEXT_PUBLIC_REPORT_CURRENCY` | no | `EUR` | moneda de reporte, `EUR` o `USD` (otra hace fallar el arranque). Se hornea en el build. **No se cambia en una base con historial** | — |
+| `PANEL_ADMIN_USUARIO`, `PANEL_ADMIN_NOMBRE` | no | `lucho` / `Lucho` | el admin que crea `usuarios:seed` | — |
 | `SHOPIFY_WEBHOOK_SECRETS` | **sí** (deploy) | — | secrets de las tiendas, separados por coma. Sin ninguno, el webhook responde 401 a todo | los mismos del env de cada funnel (firman las suscripciones creadas desde el admin de Shopify) |
 | `SUPABASE_URL_<SLUG>`, `SUPABASE_SERVICE_KEY_<SLUG>` | no | — (Leads dice "no configurado") | leads de cada funnel, solo lectura | el proyecto de Supabase del funnel. El sufijo es el slug en mayúsculas **sin normalizar**: `chauhinchazon-latam` → `SUPABASE_URL_CHAUHINCHAZON-LATAM` |
-| `META_ADS_TOKEN` | **sí** (deploy de hilvanapp) | — | token de un usuario del sistema con `ads_read` y `ads_management`, con la cuenta asignada como administrador. **No** es el token de CAPI de los funnels | Meta Business; verificalo con `npm run ads:token` |
+| `META_ADS_TOKEN` | **sí** (deploy) | — | token de un usuario del sistema con `ads_read` y `ads_management`, con la cuenta asignada como administrador. **No** es el token de CAPI de los funnels | Meta Business; verificalo con `npm run ads:token` |
 | `META_API_VERSION` | no | `v21.0` | versión de la Graph API (formato `vXX.Y`, validado) | — |
 | `ADS_LIVE_TTL_SECONDS` | no | `60` | cuánto se considera fresco el último sync de gasto; es el freno real contra el rate limit | — |
 | `ADS_LIVE_TIMEOUT_MS` | no | `8000` | cuánto espera un `/api/data/*` al sync antes de responder con lo guardado | — |
@@ -504,7 +502,7 @@ con `set -a; . ./.env; set +a`, y en la VPS los crons usan
 | `ADS_TEST_ACCOUNT_ID` | no | — | cuenta para `ads:campos` y `ads:dsa`. **No está en `.env.example`** | — |
 | `ADS_TEST_CAMPAIGN_ID` | no | — | campaña PAUSADA para `ads:copies`, que crea copias reales. **No está en `.env.example`** | — |
 | `OPENAI_API_KEY` | no | — | **prende** la IA: sin ella el widget y la tarjeta no aparecen y el cron sale con 0. Nunca `NEXT_PUBLIC_` | `https://platform.openai.com/api-keys` |
-| `OPENAI_MODEL` | no | `gpt-4o-mini` | modelo; en hilvanapp lo fija `scripts/setear-openai-key.sh` | — |
+| `OPENAI_MODEL` | no | `gpt-4o-mini` | modelo; en producción lo fija `scripts/setear-openai-key.sh` | — |
 | `OPENAI_INSIGHTS_MAX_DIA` | no | `20` | techo duro de análisis por día (los aciertos de caché no cuentan) | — |
 | `OPENAI_TIMEOUT_MS` | no | `60000` | plazo de la respuesta del modelo | — |
 
@@ -637,7 +635,7 @@ Todos corren con `tsx`: en local exportá el `.env` antes. En la VPS, desde
 
 Sin alias en `package.json`: `scripts/seed-product-map-checkout-propio.ts` (se
 corre con `tsx`), y `scripts/setear-openai-key.sh` / `setear-openai-key-remoto.sh`
-(cargan `OPENAI_API_KEY` en hilvanapp; leé su cabecera antes).
+(cargan `OPENAI_API_KEY` en la VPS; leé su cabecera antes).
 
 ---
 
@@ -736,12 +734,14 @@ El molde es `app/api/creativos/route.ts`:
 - Secretos: nunca en query params ni en logs; un hash nunca sale en un JSON;
   `NEXT_PUBLIC_` solo para lo que no es secreto.
 
-### Instancias
+### Configuración por entorno
 
-Lo que depende del proyecto va por env var con **default al valor de
-hilvanapp** (modelos: `lib/brand.ts`, `lib/moneda-reporte.ts`). Una feature
-nueva opcional se prende por la presencia de su variable (como
-`OPENAI_API_KEY`), así la instancia que no la declara queda byte-idéntica.
+Lo que es configuración va por env var con **default al valor histórico de
+producción** (modelos: `lib/brand.ts`, `lib/moneda-reporte.ts`): el deploy hace
+`git reset --hard`, así que nada se "arregla a mano" en el server, y un default
+nuevo cambiaría producción en el próximo deploy sin que nadie lo pida. Una
+feature nueva opcional se prende por la presencia de su variable (como
+`OPENAI_API_KEY`): sin ella, el panel queda byte-idéntico.
 
 ### Tests
 
@@ -770,14 +770,159 @@ El paso a paso de cada una está en
 | Tarea | Lo que no se puede olvidar |
 |---|---|
 | [Agregar un endpoint de API](docs/tareas-comunes.md#agregar-un-endpoint-de-api) | la ruta exacta en `MAPA_API` (`lib/permisos.ts`); sin eso, 403 en producción |
-| [Agregar una migración](docs/tareas-comunes.md#agregar-una-migración) | próximo número **036**, sin `BEGIN`/`COMMIT`, idempotente, compatible hacia atrás; corre en las dos bases de producción |
+| [Agregar una migración](docs/tareas-comunes.md#agregar-una-migración) | próximo número: el último de `db/migrations/` + 1 (hoy, **043**), sin `BEGIN`/`COMMIT`, idempotente, compatible hacia atrás; corre en la base de producción en el próximo deploy |
 | [Agregar una pestaña](docs/tareas-comunes.md#agregar-una-pestaña-sección) | el CHECK `usuario_secciones_valida`, `SECCIONES`, `UsuariosSection.tsx`, `TABS` y `PANTALLAS` |
 | [Agregar un funnel](docs/tareas-comunes.md#agregar-un-funnel) | la TZ es la de su tienda; ingest key; `product_map`; los 4 webhooks de su tienda |
 | [Cargar o rotar una ingest key](docs/tareas-comunes.md#cargar-o-rotar-una-ingest-key) | la key en claro va al `.env.production` del funnel; en la base, solo el hash |
 | [Imputar campañas de una cuenta compartida](docs/tareas-comunes.md#imputar-campañas-de-una-cuenta-compartida-a-otro-funnel) | por ID de campaña, nunca por nombre; rollup del rango |
-| [Agregar una variable de entorno](docs/tareas-comunes.md#agregar-una-variable-de-entorno) | default al valor de hilvanapp; `NEXT_PUBLIC_` se hornea en el build |
+| [Agregar una variable de entorno](docs/tareas-comunes.md#agregar-una-variable-de-entorno) | default al valor actual de producción; `NEXT_PUBLIC_` se hornea en el build |
 | [Agregar un cron](docs/tareas-comunes.md#agregar-un-cron) | `deploy.sh` no instala crontabs: va a mano en la VPS |
 | [Agregar un widget](docs/tareas-comunes.md#agregar-un-widget-al-resumen-o-a-ventas) | el `id` de un widget no se renombra nunca |
+
+### 9.1 Conectar un funnel al panel
+
+Un funnel le habla al panel **sólo por HTTPS**: nunca toca la base. Son tres
+cañerías independientes, y un funnel puede tener una, dos o las tres:
+
+| Qué | Endpoint | Auth | Lo manda |
+|---|---|---|---|
+| Navegación (embudo) | `POST /api/ingest` | `Bearer <ingest key>` | el server del funnel |
+| Ventas de Shopify | `POST /api/webhooks/shopify` | HMAC de la tienda | Shopify |
+| Ventas del checkout propio | `POST /api/webhooks/checkout-propio` | `Bearer <ingest key>` | `checkout-kashhhpay` |
+
+El panel identifica al funnel **por el hash de la ingest key**, no por un campo
+del payload: dos embudos que comparten key son uno solo para el panel, sin forma
+de separarlos después (por eso `testfunnel` usa `PANEL_INGEST_KEY` para AR y
+`PANEL_INGEST_KEY_LATAM` para LATAM).
+
+#### Paso 1 — Dar de alta el funnel en el panel
+
+1. `/config` → **Funnels** → nuevo: slug, nombre, **TZ de su tienda** (la del
+   Shopify, no la del tráfico), moneda de venta, variantes y color.
+2. `/config` → **Pasos**: el catálogo de pasos con su `stepIndex` (0, 1, 2…) y
+   su `slug`. El embudo se mide por `stepIndex`; un índice que no está en el
+   catálogo se guarda igual pero queda anotado en `ingest_errors` como
+   `unknown_step`.
+3. Generar la **ingest key** desde `/config` (se muestra **una sola vez**) o por
+   consola:
+
+   ```bash
+   KEY=$(openssl rand -hex 32)
+   npm run db:ingest-key -- <slug> "$KEY"   # en la base queda sólo el hash
+   ```
+
+   Mientras no tenga key, el funnel tiene el placeholder
+   `PENDING_SET_INGEST_KEY_<SLUG>` y el ingest le responde 401.
+
+#### Paso 2 — Configurar el funnel
+
+En el `.env.production` del funnel (en la VPS, no en el repo):
+
+```bash
+PANEL_INGEST_URL=https://panel.hilvanapp.com/api/ingest
+PANEL_INGEST_KEY=<la key en claro del paso 1>
+# opcional: sólo estos hosts reportan (vacío = todos)
+PANEL_INGEST_HOSTS=midominio.com,www.midominio.com
+```
+
+Si el funnel nace de `testfunnel`, `reset-app` o `gelatina-fit`, el cliente ya
+está hecho: `lib/panel-ingest.ts` (`sendToPanel`) y alcanza con las variables.
+Si es un funnel nuevo de cero, copiá ese archivo: es **fire-and-forget** con
+timeout de 2 s y `.catch(() => {})`, porque un panel caído no puede frenar ni
+tumbar al funnel. Mandalo desde el **server** (un route tipo `/api/track`), nunca
+desde el navegador: la key no puede llegar al cliente.
+
+#### Paso 3 — El contrato del ingest
+
+Lotes de 1 a 50 eventos, máximo 64 KB por request. El schema exacto está en
+`lib/ingest/schema.ts` y está **congelado**: no se le agregan campos.
+
+```bash
+curl -sS https://panel.hilvanapp.com/api/ingest \
+  -H "Authorization: Bearer $PANEL_INGEST_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "sessionId": "8f1c2a4e-2b7d-4c1e-9a3f-1d2e3f4a5b6c",
+    "visitorId": "0b9e8d7c-6a5b-4c3d-8e2f-1a0b9c8d7e6f",
+    "variant": "default",
+    "events": [
+      { "name": "step_view", "at": "2026-11-11T12:00:00Z", "stepIndex": 0, "stepSlug": "portada" },
+      { "name": "sales_view", "at": "2026-11-11T12:03:00Z" }
+    ],
+    "context": {
+      "utms": { "utm_source": "facebook", "utm_campaign": "R07", "utm_content": "video-3", "fbclid": "IwAR…" },
+      "country": "AR", "device": "mobile", "path": "/quiz"
+    }
+  }'
+# → {"ok":true,"accepted":2,"warnings":[]}
+```
+
+| Campo | Regla |
+|---|---|
+| `sessionId`, `visitorId` | UUID. La sesión es una visita; el visitante persiste (cookie/localStorage) |
+| `variant` | hasta 32 caracteres, default `default` (ej. `ar` / `latam`) |
+| `experiment` | opcional, token del A/B activo (`A`, `pitch_B`…): letras, números, `-` y `_`. **Un solo slot**: un experimento con dimensión por vez |
+| `events[].name` | libre, pero estos mueven el embudo: `step_view` (con `stepIndex`), `sales_view`, `checkout_click`, `purchase`, `upsell_view`, `upsell_click`, `downsell_view` |
+| `events[].at` | ISO 8601. Más de 24 h en el futuro o 30 días en el pasado se clampea a "ahora" |
+| `events[].props` | objeto libre, hasta 4 KB serializado |
+| `context.utms` | sólo las 6 conocidas (`utm_*` y `fbclid`); vacías quedan `(directo)` |
+| `context.country` | 2 letras |
+
+Respuestas: `200 {ok:true}` aceptado (con `warnings` si algo se corrigió),
+`401` key mala o pendiente, `400 invalid_payload` (con `detail`). El endpoint
+nunca responde 5xx: un error interno vuelve como `200 {ok:false}`.
+
+#### Paso 4 — Conectar las ventas
+
+**Shopify.** En el admin de la tienda (Configuración → Notificaciones →
+Webhooks), **sin borrar los que ya existen**, crear `orders/paid`,
+`orders/create`, `refunds/create` y `orders/cancelled` en JSON apuntando a
+`https://panel.hilvanapp.com/api/webhooks/shopify`, y sumar el secret de la
+tienda a `SHOPIFY_WEBHOOK_SECRETS` del panel (separado por comas) y redeployar.
+
+Para que la venta se cruce con la sesión y la campaña, el checkout del funnel
+tiene que escribir estos **cart attributes** (llegan como `note_attributes`):
+
+| Atributo | Para qué |
+|---|---|
+| `funnel=<slug>` | a qué funnel va la venta (si falta: `product_map` → `shop_map` → "sin atribuir") |
+| `sid`, `vid` | el `sessionId` y `visitorId` del ingest (también acepta `sessionId` / `visitorId`) |
+| `utm_source` … `utm_term`, `fbclid` | la atribución; normalizadas igual que en el ingest |
+
+Y mapear sus productos en `/config` → **Productos** (`product_map`): sin eso,
+caen en "ventas sin atribuir" con tier `unknown`.
+
+**Checkout propio.** `checkout-kashhhpay` manda cada cobro a
+`/api/webhooks/checkout-propio` con la ingest key del funnel como Bearer. El
+payload (`cobroId`, `whopPlanId`, `email`, `monto`, `moneda`, `purchasedAt`,
+`utms`, `fbclid`, `sessionId`, `visitorId`) está en
+`lib/orders/checkout-propio-tipos.ts`, espejado a mano en el repo del checkout.
+
+#### Paso 5 — Publicidad y leads (opcional)
+
+- **Gasto de Meta**: si el funnel tiene cuenta propia, agregarla en `/config` →
+  Publicidad. Si comparte cuenta, mapear sus campañas por ID
+  ([receta](docs/tareas-comunes.md#imputar-campañas-de-una-cuenta-compartida-a-otro-funnel)).
+- **Leads**: `SUPABASE_URL_<SLUG>` y `SUPABASE_SERVICE_KEY_<SLUG>` en el env del
+  panel (slug en mayúsculas, sin normalizar los guiones).
+- **Moneda nueva**: `fetch-fx` la toma de `funnels.sell_currency` desde el día
+  que corre; los días anteriores quedan `fx_stale`.
+
+#### Paso 6 — Verificar
+
+1. Mandar el `curl` del paso 3 con la key nueva: tiene que volver `ok:true`.
+2. `/embudo` con el funnel elegido y rango "hoy": aparece la sesión.
+3. `/config` → Salud: sin `ingest_errors` nuevos de ese funnel
+   (`unknown_step` o `step_slug_mismatch` = el catálogo de pasos no coincide
+   con lo que manda el funnel).
+4. Una compra de prueba: aparece en `/ventas` del funnel, no en "sin atribuir",
+   y `webhook_events` tiene la entrega.
+5. Al día siguiente (o corriendo `scripts/rollup.ts` del rango), aparece en
+   `/resumen`.
+
+Ojo: un funnel dado de alta desde `/config` no existe en un clon limpio del repo
+(le pasó a `gelatina` y `almagemela`). Si tiene que estar, va una migración de
+seed.
 
 ---
 
@@ -785,11 +930,6 @@ El paso a paso de cada una está en
 
 ### Operación
 
-- **El error más caro es cruzar los `.env.production` de las dos instancias**:
-  tienen las mismas claves con valores distintos, y un env cruzado deja un panel
-  escribiendo en la base del otro **sin que nada falle** (build, tests y health
-  check pasan). El deploy de la otra instancia tiene un guard de identidad;
-  el de hilvanapp, no.
 - **`deploy.sh` hace `git reset --hard`**: `/srv/panel/repo` no es un workspace y
   un arreglo a mano en el server dura hasta el próximo deploy.
 - **Nunca correr `deploy.sh` como root**: PM2 es por usuario y el deploy "sale
@@ -818,7 +958,12 @@ El paso a paso de cada una está en
 - **Lo convertido se congela**: `amount_eur`, comisión y costo se calculan al
   insertar la venta. Cambiar la moneda de reporte en una base con historial
   mezcla monedas en la misma columna sin error; las columnas se siguen llamando
-  `*_eur` aunque en una instancia en USD tengan dólares.
+  `*_eur` aunque con la moneda de reporte en USD tendrían dólares. La moneda
+  vive en tres capas (el fetcher de `lib/fx-fetch.ts`, la conversión que se
+  congela en `lib/orders/upsert.ts` y el formato con `fmtMoney`): cambiarla en
+  una base con historial exige cargar `fx_rates` con el par nuevo para todo el
+  rango y reconvertir `orders`, `ad_spend` y `daily_metrics`
+  (`scripts/backfill-fx.ts` no sirve: saltea lo que ya tiene `amount_eur`).
 - **`orders.funnel_id` también se congela**: corregir `product_map` no mueve las
   ventas ya guardadas (`registro.md` 2026-09-23). Hay que hacer `UPDATE` de las
   órdenes y rollup.
@@ -895,28 +1040,25 @@ El paso a paso de cada una está en
    `almagemela`. Un clon limpio + `db:migrate` no tiene esos dos funnels, y
    `panel_test` tampoco. La propuesta era copiarla al repo como la 032
    (`registro.md` 2026-09-14 y la reescritura de `COMO-DEPLOYAR.md` §6), pero
-   del 032 al 035 ya se usaron: hoy sería la **036**.
-2. **El deploy de hilvanapp no tiene guard de identidad del env** (el de la otra
-   instancia sí).
-3. **No hay backup de la base de la otra instancia.**
-4. **Sin CI**: la única red automática es el `npm run build` + `npm test` que
+   del 032 al 042 ya se usaron: hoy sería la **043**.
+2. **Sin CI**: la única red automática es el `npm run build` + `npm test` que
    corre `deploy.sh`.
-5. **ESLint sin configurar.**
-6. **Un error de tipos viejo** en `app/(panel)/tareas/tablero.test.ts`.
-7. **Sin seed de datos de demo** para desarrollo local.
-8. **Mapeo manual de campañas** en la cuenta compartida (Alma Gemela), en cada
+3. **ESLint sin configurar.**
+4. **Un error de tipos viejo** en `app/(panel)/tareas/tablero.test.ts`.
+5. **Sin seed de datos de demo** para desarrollo local.
+6. **Mapeo manual de campañas** en la cuenta compartida (Alma Gemela), en cada
    tanda nueva.
-9. **Reglas de anuncios por cuenta**, no por funnel.
-10. **La carga manual de cotizaciones** (`/api/config/fx`) solo escribe base ARS.
-11. **Un lote de acciones en Anuncios no es atómico**: si 3 de 10 fallan, 7
-    quedaron aplicadas.
-12. **`/api/webhooks/hotmart`** está declarado en `MAPA_API` (y en el allowlist
+7. **Reglas de anuncios por cuenta**, no por funnel.
+8. **La carga manual de cotizaciones** (`/api/config/fx`) solo escribe base ARS.
+9. **Un lote de acciones en Anuncios no es atómico**: si 3 de 10 fallan, 7
+   quedaron aplicadas.
+10. **`/api/webhooks/hotmart`** está declarado en `MAPA_API` (y en el allowlist
     de `rutas-mapeadas.test.ts`) pero no existe el route: el módulo de Hotmart no
     está en el árbol.
-13. **La TZ de los otros funnels** no se verificó contra la configuración de su
+11. **La TZ de los otros funnels** no se verificó contra la configuración de su
     tienda (`registro.md` 2026-09-22 (3)).
-14. **Documentación con referencias viejas** ([§14](#14-mapa-de-la-documentación)).
-15. **`lib/ads/meta.ts` usa `v21.0` por default**, que Meta da de baja alrededor
+12. **Documentación con referencias viejas** ([§14](#14-mapa-de-la-documentación)).
+13. **`lib/ads/meta.ts` usa `v21.0` por default**, que Meta da de baja alrededor
     de principios de 2027. Subirla es cambiar `META_API_VERSION` y correr
     `ads:campos`, `ads:dsa` y `ads:copies` contra la versión nueva.
 
@@ -926,10 +1068,9 @@ El paso a paso de cada una está en
 
 **Funciona en producción:** ingest y embudo; ventas por Shopify y por el checkout
 propio; Resumen (con switch EUR/USD y resultado/ROI por funnel), Ventas, Leads y
-Config; Anuncios con gestor, motor de reglas y avisos por Telegram (solo
-hilvanapp); Finanzas con saldo tipeado; usuarios con permisos por pestaña y
-tablero de tareas; Creativos; análisis con IA (key cargada en hilvanapp; al
-2026-09-13 su cron no estaba instalado).
+Config; Anuncios con gestor, motor de reglas y avisos por Telegram; Finanzas con saldo tipeado; usuarios con permisos por pestaña y
+tablero de tareas; Creativos; análisis con IA (key cargada; al 2026-09-13 su
+cron no estaba instalado).
 
 **Rama actual:** `rediseno-panel-v3` (rediseño v3: tokens, responsive real,
 modal y popover que no se cortan, esqueletos de carga). Sus commits ya están en
@@ -948,7 +1089,7 @@ completa en verde el 2026-09-29.
 - **Cron de `generar-insights.ts`**: en `deploy/cron.panel` pero no instalado al
   2026-09-13. TODO: confirmar el estado actual del crontab.
 
-**Pendientes explícitos:** los puntos 1–3, 13 y 15 de [§11](#11-deuda-técnica-conocida).
+**Pendientes explícitos:** los puntos 1, 11 y 13 de [§11](#11-deuda-técnica-conocida).
 
 > TODO: no hay un roadmap escrito en el repo. Lo de arriba son los pendientes que
 > dejaron `registro.md`, la bitácora y `COMO-DEPLOYAR.md`. Completar con lo que
@@ -962,8 +1103,7 @@ completa en verde el 2026-09-29.
 
 1. Este README completo, en especial [§8](#8-convenciones),
    [§10](#10-gotchas-y-decisiones-no-obvias) y esta sección.
-2. `.kiro/steering/instancias.md` (dos instancias, un repo) y
-   `.kiro/steering/registro.md` (la regla del registro).
+2. `.kiro/steering/registro.md` (la regla del registro).
 3. Las entradas más nuevas de `registro.md` y cualquiera que nombre los archivos
    que vas a tocar (`grep -n "<archivo>" registro.md`).
 4. Si tu tarea es una de las de `docs/tareas-comunes.md` (endpoint, migración,
@@ -980,10 +1120,10 @@ completa en verde el 2026-09-29.
 | Qué | Por qué |
 |---|---|
 | `lib/ads/**`, `app/api/ads/**`, `scripts/run-ad-rules.ts`, `app/(panel)/anuncios/reglas/**` y el camino de escritura del gestor (`PopoverFila` → `DialogoConfirmacion` → `Previsualizacion`) | pausan, activan y cambian presupuestos en Meta con plata real |
-| `db/migrations/*.sql` existentes | nunca se edita una aplicada. Una nueva, avisá: corre en dos bases de producción en el próximo deploy |
+| `db/migrations/*.sql` existentes | nunca se edita una aplicada. Una nueva, avisá: corre en la base de producción en el próximo deploy |
 | `lib/permisos.ts`, `lib/auth.ts`, `middleware.ts` (sobre todo el `matcher`) | auth en tres capas que tienen que firmar igual |
 | `app/api/ingest/**`, `app/api/webhooks/**`, `lib/ingest/**`, `lib/orders/**` | contratos con sistemas externos; un error pierde datos sin avisar |
-| `lib/fx.ts`, `lib/fx-fetch.ts`, `lib/moneda-reporte.ts`, `lib/brand.ts` | montos congelados y lo que varía por instancia |
+| `lib/fx.ts`, `lib/fx-fetch.ts`, `lib/moneda-reporte.ts`, `lib/brand.ts` | montos congelados y la configuración por entorno |
 | `deploy/**`, `docker-compose.yml`, `next.config.mjs`, `tsconfig.json`, `package.json` | infraestructura y dependencias (no instales paquetes) |
 | `components/ui.tsx`, `tailwind.config.ts`, `app/globals.css` | los usan todas las pantallas y tienen tests que los vigilan |
 | `lib/widgets/tipos.ts` y los contratos marcados CONGELADO en `tasks/*/00-PLAN-*.md` | otros módulos se escribieron contra ellos |
@@ -996,14 +1136,14 @@ completa en verde el 2026-09-29.
   `--dry-run`) o que tocan servicios externos (`ads:telegram`, `ia:insights`,
   que es una llamada paga).
 - **No commitees ni pushees sin que te lo pidan.** `origin/main` es lo que
-  deployan las dos instancias. Nada de `git add .`, `--force` ni reescribir
+  deploya producción. Nada de `git add .`, `--force` ni reescribir
   historia publicada.
 - **No mezcles ni descartes cambios ajenos** del working tree: si al arrancar hay
   archivos modificados que no son tuyos, dejalos como están.
 - **No cambies el schema sin avisar.** Migración nueva: numerada, idempotente,
   sin `BEGIN`/`COMMIT` y compatible hacia atrás.
-- **No hardcodees nada que dependa de la instancia** (moneda, marca, dominio,
-  usuario admin).
+- **No hardcodees lo que va por env var** (moneda, marca, dominio, usuario
+  admin).
 - **No corras `npm run lint`** (abre un asistente que escribe config) **ni
   `npm test` contra una base con datos que importen**.
 - **No abras ni copies `.env`, `.env.production` ni `orders_export*.csv`**
@@ -1057,7 +1197,6 @@ npm run build                           # lo mismo que corre deploy.sh
 | Documento | Qué tiene | Estado al 2026-09-29 |
 |---|---|---|
 | `README.md` | esto | — |
-| `.kiro/steering/instancias.md` | las dos instancias y qué va por env var | vigente |
 | `.kiro/steering/registro.md` | la regla y el formato de `registro.md` | vigente. Cita `COMO-DEPLOYAR.md` §"Cosas que ya pasaron y no conviene repetir": la reescritura de ese documento que está en curso (sin commitear al 2026-09-29) no tiene esa sección |
 | `registro.md` | el porqué de cada cambio, desde el 2026-08-24 | vigente, obligatorio |
 | `COMO-DEPLOYAR.md` | VPS, Cloudflare, deploy, verificación, rollback, crons, backups | en reescritura (sin commitear al 2026-09-29); esa versión dice estar verificada contra la máquina el 2026-09-13. Desde entonces: hay 35 migraciones (dice 31) y el "próximo número libre 032" ya no lo es |
